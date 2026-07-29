@@ -1,0 +1,844 @@
+# Kế hoạch chi tiết — GUI native trên laptop
+
+> Ứng dụng PySide6 chạy trên laptop Ubuntu. Nhận telemetry qua SiK radio bằng
+> pymavlink, nhận dữ liệu ROS2 qua WebSocket từ companion. **Đây là đường cứu sinh
+> của toàn hệ thống.**
+
+Tài liệu song hành: `KE_HOACH_GUI_WEB.md`
+
+---
+
+## Mục lục
+
+- [1. Vai trò và ranh giới phụ thuộc](#1-vai-trò-và-ranh-giới-phụ-thuộc)
+- [2. Nguyên tắc thiết kế](#2-nguyên-tắc-thiết-kế)
+- [3. Lộ trình 6 giai đoạn](#3-lộ-trình-6-giai-đoạn)
+- [4. Cấu trúc mã nguồn](#4-cấu-trúc-mã-nguồn)
+- [5. Rủi ro và thứ tự ưu tiên](#5-rủi-ro-và-thứ-tự-ưu-tiên)
+- [6. Hướng dẫn build và chạy](#6-hướng-dẫn-build-và-chạy)
+- [7. Phụ lục kỹ thuật](#7-phụ-lục-kỹ-thuật)
+
+---
+
+## 1. Vai trò và ranh giới phụ thuộc
+
+### 1.1. App này là hai nửa, không phải một khối
+
+Đây là điều quan trọng nhất phải hiểu đúng trước khi code.
+
+| | **Nửa SiK** | **Nửa ROS2** |
+|---|---|---|
+| Đường vào | pymavlink qua SiK radio | WebSocket tới companion |
+| Tầm | Kilomet | Vài trăm mét (WiFi) |
+| Nội dung | Telemetry bay, ARM/mode/takeoff, **nút đỏ** | Vision, SLAM, task ROS2, param, mission |
+| Companion chết | ✅ Vẫn chạy | ❌ Chết theo |
+| WiFi rớt | ✅ Vẫn chạy | ❌ Mất |
+
+> **Nửa ROS2 phụ thuộc companion 100%.** Không có cách nào khác, và đó không phải
+> lỗi thiết kế: các node ROS2 (vision, SLAM, offboard) **chạy vật lý trên
+> companion**. Companion chết thì không còn ROS2 nào tồn tại để mà điều khiển.
+> "Điều khiển ROS2 mà không cần companion" là thứ không thể tồn tại.
+
+### 1.2. Cái app này bảo toàn được
+
+Không phải mọi chức năng — mà là **an toàn bay**:
+
+- Nhìn thấy drone ở đâu, cao bao nhiêu, pin còn bao nhiêu
+- ARM / DISARM, đổi mode
+- **RTL / LAND / DISARM**
+
+Ba thứ đó đủ để đưa drone về nhà. **Ranh giới suy giảm chức năng trùng khớp với
+ranh giới an toàn** — đó là điểm đáng nói, không phải "không phụ thuộc gì cả".
+
+### 1.3. Hai kiểu hỏng khác nhau — đừng gộp
+
+**Kiểu A — WiFi rớt, companion còn sống.**
+ROS2 vẫn chạy bình thường trên drone. Task tự hành **vẫn tiếp tục thực thi** —
+drone vẫn bay theo mission vision của nó. Bạn chỉ mất khả năng *quan sát và can
+thiệp*. Bấm RTL qua SiK → FC chuyển mode → node offboard mất quyền → drone về nhà.
+
+**Kiểu B — companion chết hẳn.**
+ROS2 dừng, không còn setpoint gửi xuống. FC giữ nguyên mode cuối và bay theo
+failsafe. Laptop qua SiK vẫn lái được.
+
+> ⚠️ **Kiểu A nguy hiểm hơn** — drone vẫn đang *chủ động bay theo lệnh của một hệ
+> thống bạn không nhìn thấy nữa*. Đây chính là lý do nút đỏ phải đi đường SiK.
+
+### 1.4. Môi trường
+
+| Hạng mục | Lựa chọn |
+|---|---|
+| OS | Ubuntu 22.04 |
+| Python | 3.10 system — **không dùng venv** |
+| GUI | PySide6 (Qt6) |
+| MAVLink | pymavlink |
+| Bản đồ | `QGraphicsView` + tile OSM offline |
+| **ROS2 trên laptop** | **Không cần cài** |
+
+---
+
+## 2. Nguyên tắc thiết kế
+
+### 2.1. Nút đỏ là bất khả xâm phạm
+
+```
+RTL · LAND · DISARM
+   → luôn đi thẳng qua SiK bằng pymavlink
+   → không qua companion
+   → không qua WebSocket
+   → không phụ thuộc WiFi
+   → không bao giờ bị xám, bất kể chuyện gì xảy ra
+   → không cần xin quyền từ cơ chế phân quyền
+```
+
+Vì đã bỏ Mission Planner khỏi kiến trúc, **code này là thiết bị an toàn**, không
+còn là sản phẩm trình bày. Bug ở đây không phải bug giao diện.
+
+### 2.2. Giao diện phải hiện rõ nửa nào đang sống
+
+Không để người dùng nhìn số liệu đông cứng mà tưởng vẫn ổn:
+
+- Widget **Link status** hai hàng riêng biệt: `SiK` và `Remote`, kèm byte/s thật
+- Mất `Remote` → tab ROS2 / Parameter / Mission **xám hẳn**, chú thích
+  "mất kết nối companion"
+- Mỗi ô số mang **chấm màu nhỏ chỉ nguồn dữ liệu**
+- Mất `Remote` → số liệu **không đứng hình**, tụt xuống nguồn SiK và đổi màu chấm
+
+### 2.3. Ràng buộc an toàn nằm ở firmware, không nằm ở app
+
+Geofence, trần độ cao, failsafe — đặt trên FC. Chúng cưỡng chế mọi đường lệnh, kể
+cả đường bạn chưa nghĩ tới. Giới hạn viết trong Python thì chỉ là UX.
+
+Đặt **System ID riêng** cho laptop (khác với companion) để log bay ghi lại được
+lệnh nào đến từ đâu. Rẻ, làm ngay Phase N1.
+
+### 2.4. Switch MANUAL/AUTO điều phối với node offboard, không phải với web
+
+Bản web là **chỉ đọc** — nó không gửi bất kỳ lệnh nào xuống drone. Nên không có
+chuyện "hai giao diện tranh quyền", và không cần đồng bộ `AUTHORITY` qua WebSocket.
+
+Switch **MANUAL ↔ AUTO** trên app này điều phối đúng một ranh giới: giữa **bạn**
+(lệnh từ laptop qua SiK) và **node offboard trên companion** (stream setpoint tự
+hành). Đặt AUTO thì app publish `/gcs/authority`, node offboard tiếp tục lái. Đặt
+MANUAL — hoặc bấm bất kỳ nút đỏ nào — thì node offboard nhận tín hiệu và **tự dừng
+stream setpoint**, nhường lại cho bạn.
+
+> **RC đi thẳng xuống FC, không xin phép ai** — đó là lý do RC là cứu cánh thật.
+> Switch phần mềm chỉ là thỏa thuận giữa laptop và node offboard, không phải cơ
+> chế an toàn của toàn hệ thống.
+
+### 2.5. Chế độ mô phỏng phải không thể nhầm lẫn
+
+App hỗ trợ **ba nguồn kết nối**, tất cả đi qua cùng một `SikAdapter` vì đều là
+MAVLink:
+
+| Chế độ | Chuỗi kết nối | Dùng khi |
+|---|---|---|
+| **REAL** | `/dev/ttyUSB0` @ 57600 | Bay thật qua SiK radio |
+| **SIM** | `udp:127.0.0.1:14551` hoặc `tcp:127.0.0.1:5760` | Phát triển và test với SITL |
+| **REPLAY** | file `.tlog` | Debug giao diện không cần drone |
+
+> ⚠️ **Rủi ro an toàn nghiêm trọng:** nếu ba chế độ trông giống nhau, bạn sẽ có
+> lúc tưởng đang ở SIM mà thực ra đang nối drone thật — rồi bấm ARM. Hoặc ngược
+> lại: tưởng đang điều khiển drone thật mà đang gõ vào mô phỏng.
+
+Bắt buộc:
+
+- **Banner toàn chiều ngang** ở đỉnh cửa sổ, màu khác nhau rõ rệt:
+  `REAL` đỏ · `SIM` xanh dương · `REPLAY` xám
+- **Đổi luôn tiêu đề cửa sổ**: `[SIM] GCS — ArduCopter`
+- Chế độ **REPLAY vô hiệu hóa toàn bộ nút điều khiển**, kể cả nút đỏ — không có
+  gì để gửi lệnh tới
+- **Không tự động kết nối lúc khởi động.** Bắt buộc người dùng chọn nguồn. Mặc
+  định im lặng an toàn hơn mặc định đoán sai
+
+---
+
+## 3. Lộ trình 6 giai đoạn
+
+### Phase N0 — Môi trường laptop
+
+#### Ba cái bẫy
+
+**Bẫy 1 — venv và rclpy.** Nếu sau này bạn đổi sang phương án `rclpy` trực tiếp,
+virtualenv sẽ làm `import rclpy` hỏng. Tập thói quen ngay từ đầu:
+```bash
+pip install --user PySide6 pymavlink
+```
+
+**Bẫy 2 — quyền cổng serial.**
+```bash
+sudo usermod -aG dialout $USER    # roi dang xuat / dang nhap lai
+```
+
+**Bẫy 3 — cặp SiK chưa bind.** Module trên drone và module mặt đất phải cùng
+NetID, cùng dải tần. Mua theo cặp thì thường có sẵn; mua lẻ phải cấu hình lại.
+
+#### Việc cần làm
+
+- [ ] `ls /dev/ttyUSB0` nhận diện được SiK @ 57600
+- [ ] SITL ArduCopter chạy được *(dùng chung với bản web — làm một lần)*
+- [ ] **Đo băng thông SiK thật** (xem Phụ lục 7.1) — đừng tin ước lượng
+- [ ] Cài Mission Planner để đối chiếu *(không nằm trong kiến trúc, chỉ để test)*
+
+#### Nghiệm thu
+
+Kết nối SITL hoặc FC thật qua SiK bằng script pymavlink 10 dòng, in ra được
+lat/lon/alt/battery/mode.
+
+---
+
+### Phase N1 — Lõi + hai adapter + vỏ app
+
+**Phase quan trọng nhất.** Mọi phase sau chỉ là vẽ widget lên trên nó.
+
+> 📌 Thư mục `core/` **dùng chung với bản web**. Viết một lần, hai backend cùng
+> dùng — nếu đã làm bản web trước thì phần lõi coi như xong.
+
+#### Hạng mục
+
+| File | Dùng chung? | Nội dung |
+|---|---|---|
+| `core/bus.py` | ✅ | Envelope `{src, topic, data, ts}`, `emit()` |
+| `core/field.py` | ✅ | Trọng tài đa nguồn, `best()` trả `(value, src)`, `divergence()` |
+| `core/authority.py` | ✅ | `AUTHORITY`, tập `ESCAPE`, `dispatch()` |
+| `core/adapters/sik.py` | riêng | pymavlink trong `QThread`, chuẩn hóa **NED → ENU** |
+| `core/adapters/remote.py` | riêng | WebSocket client → nhận envelope từ companion |
+| `laptop/app.py` | riêng | `QMainWindow`, khung tab rỗng |
+| `laptop/link_status.py` | riêng | Widget hai hàng SiK / Remote |
+| `laptop/connection.py` | riêng | **Hộp thoại chọn nguồn + banner chế độ** |
+| `laptop/replay.py` | riêng | **Đọc `.tlog`, phát lại theo timestamp** |
+| `config/connections.yaml` | riêng | **Profile kết nối lưu sẵn** |
+| `docs/protocol.md` | ✅ | Đặc tả envelope — **viết ngay bây giờ** |
+
+#### Connection manager — làm ngay Phase này
+
+Không để cuối dự án. Bạn cần SIM để phát triển toàn bộ N2–N4, nên nó phải có từ
+đầu. Chi phí thấp vì `mavutil.mavlink_connection()` nhận mọi chuỗi kết nối.
+
+```yaml
+# config/connections.yaml
+- name: "SiK radio (that)"
+  mode: REAL
+  conn: "/dev/ttyUSB0"
+  baud: 57600
+
+- name: "SITL localhost"
+  mode: SIM
+  conn: "udp:127.0.0.1:14551"
+
+- name: "Phat lai chuyen bay"
+  mode: REPLAY
+  path: "logs/*.tlog"
+```
+
+Hộp thoại khởi động liệt kê profile, người dùng chọn. `mode` quyết định màu
+banner và việc có khóa nút điều khiển hay không — **`mode` là nguồn sự thật, không
+phải suy ra từ chuỗi kết nối**.
+
+`replay.py` đọc `.tlog` (chính là chuỗi MAVLink thô kèm timestamp) và bơm message
+vào bus theo đúng nhịp thời gian gốc, có nút tạm dừng và thanh tua. Nó cho bạn
+debug giao diện trên chuyến bay đã xảy ra — kể cả chuyến bay hỏng.
+
+#### Hai kho dữ liệu song song
+
+- **`STATE`** — gõ tay, đúng tên đúng đơn vị, phục vụ HUD
+- **`STATUS`** — generic, trải phẳng từ `msg.to_dict()`, phục vụ tab Status
+
+```python
+# Thay cho chuoi if/elif dai — tu dong co MOI field FC gui len
+d = msg.to_dict()
+name = d.pop("mavpackettype")
+for k, v in d.items():
+    if isinstance(v, (int, float)):
+        STATUS[f"{name}.{k}"] = v
+```
+
+#### Ba quy tắc không được vi phạm
+
+> ⚠️ **Không chạm widget Qt từ thread pymavlink hoặc thread WebSocket.**
+> Luôn đi qua Qt signal. Vi phạm gây **crash ngẫu nhiên sau vài phút** — cực khó truy.
+
+> ⚠️ **`QThread` cho mỗi adapter.** Adapter phát signal, main thread nhận và vẽ.
+
+> ⚠️ **Chuẩn hóa NED → ENU ngay tại `sik.py`.** Không để tầng UI biết chuyện này
+> (xem Phụ lục 7.3).
+
+#### Nghiệm thu
+
+- Khởi động → hiện hộp thoại chọn nguồn, **không tự nối gì cả**
+- Chọn `SITL localhost` → banner xanh dương, tiêu đề `[SIM] ...`, dữ liệu chảy
+- Chọn `SiK radio` → banner đỏ, tiêu đề `[REAL] ...`
+- Chọn `.tlog` → banner xám, dữ liệu phát lại đúng nhịp, tua được
+- Widget Link status hiện **hai hàng** với byte/s thật
+- Rút WiFi → hàng `Remote` xám trong 2 giây, hàng `SiK` vẫn xanh, app không treo
+- Tắt SITL → hàng `SiK` xám, app không treo
+
+---
+
+### Phase N2 — Nội dung các tab
+
+#### Bộ khung: 4 tab
+
+Cửa sổ chính là một `QTabWidget` với đúng bốn tab. **Map không phải tab riêng** —
+nó là nền của tab Flight, có overlay đè lên (xem dưới).
+
+| objectName | Nhãn | Nội dung |
+|---|---|---|
+| `Flight` | Bay | Map nền (offline) + overlay HUD/la bàn/telemetry |
+| `Status` | Trạng thái | Bảng số liệu tra cứu, debug |
+| `Control` | Điều khiển | ARM / mode / takeoff + nút đỏ |
+| `Messages` | Thông báo | Log `STATUSTEXT` |
+
+> **SITL không phải một tab.** Nó là một *nguồn kết nối* — chọn ở hộp thoại khởi
+> động (REAL / SIM / REPLAY), rồi dữ liệu chảy vào đúng bốn tab trên y như dữ liệu
+> thật. Banner đổi màu cho biết đang ở chế độ nào (xem nguyên tắc 2.5), không cần
+> tab riêng.
+
+#### Thứ tự làm — tab đọc trước
+
+Làm đúng thứ tự này; mỗi tab tái sử dụng hạ tầng của tab trước. **Tab Flight làm
+sau cùng** vì nó là phần khó nhất (map + overlay + widget tự vẽ).
+
+| # | Tab | Công nghệ | Nguồn | Ghi chú |
+|---|---|---|---|---|
+| 1 | **Status** | `QTableView` + ô search | `STATUS` | Làm trước — dễ nhất, thành công cụ debug cho mọi phase sau |
+| 2 | **Messages** | `QListView` lọc severity | `STATUSTEXT` | Log cuộn |
+| 3 | **Control** | Nút Designer | lệnh → adapter | Nút đỏ tách riêng về mã nguồn |
+| 4 | **Flight** | Map + `QPainter` overlay | `Field` | Map nền + la bàn/attitude tự vẽ đè lên |
+
+**Vì sao Status trước:** không hardcode từng field, nên bạn có ngay **mọi** thông
+số FC gửi lên — kể cả message chưa nghĩ tới — và không phải sửa code khi đổi
+firmware. Nó cũng là công cụ để kiểm chứng mọi tab còn lại.
+
+> 📌 **Tab Flight là phần nặng nhất.** Map làm nền, còn la bàn + attitude
+> indicator + thanh telemetry **nổi đè lên** map — đây là *overlay*, không phải
+> *layout*. Qt Designer không dựng overlay được; phải đặt widget con bằng code với
+> tọa độ tuyệt đối, gọi `.raise_()` cho nổi lên, và xử lý lại vị trí khi cửa sổ
+> đổi kích thước. Xem Phụ lục 7.7.
+
+#### Công cụ dựng giao diện
+
+Dùng **Qt Designer** (`pyside6-designer` hoặc Qt Creator, đều đúng Qt 6) cho phần
+bố cục tĩnh, viết tay cho phần vẽ động và overlay:
+
+| Thành phần | Cách làm |
+|---|---|
+| Khung cửa sổ, 4 tab | ✅ Qt Designer |
+| Tab Status (bảng + search) | ✅ Qt Designer |
+| Tab Control (nút ARM / mode / nút đỏ) | ✅ Qt Designer |
+| Tab Messages (log cuộn) | ✅ Qt Designer |
+| **La bàn, attitude indicator** | ❌ Tự vẽ `QPainter` |
+| **Map nền** | ❌ `QGraphicsView` + tile offline |
+| **Xếp overlay lên map** | ❌ Code, không phải Designer |
+
+Cách ghép: Designer dựng khung cửa sổ và bốn tab, chừa ô trống trong tab Flight
+rồi **promote** thành widget tự viết (chuột phải → Promote to → `AttitudeWidget`).
+Designer lưu `.ui`, `pyside6-uic` dịch sang Python.
+
+> **Về vẻ ngoài:** thứ làm giao diện GCS trông chuyên nghiệp không phải bố cục mà
+> là **theme tối + widget vẽ khéo**. Nền tối là chuẩn de facto của mọi GCS (Mission
+> Planner, QGC, Cockpit) vì dùng ngoài nắng đỡ chói và nhìn lâu đỡ mỏi. Áp một
+> stylesheet tối cho toàn app ngay từ đầu — nâng vẻ ngoài nhiều nhất với công sức
+> ít nhất.
+
+#### Nghiệm thu
+
+- Chạy SITL, so từng con số với Mission Planner — sai lệch chỉ do làm tròn
+- Rút WiFi giữa chừng → số liệu **không đứng hình**, tụt xuống SiK, đổi màu chấm
+- Chạy liên tục 30 phút không crash
+
+---
+
+### Phase N3 — Điều khiển, phân quyền, nút đỏ
+
+> Đây là phase **an toàn bay**.
+
+#### Hạng mục
+
+- [ ] Thanh trên: switch **MANUAL (GCS)** ↔ **AUTO (ROS2)**, hiện rõ ai cầm quyền
+- [ ] Nút thường: ARM / DISARM / chọn mode / TAKEOFF
+- [ ] **Nhóm nút đỏ tách riêng về mặt mã nguồn** — gọi thẳng `SikAdapter`,
+      không đi qua `dispatch()`
+- [ ] System ID riêng cho laptop
+- [ ] Node offboard trên companion subscribe `/gcs/authority`, tự dừng stream
+      setpoint khi mất quyền
+
+#### Mã nguồn — chỗ dễ sai nhất
+
+```python
+ESCAPE = {"rtl", "land", "disarm"}
+
+def dispatch(msg):
+    action = msg["action"]
+    if action in ESCAPE:
+        return SIK.send(action, msg.get("args", {}))   # KHONG kiem tra quyen
+    if msg["target"] != AUTHORITY:
+        return {"error": f"quyen dang thuoc ve {AUTHORITY}"}
+    return ADAPTERS[msg["target"]].send(action, msg.get("args", {}))
+```
+
+Nút đỏ đi trước mọi kiểm tra. Không có nhánh nào làm nó bị chặn.
+
+#### Nghiệm thu
+
+- Trên SITL: ARM → TAKEOFF 5 m → RTL hoàn chỉnh chỉ bằng app này
+- **Tắt hẳn companion giữa lúc drone đang bay**, bấm RTL → drone vẫn về nhà
+- Rút WiFi (kiểu hỏng A), bấm RTL → drone về nhà, node offboard mất quyền
+- Set authority sang `ros2`, bấm TAKEOFF → bị từ chối; bấm RTL → vẫn ăn
+
+---
+
+### Phase N4 — Tab Flight (map nền + overlay)
+
+> ⚠️ **Phase rủi ro nhất của bản native.** Gồm ba việc khó chồng lên nhau: map
+> offline, widget tự vẽ (`QPainter`), và xếp overlay bằng code.
+
+#### Bước 1 — Map nền
+
+Chốt hướng dựa trên prototype đã làm ở cuối Phase N2:
+
+| Phương án | Ưu | Nhược |
+|---|---|---|
+| `QGraphicsView` + tile OSM offline | Nhẹ, **chạy ngoài đồng không cần mạng** | Tự viết pan/zoom |
+| `QtWebEngine` nhúng Leaflet | Nhanh làm | Kéo theo cả Chromium, app nặng lên đáng kể |
+
+**Với drone bay ngoài hiện trường, tile offline gần như chắc chắn là lựa chọn
+đúng** — laptop ngoài bãi bay không có internet.
+
+- [ ] Vẽ tile offline, pan/zoom
+- [ ] Vị trí realtime + vệt đường bay
+- [ ] Home position, geofence
+- [ ] Tải sẵn tile cho khu vực bay trước khi ra hiện trường
+- [ ] Click bản đồ → GUIDED + goto **(chỉ khi cầm quyền MANUAL)**
+
+#### Bước 2 — Widget tự vẽ đè lên map
+
+Làm từng widget riêng lẻ trước, test trên cửa sổ trống với dữ liệu giả, rồi mới
+ghép lên map. **Thứ tự học `QPainter`: la bàn trước (một phép xoay), attitude sau
+(xoay + dịch chồng nhau).**
+
+- [ ] La bàn — xoay theo heading
+- [ ] Attitude indicator — đường chân trời theo roll + pitch
+- [ ] Thanh telemetry (tốc độ, độ cao, pin) — overlay góc dưới
+
+#### Bước 3 — Xếp overlay
+
+Đây là phần Qt Designer không làm được. Xem Phụ lục 7.7 cho khung code. Các widget
+ở bước 2 đặt làm **con của tab Flight**, tọa độ tuyệt đối, `.raise_()` để nổi lên
+trên map, và cập nhật lại vị trí trong `resizeEvent`.
+
+#### Nghiệm thu
+
+- Tab Flight hiện map offline, la bàn quay theo heading thật từ SITL
+- Attitude indicator nghiêng đúng theo roll/pitch
+- Phóng to/thu nhỏ cửa sổ → overlay giữ đúng vị trí góc, không trôi
+- Ngắt mạng hoàn toàn → map vẫn hiện (tile offline)
+
+---
+
+### Phase N5 — Kiểm thử
+
+#### Thứ tự không được đảo
+
+1. **SITL** — hết mọi kịch bản, đặc biệt kịch bản hỏng
+2. **HITL** — Pixhawk thật, **tháo cánh quạt**, kiểm tra motor quay đúng lệnh
+3. **Bay thật** — khu vực trống, **luôn có người cầm RC sẵn sàng giành quyền**
+
+> 💡 Mở sẵn Mission Planner ở màn hình bên cạnh trong những chuyến bay đầu.
+> Bảo hiểm miễn phí, và là công cụ đối chiếu xem app hiển thị đúng chưa.
+
+#### Công cụ mô phỏng — chỉ hiện ở chế độ SIM
+
+Một **panel Sim** (cửa sổ phụ hoặc dock, **không phải một tab thứ năm**) chỉ xuất
+hiện khi `mode == SIM`, phục vụ đúng bảng kịch bản bên dưới. Không có nó thì việc
+tái hiện lỗi rất thủ công.
+
+- [ ] **Tiêm lỗi** — đặt các tham số `SIM_*` của ArduPilot SITL để giả lập nhiễu
+      GPS, mất GPS, tụt điện áp pin. Mỗi lỗi một nút
+- [ ] **Cắt link** — dừng gửi/nhận trên `SikAdapter` hoặc `RemoteAdapter` theo yêu
+      cầu, để tái hiện kịch bản #1–#4 **mà không phải rút dây**
+- [ ] **Ghi `.tlog`** — bật ở mọi chế độ, kể cả REAL. Đây là đầu vào cho REPLAY
+- [ ] **Hệ số tăng tốc** — SITL chạy nhanh hơn thời gian thực để rút ngắn bài test
+      dài. Lưu ý: **không dùng tăng tốc khi đo hiệu năng giao diện**, kết quả sẽ sai
+
+> ⚠️ Tên và ý nghĩa tham số `SIM_*` **khác nhau giữa các phiên bản ArduPilot**.
+> Tra trên đúng bản SITL đang chạy, đừng chép từ hướng dẫn cũ.
+
+#### Kịch bản hỏng bắt buộc
+
+*Kịch bản #1–#4 tái hiện được bằng nút "Cắt link" ở panel Sim trước, rồi mới làm
+lại bằng cách rút dây thật.*
+
+| # | Kịch bản | Kỳ vọng |
+|---|---|---|
+| 1 | **WiFi rớt, companion còn sống** (kiểu A) | Tab ROS2 xám; số liệu tụt về SiK; task tự hành **vẫn đang chạy trên drone** — app phải cảnh báo rõ điều này |
+| 2 | **Companion chết hẳn** (kiểu B) | Tab ROS2 xám; nút đỏ vẫn ăn; FC giữ mode cuối |
+| 3 | Rút SiK khỏi laptop | **Cảnh báo nặng** — đã mất đường cứu sinh |
+| 4 | Mất cả SiK và WiFi | Báo động rõ ràng, không giả vờ còn kết nối; RC vẫn lái được |
+| 5 | RTL trong lúc ROS2 stream setpoint | Drone về nhà, không giằng co |
+| 6 | Set authority sang ROS2 rồi bấm nút thường | Bị từ chối, có thông báo |
+| 7 | App crash | Drone giữ nguyên mode, không rơi |
+| 8 | Hai nguồn lệch vị trí > 5 m | Cảnh báo divergence |
+| 9 | Ra xa dần tới khi rớt WiFi | SiK vẫn nắm được drone |
+| 10 | Chạy liên tục 30 phút | Không crash *(bài test cố định cho lỗi Qt/thread)* |
+| 11 | **Mở app ở chế độ REPLAY, bấm mọi nút** | Toàn bộ nút điều khiển bị khóa, kể cả nút đỏ |
+| 12 | **Cắm SiK thật nhưng chọn profile SIM** | Banner đỏ/xanh phải phản ánh đúng `mode` đã chọn, không đoán từ chuỗi kết nối |
+
+---
+
+## 4. Cấu trúc mã nguồn
+
+```
+telemetry_control_realtime/
+├── core/                      # DUNG CHUNG voi ban web
+│   ├── bus.py
+│   ├── field.py
+│   ├── authority.py
+│   └── adapters/
+│       ├── sik.py             # pymavlink        (chi ban native)
+│       └── remote.py          # websocket client (chi ban native)
+│
+├── laptop/
+│   ├── app.py                 # QMainWindow
+│   ├── link_status.py
+│   ├── connection.py          # chon nguon + banner che do
+│   ├── replay.py              # doc va phat lai .tlog
+│   ├── tabs/
+│   │   ├── flight.py          # map nen + xep overlay
+│   │   ├── status.py
+│   │   ├── control.py         # + nut do
+│   │   └── messages.py
+│   ├── widgets/               # widget tu ve, dung trong tab Flight
+│   │   ├── map_widget.py      # QGraphicsView + tile offline
+│   │   ├── compass.py         # QPainter
+│   │   ├── attitude.py        # QPainter
+│   │   └── telemetry_bar.py
+│   └── sim_panel.py           # cong cu tiem loi, CHI hien khi mode == SIM
+│
+├── config/
+│   └── connections.yaml       # profile REAL / SIM / REPLAY
+│
+├── assets/
+│   └── tiles/                 # tile OSM offline
+│
+├── logs/                      # .tlog ghi tu moi chuyen bay
+│
+├── tools/
+│   ├── run_sitl.sh
+│   └── measure_sik_bandwidth.py
+│
+└── docs/
+    ├── protocol.md            # dac ta envelope
+    ├── operating_procedure.md # quy trinh bay
+    └── KE_HOACH_GUI_NATIVE.md # file nay
+```
+
+---
+
+## 5. Rủi ro và thứ tự ưu tiên
+
+### 5.1. Ba rủi ro
+
+**#1 — Tab Flight vượt dự toán.** Ẩn số lớn nhất: map offline không có Leaflet,
+cộng thêm widget tự vẽ và xếp overlay bằng code.
+→ *Giảm thiểu:* làm prototype map ở **cuối Phase N2**; học `QPainter` bằng widget
+la bàn riêng lẻ trước khi ghép. Đừng để cả ba việc khó dồn vào Phase N4 cùng lúc.
+
+**#2 — Ghép pymavlink/WebSocket với Qt sinh crash ngẫu nhiên.** Triệu chứng: chết
+sau vài phút, rất khó truy.
+→ *Giảm thiểu:* kỷ luật tuyệt đối về Qt signal; chạy bài test 30 phút ở cuối
+**mỗi** phase, không chỉ Phase N5.
+
+**#3 — Băng thông SiK không như ước lượng.** Radio nhiễu, tầm xa, mất gói.
+→ *Giảm thiểu:* đo thật ở Phase N0. Nếu hẹp, giảm tần số `ATTITUDE` xuống 5 Hz —
+HUD vẫn dùng được.
+
+### 5.2. Nếu bị dồn deadline, cắt theo thứ tự
+
+1. Overlay trên map rút gọn còn một chấm vị trí, bỏ la bàn/attitude
+2. Tab Messages
+
+> 🚫 **Không bao giờ cắt:** `SikAdapter`, nhóm nút đỏ, widget Link status,
+> cơ chế phân quyền. Đó là **an toàn bay**.
+
+---
+
+## 6. Hướng dẫn build và chạy
+
+Toàn bộ chạy trên **laptop Ubuntu 22.04**. Laptop **không cần cài ROS2** —
+`RemoteAdapter` chỉ nói WebSocket, không dùng rclpy.
+
+### 6.1. Cài phụ thuộc hệ thống
+
+```bash
+sudo apt update
+sudo apt install -y python3-pip git
+
+# Quyen doc cong serial cho SiK radio
+sudo usermod -aG dialout $USER
+# -> DANG XUAT / DANG NHAP lai de co hieu luc
+```
+
+> ⚠️ **Không tạo virtualenv.** Dự án này không cần ROS2 trên laptop, nhưng giữ
+> thói quen dùng `pip --user` để nếu sau này đổi sang phương án `rclpy` trực tiếp
+> thì `import rclpy` không hỏng (venv che khuất gói ROS2 của hệ thống).
+
+### 6.2. Cài thư viện Python
+
+```bash
+pip install --user PySide6 pymavlink pyyaml websockets
+```
+
+| Gói | Dùng cho |
+|---|---|
+| `PySide6` | Toàn bộ giao diện, kèm sẵn `pyside6-designer` và `pyside6-uic` |
+| `pymavlink` | `SikAdapter` — đọc/gửi MAVLink qua SiK radio |
+| `pyyaml` | Đọc `config/connections.yaml` |
+| `websockets` | `RemoteAdapter` — nhận envelope từ companion |
+
+Kiểm tra:
+```bash
+python3 -c "import PySide6, pymavlink, yaml, websockets; print('OK')"
+pyside6-designer --version      # xac nhan Designer co san
+```
+
+### 6.3. Lấy mã nguồn
+
+```bash
+git clone <repo-cua-ban> gcs
+cd gcs
+```
+
+### 6.4. Quy trình dựng giao diện (Qt Designer → Python)
+
+Bước này chỉ chạy lại khi **sửa file `.ui`**, không phải mỗi lần chạy app.
+
+```bash
+# 1. Mo Designer de sua bo cuc (thanh tren, cac tab, o promote cho HUD/Map)
+pyside6-designer laptop/ui/main_window.ui
+
+# 2. Dich .ui -> .py sau khi luu
+pyside6-uic laptop/ui/main_window.ui -o laptop/ui/main_window_ui.py
+```
+
+> Widget tự vẽ (HUD, Map) **không** nằm trong `.ui`. Trong Designer, chuột phải ô
+> trống → *Promote to* → nhập tên class (ví dụ `AttitudeWidget`) và đường dẫn
+> module. `pyside6-uic` sẽ sinh mã tham chiếu tới class đó; bạn viết class riêng
+> trong `laptop/tabs/`.
+
+Có thể tự động hóa bằng một script:
+```bash
+# tools/build_ui.sh
+for f in laptop/ui/*.ui; do
+    pyside6-uic "$f" -o "${f%.ui}_ui.py"
+done
+```
+
+### 6.5. Chạy app
+
+App **không tự kết nối** — khởi động sẽ hiện hộp thoại chọn nguồn (REAL / SIM /
+REPLAY) từ `config/connections.yaml`.
+
+```bash
+python3 -m laptop.app
+```
+
+**Chế độ SIM** cần SITL chạy trước ở một terminal khác:
+```bash
+# Terminal 1 — SITL
+sim_vehicle.py -v ArduCopter --console --map --out=udp:127.0.0.1:14551
+
+# Terminal 2 — app, roi chon profile "SITL localhost"
+python3 -m laptop.app
+```
+
+**Chế độ REAL:** cắm SiK radio, chọn profile `SiK radio`. Kiểm tra `/dev/ttyUSB0`
+tồn tại và bạn đã ở nhóm `dialout`.
+
+**Chế độ REPLAY:** chọn file `.tlog`, không cần drone hay SITL.
+
+### 6.6. Đóng gói (tùy chọn)
+
+Chỉ cần khi muốn đưa cho máy khác chạy mà không cài Python. Vì laptop không dùng
+ROS2, `PyInstaller` gói được sạch:
+
+```bash
+pip install --user pyinstaller
+pyinstaller --onefile --windowed \
+    --add-data "config:config" \
+    --add-data "assets/tiles:assets/tiles" \
+    -n gcs laptop/app.py
+# Ket qua: dist/gcs
+```
+
+> Test file đóng gói trên một máy Ubuntu **sạch chưa cài Python** — đó là mục
+> đích duy nhất của bước này. Trên máy phát triển thì cứ chạy thẳng bằng
+> `python3 -m laptop.app`.
+
+### 6.7. Sự cố thường gặp
+
+| Triệu chứng | Nguyên nhân · cách xử lý |
+|---|---|
+| `Permission denied: /dev/ttyUSB0` | Chưa vào nhóm `dialout`, hoặc chưa đăng nhập lại |
+| Không thấy `/dev/ttyUSB0` | Sai driver USB-serial, hoặc cặp SiK chưa bind |
+| `pyside6-designer: command not found` | PySide6 cài bằng `--user`; thêm `~/.local/bin` vào `PATH` |
+| App mở nhưng số liệu đứng im ở SIM | SITL chưa chạy, hoặc sai cổng trong `connections.yaml` |
+| Bản đồ trắng khi offline | Chưa tải tile vào `assets/tiles/` |
+| Crash sau vài phút | Đang chạm widget Qt từ thread — xem lại nguyên tắc Qt signal ở N1 |
+
+---
+
+## 7. Phụ lục kỹ thuật
+
+### 7.1. Băng thông SiK — streaming được, bulk thì không
+
+Tính ở 57600 baud, MAVLink v2, overhead ~12 byte/message:
+
+| Message | Tần số | Băng thông |
+|---|---|---|
+| `HEARTBEAT` | 1 Hz | ~21 B/s |
+| `SYS_STATUS` | 2 Hz | ~86 B/s |
+| `GLOBAL_POSITION_INT` | 3 Hz | ~120 B/s |
+| `ATTITUDE` | 10 Hz | ~400 B/s |
+| `VFR_HUD` | 4 Hz | ~128 B/s |
+| `GPS_RAW_INT` | 1 Hz | ~42 B/s |
+| **Tổng** | | **~800 B/s** |
+
+Băng thông khả dụng thực khoảng **4–5 KB/s** — thừa gấp năm lần. **Đường SiK chở
+nổi một HUD đầy đủ, mượt, 10 Hz.**
+
+- ✅ **Streaming** — attitude, position, pin, tốc độ, GPS
+- ❌ **Bulk transfer** — parameter list (**hàng phút**), mission nhiều waypoint,
+  log bay, ảnh → những thứ này chỉ có trên **bản web**
+
+### 7.2. Yêu cầu stream rate từ FC
+
+```python
+for stream_id, rate_hz in [
+    (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 2),
+    (mavutil.mavlink.MAV_DATA_STREAM_POSITION, 3),
+    (mavutil.mavlink.MAV_DATA_STREAM_EXTRA1, 10),   # ATTITUDE
+    (mavutil.mavlink.MAV_DATA_STREAM_EXTRA2, 4),    # VFR_HUD
+]:
+    master.mav.request_data_stream_send(
+        master.target_system, master.target_component, stream_id, rate_hz, 1)
+```
+
+### 7.3. Bẫy hệ tọa độ — NED vs ENU
+
+- **pymavlink** đọc thẳng MAVLink → **NED**: x bắc, y đông, z **xuống**
+- **Dữ liệu từ companion** (qua MAVROS) → **ENU**: x đông, y bắc, z **lên**
+
+App này có **cả hai nguồn cho cùng một đại lượng**. Không cẩn thận thì hai giá trị
+`z` trái dấu và bạn tưởng có bug.
+
+> **Quy ước: chuẩn hóa hết về ENU ngay tại `sik.py`.**
+
+### 7.4. Trọng tài đa nguồn (`Field`)
+
+```python
+PRIORITY = {'remote': 2, 'sik': 1}   # remote uu tien vi tan so cao hon
+STALE    = 2.0                       # giay
+```
+
+- `best()` trả về **cả giá trị lẫn nguồn**, không chỉ giá trị
+- `divergence()` so hai nguồn, vượt ngưỡng thì cảnh báo — EKF có vấn đề hoặc một
+  link đang trễ nặng
+- Lớp này không biết gì về MAVLink hay WebSocket, chỉ biết `src` là một chuỗi.
+  Thêm đường thứ ba (LTE, LoRa) thì chỉ thêm một dòng vào `PRIORITY`
+
+### 7.5. Envelope
+
+```python
+# Vao app
+{"src": "sik",    "topic": "position", "data": {...}, "ts": 1721...}
+{"src": "remote", "topic": "position", "data": {...}, "ts": 1721...}
+
+# Ra drone
+{"target": "sik", "action": "rtl", "args": {}}
+```
+
+Nhờ trường `src`, UI hiển thị `Lat 10.762 (sik)` và `Lat 10.763 (remote)` cạnh
+nhau mà không nhầm.
+
+### 7.6. Chuỗi kết nối và SITL
+
+`mavutil.mavlink_connection()` nhận mọi dạng dưới đây — **cùng một `SikAdapter`,
+không phải viết hai đường code**:
+
+```python
+mavutil.mavlink_connection("/dev/ttyUSB0", baud=57600)   # SiK that
+mavutil.mavlink_connection("udp:127.0.0.1:14551")        # SITL
+mavutil.mavlink_connection("tcp:127.0.0.1:5760")         # SITL, cong mac dinh
+mavutil.mavlink_connection("logs/flight.tlog")           # phat lai
+```
+
+Khởi động SITL kèm sẵn cổng cho app:
+
+```bash
+sim_vehicle.py -v ArduCopter --console --map \
+    --out=udp:127.0.0.1:14551
+```
+
+Nếu muốn mở Mission Planner song song để đối chiếu, thêm một `--out` nữa —
+SITL tự chia được, **không cần mavlink-router** như khi dùng SiK thật:
+
+```bash
+sim_vehicle.py -v ArduCopter --console --map \
+    --out=udp:127.0.0.1:14550 \
+    --out=udp:127.0.0.1:14551
+```
+
+**Về `.tlog`:** đây là chuỗi MAVLink thô kèm timestamp, chính là định dạng
+Mission Planner ghi. Nghĩa là REPLAY của bạn đọc được cả log do Mission Planner
+tạo ra, không chỉ log của app mình.
+
+> **Nên bật ghi `.tlog` ở mọi chế độ, kể cả REAL.** Sau sự cố, đây thường là thứ
+> duy nhất cho biết chuyện gì đã xảy ra.
+
+### 7.7. Xếp overlay lên map trong tab Flight
+
+Qt Designer sắp widget bằng layout — chúng nằm cạnh nhau, không đè lên nhau. Màn
+hình bay cần la bàn/telemetry **nổi đè** lên map, nên phần này làm bằng code.
+
+Nguyên tắc: các widget overlay là **con trực tiếp** của tab Flight (không nằm
+trong layout), đặt tọa độ tay, gọi `.raise_()` để nổi lên trên map, và tính lại
+vị trí mỗi khi cửa sổ đổi kích thước.
+
+```python
+class FlightTab(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        # Map lap day ca tab, nam duoi cung
+        self.map = MapWidget(self)
+
+        # Cac overlay — con cua tab, KHONG cho vao layout nao
+        self.compass  = Compass(self)
+        self.attitude = AttitudeWidget(self)
+        self.telemetry = TelemetryBar(self)
+
+        for w in (self.compass, self.attitude, self.telemetry):
+            w.raise_()               # noi len tren map
+
+    def resizeEvent(self, e):
+        # Map phu kin
+        self.map.setGeometry(0, 0, self.width(), self.height())
+
+        # Overlay bam theo goc — tinh lai moi khi resize
+        m = 12
+        self.compass.move(self.width() - self.compass.width() - m, m)
+        self.telemetry.move(m, self.height() - self.telemetry.height() - m)
+        self.attitude.move(self.width() - self.attitude.width() - m,
+                           self.height() - self.attitude.height() - m)
+        super().resizeEvent(e)
+```
+
+Điểm dễ quên: overlay phải đặt `setAttribute(Qt.WA_TransparentForMouseEvents)` nếu
+bạn muốn click **xuyên qua** chúng tới map (ví dụ click map để goto). Nếu overlay
+cần nhận click riêng thì để mặc định.
+
+---
+
+*Tài liệu sống — cập nhật sau mỗi phase khi thực tế khác dự toán.*

@@ -1,0 +1,39 @@
+# Profile ket noi. `mode` la nguon su that quyet dinh mau banner va viec khoa
+# nut dieu khien — KHONG suy ra tu chuoi ket noi (nguyen tac 2.5).
+#   REAL   do    — bay that
+#   SIM    xanh  — SITL
+#   REPLAY xam   — phat lai .tlog, khoa moi nut
+#
+# Ba dong duoi day la ba tinh huong that, khong hon: bay that, mo phong, kham
+# nghiem. Da bo may profile SITL trung nhau (udp:14551 qua mavproxy, tcp:5760
+# truc tiep) — chung chi khac nhau o cong, va giu nhieu duong vao cung mot SITL
+# thi chi tao co hoi chon nham.
+
+# KHUON cho cong USB tu quet — muc REAL khong co `conn` thi khong hien trong
+# danh sach, no chi cho muon baud/sysid/remote. App tu tim moi cong USB-serial
+# dang cam (ttyUSB*, ttyACM*) va tao mot dong cho tung cong; cam sang cong khac
+# hay cam them thiet bi USB la so thu tu doi, khong phai sua file nay.
+# Bam "Quet lai cong USB" o panel khi cam/rut trong luc app dang chay.
+- name: "SiK radio"
+  mode: REAL
+  baud: 57600         # bo trong thi ttyACM -> 115200, ttyUSB -> 57600
+  sysid: 254          # sysid rieng cho laptop, khac companion (nguyen tac 2.3)
+  # Nua ROS2 qua WiFi toi companion. Bo trong thi app chi chay nua SiK — van bay
+  # va van co nut do, chi mat vision/SLAM/task. Do la ranh gioi suy giam chuc nang.
+  # remote: "ws://192.168.1.50:8765"
+
+# Mo phong. Can hai thu chay truoc:
+#   1. ros2 launch simtofly_mavros_sitl sitl_mission.launch.py
+#   2. source /opt/ros/humble/setup.bash && python3 tools/ros2_bridge.py
+#
+# Cong nao cam vao dau: MAVProxy giu TCP 5760, MAVROS giu UDP 14550. SITL con mo
+# san 5762/5763 — cam vao 5763 thi khong phai sua launch file ben ROS2.
+- name: "SITL + ROS2 (sitl_mission.launch.py)"
+  mode: SIM
+  conn: "tcp:127.0.0.1:5763"
+  sysid: 254
+  remote: "ws://127.0.0.1:8765"
+
+- name: "Phat lai chuyen bay (.tlog)"
+  mode: REPLAY
+  path: "logs/*.tlog"
