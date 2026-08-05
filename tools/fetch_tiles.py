@@ -35,6 +35,19 @@ SOURCES = {
     "esri": ("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery"
              "/MapServer/tile/{z}/{y}/{x}", "Esri World Imagery"),
     "topo": ("https://a.tile.opentopomap.org/{z}/{x}/{y}.png", "OpenTopoMap (SRTM + OSM)"),
+    # `lyrs=y` = anh ve tinh + ten duong de len. Doi sang `lyrs=s` neu muon anh tran.
+    #
+    # Vi sao co nguon nay du no la endpoint KHONG CHINH THUC cua Google: do that
+    # tai IUH (10.8221589, 106.6868454), ba tile khac vi tri moi muc zoom —
+    #   Esri   z19 22/15/18 KB · z20 va z21 deu la 2521 byte, CUNG md5 -> het anh
+    #   Google z19 15/12/12 KB · z20 11/8.6/8.8 KB · z21 7.6/6.1/4.8 KB -> anh that
+    # Tuc Esri tran o 29 cm/pixel, Google xuong toi 7.3 cm/pixel.
+    #
+    # Doi lai: Google co the chan IP hoac doi endpoint bat cu luc nao. Nen PHAI
+    # prefetch san khu bay — online chi la phan bu. Mat mang hay bi chan giua buoi
+    # bay thi map van ve tu dia, dung nhu thiet ke san co.
+    "google": ("https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+               "Google Hybrid (anh ve tinh + nhan)"),
 }
 
 
@@ -77,10 +90,10 @@ def plan(lat, lon, km, zooms):
                 yield z, x, y
 
 
-def fetch(url_tpl, z, x, y):
+def fetch(url_tpl, z, x, y, refetch=False):
     """(trang thai, byte anh) — byte de ben ngoai phat hien tile bi chan."""
     path = TILE_DIR / str(z) / str(x) / f"{y}.png"
-    if path.exists() and path.stat().st_size > 0:
+    if path.exists() and path.stat().st_size > 0 and not refetch:
         return "co roi", None
     req = urllib.request.Request(url_tpl.format(z=z, x=x, y=y), headers={"User-Agent": UA})
     try:
@@ -157,6 +170,11 @@ def main():
     ap.add_argument("--max", type=int, default=1500, help="tran so tile, chan tay truot")
     ap.add_argument("--source", default="esri",
                     help=f"{'/'.join(SOURCES)} hoac mot URL template co {{z}}/{{x}}/{{y}}")
+    # Doi nguon anh thi tile cu van nam do va bi bo qua ("co roi") — man hinh se
+    # tron hai kieu anh. Ghi de tai cho, KHONG xoa thu muc truoc: dut mang giua
+    # chung ma da xoa la mat trang ban do offline, dung luc sap ra bai bay.
+    ap.add_argument("--refetch", action="store_true",
+                    help="tai lai ca tile da co (dung khi doi --source)")
     args = ap.parse_args()
     if args.coverage:
         return coverage()
@@ -186,7 +204,7 @@ def main():
     fresh = []
     try:
         for i, (z, x, y) in enumerate(tiles, 1):
-            r, data = fetch(url_tpl, z, x, y)
+            r, data = fetch(url_tpl, z, x, y, args.refetch)
             if data is not None:
                 fresh.append(TILE_DIR / str(z) / str(x) / f"{y}.png")
             guard.check(data)

@@ -30,8 +30,16 @@ TILE_DIR = ROOT / "assets" / "tiles"
 ONLINE_TILES = True
 # Xin toi z21. Cho nao co anh that toi do thi duoc net that; cho nao het anh thi
 # may chu tra ve MOT tam "khong co du lieu" giong het nhau cho moi tile — do la
-# ly do co JUNK_REPEAT ben duoi. Do that o TP.HCM: Esri va Bing deu het anh goc
-# o z19, z20-23 chi la mot anh 2.5 KB lap lai.
+# ly do co JUNK_REPEAT ben duoi.
+#
+# Do that tai IUH (10.8221589, 106.6868454), ba tile khac vi tri moi muc zoom:
+#   Esri   z19 22/15/18 KB · z20 va z21 deu 2521 byte, CUNG md5 -> het anh goc
+#   Google z19 15/12/12 KB · z20 11/8.6/8.8 KB · z21 7.6/6.1/4.8 KB -> anh that
+# Tuc tran cua Esri la 29 cm/pixel, Google xuong toi 7.3 cm/pixel. Bing do truoc
+# day cung het anh o z19 nhu Esri.
+#
+# Nen JUNK_REPEAT van phai giu du da doi sang Google: no la cai bat "may chu het
+# anh" noi chung, khong rieng nguon nao.
 MAX_ONLINE_Z = 21
 JUNK_REPEAT = 4  # cung mot noi dung anh lap lai bay nhieu lan -> anh bao "khong co"
 
@@ -49,6 +57,15 @@ TRAIL = QColor(52, 152, 219)
 DRONE = QColor(46, 204, 113)
 HOME = QColor(241, 196, 15)
 TEXT = QColor(130, 140, 150)
+FENCE_IN = QColor(230, 126, 34)    # vung duoc phep bay
+FENCE_OUT = QColor(192, 57, 43)    # vung cam vao
+# Rao dang TAT ve dut net, nhung phai SANG: xam toi thi chim han vao anh ve tinh
+# va "rao dang tat" nhin y het "khong co rao" — hai chuyen rat khac nhau.
+FENCE_OFF = QColor(210, 218, 226)
+
+# MAV_CMD_NAV_FENCE_* — dinh da giac va tam vong tron
+VERTEX_IN, VERTEX_OUT, CIRCLE_IN, CIRCLE_OUT = 5001, 5002, 5003, 5004
+FENCE_TYPE_CIRCLE = 2  # bit trong FENCE_TYPE (1 tran do cao, 2 vong tron, 4 da giac)
 
 
 def deg2num(lat, lon, z):
@@ -78,6 +95,44 @@ def pick_tile_zoom(view_zoom, available, up=8, down=2):
     if tz - view_zoom > down or view_zoom - tz > up:
         return None
     return tz
+
+
+def meters_per_px(lat, zoom):
+    """Do phan giai Web Mercator o vi do nay. Doi ban kinh rao (met) sang pixel."""
+    return 156543.03392804097 * math.cos(math.radians(lat)) / 2.0**zoom
+
+
+def fence_shapes(items):
+    """Muc nhiem vu FENCE -> [("poly", cam?, [(lat, lon), ...])] va [("circle", cam?, tam, r)].
+
+    Cac dinh cua mot da giac nam lien tiep nhau trong danh sach, va `param1` cua
+    moi dinh la TONG so dinh cua da giac do — do la duong duy nhat biet hai da
+    giac ke nhau ket thuc/bat dau o dau. Vong tron thi param1 la ban kinh (met).
+    """
+    out = []
+    cur, cur_cmd = [], None
+
+    def flush():
+        nonlocal cur, cur_cmd
+        if len(cur) >= 3:  # duoi 3 dinh khong thanh hinh — bo, khong ve nua voi
+            out.append(("poly", cur_cmd == VERTEX_OUT, cur))
+        cur, cur_cmd = [], None
+
+    for cmd, p1, lat, lon in items:
+        if cmd in (CIRCLE_IN, CIRCLE_OUT):
+            flush()
+            out.append(("circle", cmd == CIRCLE_OUT, (lat, lon), p1))
+        elif cmd in (VERTEX_IN, VERTEX_OUT):
+            if cmd != cur_cmd:
+                flush()
+            cur_cmd = cmd
+            cur.append((lat, lon))
+            if len(cur) >= int(p1 or 0):
+                flush()
+        else:
+            flush()  # muc la khong phai rao: cat da giac dang do
+    flush()
+    return out
 
 
 def num2deg(x, y, z):
@@ -220,6 +275,7 @@ class MapWidget(QWidget):
         self.follow = True  # bam theo drone; pan tay thi tat
         self.pos = None  # (lat, lon) hien tai
         self.home = None
+        self.fence = {}  # tham so FENCE_* + "items" (cac dinh da giac), xem set_fence
         self.trail = []
         self._drag = None
         self._cache = {}
@@ -265,8 +321,26 @@ class MapWidget(QWidget):
             self.home = (lat, lon)
             self.update()
 
-    def clear_trail(self):
+    def set_fence(self, data):
+        """Gop tung manh mot: tham so FENCE_* ve roi rac, danh sach dinh ve sau.
+
+        `None` = xoa han (dung khi doi drone). Xem core/adapters/sik.py: _fence_ask.
+        """
+        if data is None:
+            self.fence = {}
+        else:
+            self.fence.update(data)
+        self.update()
+
+    def reset(self):
+        """Ngat ket noi: xoa vet bay, home va rao cua chuyen truoc.
+
+        Giu lai la ve du lieu cu de len drone moi — cai dau X va vong rao van
+        nam do trong khi chung khong con dung nua.
+        """
         self.trail.clear()
+        self.home = None
+        self.fence = {}
         self.update()
 
     # --- tuong tac ----------------------------------------------------
@@ -375,6 +449,58 @@ class MapWidget(QWidget):
                 if not (TILE_DIR / str(rz) / str(tx) / f"{ty}.png").exists():
                     self.fetcher.want(rz, tx, ty)
 
+    def _draw_fence(self, p, cx, cy):
+        """Rao: vong tron quanh HOME (FENCE_RADIUS) va cac da giac tai tu FC.
+
+        FENCE_ENABLE = 0 -> ve xam, dut net. Rao co dinh nghia nhung dang TAT ma
+        ve nhu dang bat la noi doi ve phia nguy hiem: nguoi bay tuong minh duoc
+        chan lai o do.
+        """
+        f = self.fence
+        on = bool(f.get("FENCE_ENABLE", 0))
+        ftype = int(f.get("FENCE_TYPE", 0) or 0)
+        radius = f.get("FENCE_RADIUS") or 0
+
+        def pen(cam_vao):
+            color = FENCE_OFF if not on else (FENCE_OUT if cam_vao else FENCE_IN)
+            return QPen(color, 2, Qt.SolidLine if on else Qt.DashLine)
+
+        p.setBrush(Qt.NoBrush)
+        if radius > 0 and self.home and ftype & FENCE_TYPE_CIRCLE:
+            # Tam vong tron cua ArduCopter la HOME, khong phai vi tri hien tai.
+            r = int(radius / meters_per_px(self.home[0], self.zoom))
+            p.setPen(pen(False))
+            p.drawEllipse(self._to_px(*self.home, cx, cy), r, r)
+
+        for shape in fence_shapes(f.get("items") or []):
+            p.setPen(pen(shape[1]))
+            if shape[0] == "poly":
+                p.drawPolygon([self._to_px(a, b, cx, cy) for a, b in shape[2]])
+            else:
+                _, _, (lat, lon), r_m = shape
+                r = int(r_m / meters_per_px(lat, self.zoom))
+                p.drawEllipse(self._to_px(lat, lon, cx, cy), r, r)
+
+    def _fence_note(self):
+        """Mot dong ngan cho dai chu duoi day — trong do co thu ban do khong ve
+        duoc: tran do cao."""
+        f = self.fence
+        if not f:
+            return ""
+        if f.get("err"):
+            return f"rao: {f['err']}"
+        if not f.get("FENCE_ENABLE", 0):
+            return "rao TAT"
+        bits = []
+        if int(f.get("FENCE_TYPE", 0) or 0) & FENCE_TYPE_CIRCLE and f.get("FENCE_RADIUS"):
+            bits.append(f"r{f['FENCE_RADIUS']:.0f}m")
+        if f.get("FENCE_ALT_MAX"):
+            bits.append(f"tran {f['FENCE_ALT_MAX']:.0f}m")
+        n = sum(1 for s in fence_shapes(f.get("items") or []) if s[0] == "poly")
+        if n:
+            bits.append(f"{n} da giac")
+        return f"rao: {' '.join(bits)}" if bits else "rao BAT"
+
     def paintEvent(self, _):
         p = QPainter(self)
         p.fillRect(self.rect(), BG)
@@ -433,6 +559,8 @@ class MapWidget(QWidget):
             p.setPen(QColor(230, 176, 100))
             p.drawText(box, Qt.AlignCenter, warn)
 
+        self._draw_fence(p, cx, cy)
+
         if self.home:
             hp = self._to_px(*self.home, cx, cy)
             p.setPen(QPen(HOME, 2))
@@ -456,6 +584,9 @@ class MapWidget(QWidget):
         # ve vien chu, va ngoai nang doc duoc that.
         p.setFont(QFont("", 8))
         note = f"z{self.zoom}  {self.center[0]:.5f}, {self.center[1]:.5f}"
+        fence = self._fence_note()
+        if fence:
+            note += f"  ·  {fence}"
         if not self.follow:
             note += "  ·  nhay doi de bam lai theo drone"
         if self.credit:

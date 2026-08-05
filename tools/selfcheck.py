@@ -60,6 +60,14 @@ def check_normalize():
 
     assert normalize("SYS_STATUS", {"voltage_battery": 12600, "current_battery": 350,
                                     "battery_remaining": 87})[1]["voltage"] == 12.6
+
+    # landed_state: cai co quyet dinh nut DISARM gui lenh thuong hay force.
+    # 0 = FC KHONG BIET -> phai ra None, khong duoc thanh False cung khong thanh
+    # True. Registry bo qua None nen field het tuoi, va "het tuoi" = khong biet.
+    assert normalize("EXTENDED_SYS_STATE", {"landed_state": 1})[1] == {"landed": True}
+    assert normalize("EXTENDED_SYS_STATE", {"landed_state": 2})[1] == {"landed": False}
+    assert normalize("EXTENDED_SYS_STATE", {"landed_state": 3})[1] == {"landed": False}
+    assert normalize("EXTENDED_SYS_STATE", {"landed_state": 0})[1] == {"landed": None}
     assert normalize("KHONG_CO_MESSAGE_NAY", {}) is None
     print("  ok  normalize NED -> ENU")
 
@@ -311,6 +319,182 @@ def check_authority(app):
     print("  ok  nut do di duoc trong luc quyen thuoc ve ROS2")
 
 
+def check_arm_throttle_guard(app):
+    """ARM bi chan khi can ga chua ve min.
+
+    Chot nay o phia app vi FC khong co: `AP_Arming.cpp:81-115` chi kiem ga THAP
+    hon nguong failsafe. Do that tren MicoAir743 luc 22:35: ga 1496 -> ack=0 ->
+    dong co ra 1654/1506/1347/1080. Khong biet vi tri ga thi VAN gui — mat
+    RC_CHANNELS ma khoa luon nut ARM la doi mot kieu hong lay mot kieu hong khac.
+    """
+    from core import authority
+
+    from laptop.tabs.control import THR_ARM_MAX, ControlTab
+
+    sent = []
+
+    class FakeAdapter:
+        def send(self, action, args=None):
+            sent.append(action)
+            return {"ok": action}
+
+    authority.register("sik", FakeAdapter())
+    ct = ControlTab()
+    ct.set_mode("SIM")
+    logs = []
+    ct.log.connect(logs.append)
+    try:
+        # Chua thay RC bao gio: van phai gui duoc
+        ct.btn_arm.click()
+        assert sent == ["arm"], sent
+        assert "chua thay RC_CHANNELS" in logs[0], logs
+
+        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
+        sent.clear(); logs.clear()
+        ct.btn_arm.click()
+        assert not sent, "ga 1496 ma van gui ARM"
+        assert "CHAN" in logs[0] and "1496" in logs[0], logs
+
+        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": THR_ARM_MAX + 1})
+        sent.clear()
+        ct.btn_arm.click()
+        assert not sent, f"ga {THR_ARM_MAX + 1} (tren nguong 1 don vi) ma van gui"
+
+        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 993})
+        sent.clear(); logs.clear()
+        ct.btn_arm.click()
+        assert sent == ["arm"], f"ga 993 la o min, phai gui duoc: {logs}"
+
+        # Ga cu qua thi khong con la bang chung: gui, nhung phai noi ra
+        ct._thr = (1496, time.time() - 30)
+        sent.clear(); logs.clear()
+        ct.btn_arm.click()
+        assert sent == ["arm"] and "qua cu" in logs[0], (sent, logs)
+
+        # DISARM khong bao gio bi chot nay dung toi
+        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
+        sent.clear()
+        ct.btn_disarm.click()
+        assert sent == ["disarm"], sent
+    finally:
+        authority.unregister("sik")
+        ct.close()
+    print(f"  ok  chan ARM khi ga > {THR_ARM_MAX} PWM (FC khong tu chan viec nay)")
+
+
+def check_disarm_hold(app):
+    """DISARM hai bac: bam nhanh = lenh thuong, giu 2s = force 21196.
+
+    Vi sao duoi dat phai force ngay: do tren FC that (MicoAir743, thao canh), lenh
+    disarm thuong AN khi ga o min nhung bi tu choi 3/3 lan khi ga len giua tam —
+    luc do motor quay lech nhau de on dinh tu the, ArduCopter coi la dang bay va
+    chan disarm tu GCS (AP_Arming.cpp:788). Tren ban thi do chi la phien; nhung no
+    nghia la vi tri can ga quyet dinh nut co an hay khong, va do la dieu khong ai
+    doan duoc luc can ngat gap.
+
+    Vi sao tren troi thi khong: force luc dang bay la tat dong co giua khong
+    trung. Duong ranh la do cao DO DUOC, khong phai vi tri can ga.
+
+    Va vi sao bac force phai kho bam: force luc dang bay = tat dong co = roi.
+    """
+    from core import authority
+
+    from laptop.tabs.control import ControlTab
+
+    sent = []
+
+    class FakeAdapter:
+        def send(self, action, args=None):
+            sent.append((action, dict(args or {})))
+            return {"ok": action}
+
+    from core.field import REGISTRY
+
+    def landed(v, rng_cm=None):
+        """Dat hai nguon: cai FC bao, va cam bien khoang cach (cm)."""
+        REGISTRY.fields.clear()
+        ct._rng = None
+        if v is not None:
+            REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": {"landed": v},
+                           "ts": time.time()})
+        if rng_cm is not None:
+            ct._rng = (rng_cm, 5, 400, time.time())
+
+    authority.register("sik", FakeAdapter())
+    ct = ControlTab()
+    ct.set_mode("SIM")
+    try:
+        # --- FC bao da ha canh: bam mot phat la force, ga o muc nao cung ngat ---
+        landed(True)
+        ct.btn_kill.click()
+        assert sent == [("disarm", {"force": True})], sent
+        sent.clear()
+        ct.btn_disarm.click()  # nut thuong cung theo quy tac do
+        assert sent == [("disarm", {"force": True})], sent
+
+        # --- khong co tin: KHONG duoc doan la da ha canh ---
+        landed(None)
+        sent.clear()
+        ct.btn_kill.click()
+        assert sent == [("disarm", {})], f"mat telemetry ma van force: {sent}"
+        sent.clear()
+        ct.btn_disarm.click()
+        assert sent == [("disarm", {})], sent
+
+        # --- FC bao dang bay NHUNG cam bien noi 60cm: van la duoi dat ---
+        # Day dung la trang thai tren ban khi ga len giua tam — do that: FC bao
+        # IN_AIR, cam bien khong nhuc nhich o 60cm.
+        landed(False, rng_cm=60)
+        sent.clear()
+        ct.btn_kill.click()
+        assert sent == [("disarm", {"force": True})], sent
+
+        # Cam bien hong tra 0 cm: NGOAI dai hop le (5-400), khong duoc tin
+        landed(False, rng_cm=0)
+        sent.clear()
+        ct.btn_kill.click()
+        assert sent == [("disarm", {})], f"tin cam bien hong: {sent}"
+
+        # Cam bien ngoai tam (400cm = het dai) cung khong phai bang chung duoi dat
+        landed(None, rng_cm=400)
+        sent.clear()
+        ct.btn_kill.click()
+        assert sent == [("disarm", {})], sent
+
+        # --- FC bao dang bay, cam bien cung noi tren cao: lenh thuong ---
+        landed(False, rng_cm=250)
+        sent.clear()
+        ct.btn_kill.click()  # bam nhanh: press + release + clicked
+        assert sent == [("disarm", {})], sent
+
+        # Giu: bam xuong, cho het gio, roi moi tha
+        sent.clear()
+        ct.btn_kill.pressed.emit()
+        assert ct._kill_hold.isActive(), "giu nut ma dong ho khong chay"
+        assert "GIU" in ct.btn_kill.text(), ct.btn_kill.text()
+        ct._kill_hold.timeout.emit()  # = 2 giay da troi qua
+        assert sent == [("disarm", {"force": True})], sent
+        ct.btn_kill.released.emit()
+        ct.btn_kill.clicked.emit()  # tha tay: KHONG duoc gui them lenh thuong
+        assert sent == [("disarm", {"force": True})], sent
+        assert ct.btn_kill.text() == "DISARM", ct.btn_kill.text()
+
+        # Tha tay som (chua du 2s) thi chi co lenh thuong, khong co force
+        sent.clear()
+        ct.btn_kill.pressed.emit()
+        ct.btn_kill.released.emit()
+        assert not ct._kill_hold.isActive(), "tha tay roi ma dong ho van chay"
+        ct.btn_kill.clicked.emit()
+        assert sent == [("disarm", {})], sent
+    finally:
+        authority.unregister("sik")
+        authority.set_authority(authority.GCS)
+        REGISTRY.fields.clear()
+        ct.close()
+    print("  ok  DISARM: duoi dat bam mot phat la force (ga o dau cung ngat duoc), "
+          "tren troi phai giu 2s")
+
+
 def check_remote(app):
     """RemoteAdapter noi WebSocket that toi mot server gia."""
     import json
@@ -452,11 +636,36 @@ def check_takeoff_guard(app):
                        "ts": time.time()})
         ct._check_climb(0.0)
         assert not logs, logs
+
+        # O REAL phai xac nhan — nhung KHONG duoc xac nhan bang hop thoai chan.
+        # Do that: trong luc mot QMessageBox mo, activeModalWidget() khac None nen
+        # cua so chinh khong nhan input, tuc ba nut do bam khong an du chung bao
+        # `isEnabled() == True`. Doi mot lop hoi lai lay nut do la doi nguoc.
+        from PySide6.QtWidgets import QApplication
+
+        ct.set_mode("REAL")
+        sent.clear(); logs.clear()
+        ct.btn_takeoff.click()
+        assert QApplication.activeModalWidget() is None, "hop thoai chan mo ra -> nut do chet"
+        assert not sent, "lan bam dau o REAL phai la hoi lai, khong duoc cat canh"
+        assert "BAM LAI" in ct.btn_takeoff.text(), ct.btn_takeoff.text()
+        ct.btn_takeoff.click()
+        assert sent == ["takeoff"], sent
+        assert ct.btn_takeoff.text() == "TAKEOFF", ct.btn_takeoff.text()
+
+        # Het gio cho thi quen di, khong duoc de danh lan bam cu
+        sent.clear()
+        ct.btn_takeoff.click()
+        ct._takeoff_confirm.timeout.emit()  # = qua CONFIRM_S giay
+        assert ct.btn_takeoff.text() == "TAKEOFF", ct.btn_takeoff.text()
+        ct.btn_takeoff.click()
+        assert not sent, "bam lai sau khi het gio ma van cat canh"
     finally:
         authority_mod.unregister("sik")
         REGISTRY.fields.clear()
         ct.close()
-    print("  ok  TAKEOFF: chan khi khong o GUIDED, keu khi nhan lenh ma khong len")
+    print("  ok  TAKEOFF: chan khi khong o GUIDED, keu khi nhan lenh ma khong len, "
+          "xac nhan REAL bang bam lai (khong hop thoai)")
 
 
 def check_mission_buttons(app):
@@ -532,7 +741,7 @@ def check_replay_locks(app):
         return
 
     win = MainWindow([{"name": "replay", "mode": "REPLAY", "path": str(tlogs[-1])}])
-    win.panel.list.setCurrentRow(0)
+    assert win.panel.select("replay"), "khong thay profile replay trong danh sach"
     win.panel.btn_connect.click()
     ct = win.control_tab
     try:
@@ -616,6 +825,97 @@ def check_widgets(app):
     else:
         note = "map khong co tile van ve luoi"
     print(f"  ok  compass/attitude/telemetry/map deu ve duoc ({note})")
+
+
+def check_fence(app):
+    """Geofence: tu goi MAVLink toi net ve tren ban do.
+
+    Do that tren SITL (ArduCopter stable): tai ve 4 dinh bang mission_type=FENCE,
+    va FENCE_RADIUS/FENCE_ALT_MAX doc bang PARAM_VALUE. Check nay dung dung nhung
+    con so do, khong bia.
+    """
+    from laptop.tabs.flight import FlightTab
+    from laptop.widgets.map_widget import FENCE_IN, FENCE_OFF, fence_shapes, meters_per_px
+
+    # PARAM_VALUE FENCE_* va HOME_POSITION phai ra topic rieng, khong chim vao STATUS
+    assert normalize("PARAM_VALUE", {"param_id": "FENCE_RADIUS\x00", "param_value": 150.0}) == (
+        "fence", {"FENCE_RADIUS": 150.0}), "tham so rao phai ra topic fence"
+    assert normalize("PARAM_VALUE", {"param_id": "ATC_RAT_RLL_P", "param_value": 1.0}) is None
+    topic, home = normalize("HOME_POSITION", {"latitude": 108221589, "longitude": 1066868454,
+                                              "altitude": 10100})
+    assert topic == "home" and abs(home["lat"] - 10.8221589) < 1e-7, home
+
+    # Hai da giac ke nhau: chi co param1 (tong so dinh) noi cho biet cat o dau.
+    items = [(5001, 4, 10.8231, 106.6858), (5001, 4, 10.8231, 106.6878),
+             (5001, 4, 10.8211, 106.6878), (5001, 4, 10.8211, 106.6858),
+             (5002, 3, 10.8225, 106.6865), (5002, 3, 10.8226, 106.6866),
+             (5002, 3, 10.8224, 106.6867),
+             (5004, 25.0, 10.8220, 106.6870)]
+    shapes = fence_shapes(items)
+    assert [s[0] for s in shapes] == ["poly", "poly", "circle"], shapes
+    assert len(shapes[0][2]) == 4 and shapes[0][1] is False, shapes[0]
+    assert len(shapes[1][2]) == 3 and shapes[1][1] is True, "5002 la vung CAM vao"
+    assert shapes[2][3] == 25.0, shapes[2]
+    # Dinh le khong du 3 cai thi bo han, khong ve mot doan thang roi goi la rao
+    assert fence_shapes([(5001, 4, 10.0, 106.0)]) == []
+
+    # 156543 m/px o xich dao muc z0 la hang so Web Mercator; z16 o vi do bai bay
+    assert abs(meters_per_px(0, 0) - 156543.0339) < 1e-3
+    assert abs(meters_per_px(10.822, 16) - 2.3452) < 1e-3, meters_per_px(10.822, 16)
+
+    home = (10.8221589, 106.6868454)
+    ft = FlightTab()
+    ft.resize(600, 400)
+    ft.map.zoom = 16
+
+    # Duong that: adapter -> bus -> tab -> map (khong goi thang set_home/set_fence)
+    bus.emit("sik", "home", {"lat": home[0], "lon": home[1], "alt_msl": 10.1})
+    bus.emit("sik", "fence", {"FENCE_ENABLE": 1.0, "FENCE_TYPE": 7.0,
+                              "FENCE_RADIUS": 150.0, "FENCE_ALT_MAX": 100.0})
+    bus.emit("sik", "fence", {"items": items})
+    assert ft.map.home == home and ft.map.fence["FENCE_RADIUS"] == 150.0, ft.map.fence
+    assert "r150m" in ft.map._fence_note() and "tran 100m" in ft.map._fence_note()
+
+    # Vanh vong tron phai roi dung cho: 150 m o z16, vi do 10.8 = 63 px tinh tu
+    # tam. Sai cong thuc doi met -> pixel thi rao ve sai cho ma van "nhin duoc",
+    # kieu hong te nhat: nguoi bay tin vao mot duong ve sai.
+    ft.map.center = home
+    r_px = int(150 / meters_per_px(home[0], 16))
+    assert r_px == 63, r_px
+    # Kich thuoc lay tu chinh anh: tab chua show thi map.width() con la 100 px,
+    # chi den luc grab() Qt moi dan lai layout — lay nham thi do sai cho.
+    img = ft.map.grab().toImage()
+    cx, cy = img.width() // 2, img.height() // 2
+    assert img.pixel(cx + r_px, cy) == FENCE_IN.rgb(), "vanh rao khong nam o dung ban kinh"
+
+    # FENCE_ENABLE = 0: van ve (de biet rao nam dau) nhung phai khac han ve mau,
+    # va dai chu phai noi thang la TAT.
+    bus.emit("sik", "fence", {"FENCE_ENABLE": 0.0})
+    assert ft.map._fence_note() == "rao TAT", ft.map._fence_note()
+    img = ft.map.grab().toImage()
+    assert img.pixel(cx + r_px, cy) == FENCE_OFF.rgb(), "rao TAT phai doi mau, khong duoc bien mat"
+
+    # Ngat ket noi: rao, home, vet bay cua drone cu phai bien mat
+    ft.set_mode(None)
+    assert ft.map.fence == {} and ft.map.home is None, ft.map.fence
+    ft.close()
+
+    # Xin home la mot command_long -> FC tra ack cho lenh 512, khong phai lenh cua
+    # nut nao. Ack do ma xoa hang cho thi canh bao "khong co phan hoi" cua ARM bi
+    # nuot — hong im lang, dung thu muc 2.2 cam.
+    from laptop.tabs.control import ControlTab
+
+    ct = ControlTab()
+    ct.set_mode("SIM")
+    logs = []
+    ct.log.connect(logs.append)
+    ct._pending = {"arm": time.time() + 3}
+    bus.emit("sik", "ack", {"command": 512, "result": 0})
+    assert ct._pending and not logs, (ct._pending, logs)
+    bus.emit("sik", "ack", {"command": 400, "result": 0})  # ARM: cai nay moi la cua nut
+    assert not ct._pending and "chap nhan" in logs[-1], logs
+    ct.close()
+    print("  ok  geofence: vong tron quanh home + da giac, TAT thi ve dut net")
 
 
 def check_replay(app):
@@ -768,7 +1068,7 @@ def check_banner_health(app):
 
     port = 14561
     win = MainWindow([{"name": "gia", "mode": "SIM", "conn": f"udp:127.0.0.1:{port}"}])
-    win.panel.list.setCurrentRow(0)
+    assert win.panel.select("gia"), "khong thay profile gia"
     win.panel.btn_connect.click()
 
     stop = threading.Event()
@@ -801,8 +1101,13 @@ def check_adapter_live(app):
     from pymavlink import mavutil
 
     seen = {}
+    last_landed = [None]
     adapter = SikAdapter({"name": "selfcheck", "mode": "SIM", "conn": f"udp:127.0.0.1:{PORT}"})
     adapter.envelope.connect(lambda e: seen.setdefault(e["topic"], e))
+    adapter.envelope.connect(
+        lambda e: last_landed.__setitem__(0, e["data"]["landed"])
+        if e["topic"] == "heartbeat" and "landed" in e["data"] else None
+    )
     adapter.start()
 
     stop = threading.Event()
@@ -815,6 +1120,11 @@ def check_adapter_live(app):
                                    mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0)
             out.mav.global_position_int_send(0, 107620000, 1066600000, 12000, 5000,
                                              100, 200, -50, 9000)
+            # EXTENDED_SYS_STATE cung do ve topic `heartbeat`. Goi nay tung lam
+            # chet ca luong doc: doan lam giau topic do goi mode_string_v10(msg),
+            # ma no doi `.autopilot` — chi HEARTBEAT moi co.
+            out.mav.extended_sys_state_send(mavutil.mavlink.MAV_VTOL_STATE_UNDEFINED,
+                                            mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND)
             time.sleep(0.1)
 
     t = threading.Thread(target=sender, daemon=True)
@@ -826,6 +1136,9 @@ def check_adapter_live(app):
 
     assert "position" in seen, f"khong nhan duoc position, chi co {list(seen)}"
     assert "heartbeat" in seen and "status" in seen, list(seen)
+    assert seen["heartbeat"]["data"].get("mode"), "heartbeat phai kem mode"
+    assert last_landed[0] is True, f"landed_state khong ve toi noi: {last_landed}"
+
     assert "link" in seen, "khong co so byte/s"
     assert seen["link"]["data"]["bps"] > 0, seen["link"]
     assert seen["position"]["src"] == "sik"
@@ -846,12 +1159,15 @@ if __name__ == "__main__":
     check_tabs(app)
     check_field(app)
     check_authority(app)
+    check_arm_throttle_guard(app)
+    check_disarm_hold(app)
     check_widgets(app)
     check_remote(app)
     check_online_tiles(app)
     check_takeoff_guard(app)
     check_mission_buttons(app)
     check_replay_locks(app)
+    check_fence(app)
     check_replay(app)
     check_tlog_roundtrip(app)
     check_dead_socket(app)

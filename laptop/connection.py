@@ -181,6 +181,18 @@ class ConnectionPanel(QWidget):
         self.rescan()
         self.set_connected(False)
 
+    def select(self, name):
+        """Chon dong theo TEN profile. Tra ve True neu tim thay.
+
+        So thu tu dong khong on dinh: `rescan` chen cong USB tu quet len dau danh
+        sach, nen cam FC vao la dong 0 doi chu. Cong cu tu dong nao chon theo chi
+        so se nham sang nguon REAL — da xay ra that: mot bai test REPLAY noi thang
+        vao FC dang cam.
+        """
+        i = next((i for i, p in enumerate(self.profiles) if p["name"] == name), -1)
+        self.list.setCurrentRow(i)
+        return i >= 0
+
     def rescan(self):
         """Quet lai cong USB roi dung lai danh sach. Cong cam vao/rut ra khi app
         dang chay la chuyen binh thuong — khong bat khoi dong lai app."""

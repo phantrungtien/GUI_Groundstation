@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QLabel, QMenu, QWidget
 
-from core import authority
+from core import authority, bus
 from core.field import REGISTRY
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
@@ -45,6 +45,11 @@ class FlightTab(QWidget):
         self.map.setContextMenuPolicy(Qt.CustomContextMenu)
         self.map.customContextMenuRequested.connect(self._menu)
 
+        # Home va rao khong phai dai luong lien tuc, chung ve mot lan roi thoi —
+        # nen doc thang tu bus, khong qua REGISTRY (o do qua 2 giay la het tuoi).
+        bus.on("home", lambda e: self.map.set_home(e["data"]["lat"], e["data"]["lon"]))
+        bus.on("fence", lambda e: self.map.set_fence(e["data"]))
+
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(200)
@@ -52,7 +57,7 @@ class FlightTab(QWidget):
     def set_mode(self, mode):
         self.mode = mode
         if mode is None:
-            self.map.clear_trail()
+            self.map.reset()
 
     # ------------------------------------------------------------------
 
@@ -63,6 +68,9 @@ class FlightTab(QWidget):
         if lat is not None and lon is not None:
             self.map.set_position(lat, lon)
             if self.map.home is None:
+                # Tam thoi thoi: HOME_POSITION cua FC ve toi la de len (topic
+                # "home" o tren). Noi vao giua chuyen bay thi diem dinh vi dau
+                # tien KHONG phai home — vong rao lay tam la home nen phai doi.
                 self.map.set_home(lat, lon)
 
         hdg, _ = REGISTRY.best("attitude.heading")

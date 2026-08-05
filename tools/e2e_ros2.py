@@ -57,7 +57,7 @@ app = QApplication([])
 win = MainWindow([{"name": "SITL qua stack ROS2", "mode": "SIM", "conn": CONN,
                    "remote": WS, "sysid": 254}])
 win.show()
-win.panel.list.setCurrentRow(0)
+assert win.panel.select("SITL qua stack ROS2")
 win.panel.btn_connect.click()
 
 ct = win.control_tab

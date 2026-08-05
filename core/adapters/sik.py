@@ -22,6 +22,14 @@ STALE = 2.0  # giay — qua nguong nay coi nhu link chet (Phu luc 7.4)
 
 AUTOPILOT = mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1  # = 1
 
+# Hang rao la mot "nhiem vu" rieng trong MAVLink, khong phai waypoint (type 0).
+FENCE = mavutil.mavlink.MAV_MISSION_TYPE_FENCE  # = 1
+# Bon tham so quyet dinh hinh cua rao. Ban kinh va tran do cao khong nam trong
+# danh sach nhiem vu ma la tham so — phai hoi rieng.
+FENCE_PARAMS = ("FENCE_ENABLE", "FENCE_TYPE", "FENCE_RADIUS", "FENCE_ALT_MAX")
+FENCE_ASK_EVERY = 3.0  # giay giua hai lan hoi lai cai con thieu
+FENCE_ASK_MAX = 8      # bo cuoc sau ~24s: firmware khong co rao thi hoi mai vo ich
+
 
 def from_autopilot(msg):
     """Goi nay co phai FC noi khong?
@@ -62,6 +70,10 @@ STREAMS = [
     (mavutil.mavlink.MAV_DATA_STREAM_EXTRA3, 1),  # AHRS, EKF, rung, pin chi tiet
 ]
 
+# Nhip xin EXTENDED_SYS_STATE. 2 Hz la du: no chi doi trang thai khi cat/ha canh,
+# va cang thua thi cang ton bang thong tren duong SiK 57600.
+LANDED_HZ = 2
+
 # Bit cam bien trong SYS_STATUS. Lay thang tu bang enum cua pymavlink chu khong
 # go tay: doi ban MAVLink co them cam bien moi thi tu co, khong phai sua code.
 SENSOR_BITS = {
@@ -90,6 +102,14 @@ def decode_sensors(d):
             state += " (tat)"
         out[f"SENSOR.{name}"] = state
     return out
+
+
+def param_id(d):
+    """Ten tham so trong PARAM_VALUE — bytes hay str tuy ban pymavlink, co dem \\x00."""
+    pid = d.get("param_id", "")
+    if isinstance(pid, bytes):
+        pid = pid.decode("utf-8", "replace")
+    return pid.replace("\x00", "").strip()
 
 
 def normalize(name, d):
@@ -162,6 +182,37 @@ def normalize(name, d):
         armed = bool(d["base_mode"] & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
         return "heartbeat", {"armed": armed, "type": d["type"]}
 
+    if name == "EXTENDED_SYS_STATE":
+        # `landed_state` chinh la `land_complete` cua FC — dung cai co quyet dinh
+        # lenh disarm thuong co duoc chap nhan hay khong (ArduCopter/AP_Arming.cpp:788).
+        #
+        # Khong duoc thay bang do cao: do that tren MicoAir743 treo yen, GPS fix 0,
+        # `relative_alt` doc ra -8.5 m suot 10 giay trong khi rangefinder noi 0.6 m.
+        # Lech 8.5 m theo chieu am thi may bay dang o 7 m cung "duoi 1 m".
+        #
+        # 0 = FC khong biet -> KHONG emit gi, de field het tuoi thanh "khong biet".
+        # Doan bua o day la doan ra huong nguy hiem.
+        return "heartbeat", {"landed": {
+            mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND: True,
+            mavutil.mavlink.MAV_LANDED_STATE_IN_AIR: False,
+            mavutil.mavlink.MAV_LANDED_STATE_TAKEOFF: False,
+            mavutil.mavlink.MAV_LANDED_STATE_LANDING: False,
+        }.get(d["landed_state"])}
+
+    if name == "HOME_POSITION":
+        # Home THAT cua FC. Truoc day tab Flight lay diem dinh vi dau tien lam
+        # home — noi vao ma drone dang bay thi cai dau X ve sai cho, va vong tron
+        # geofence (tam la home) cung ve sai theo.
+        return "home", {
+            "lat": d["latitude"] / 1e7,
+            "lon": d["longitude"] / 1e7,
+            "alt_msl": d["altitude"] / 1000.0,
+        }
+
+    if name == "PARAM_VALUE" and param_id(d).startswith("FENCE_"):
+        # Rao di chung mot topic voi cac dinh da giac: ben ve chi phai nghe mot cho.
+        return "fence", {param_id(d): d["param_value"]}
+
     return None
 
 
@@ -181,10 +232,7 @@ def flatten_status(name, d):
         # Moi tham so mot hang rieng. De mac dinh thi ca 1431 tham so deu do vao
         # dung mot hang "PARAM_VALUE.param_value", cai sau de len cai truoc — nhin
         # thay mot con so nhay lien tuc ma khong biet la cua tham so nao.
-        pid = d.get("param_id", "")
-        if isinstance(pid, bytes):
-            pid = pid.decode("utf-8", "replace")
-        pid = pid.replace("\x00", "").strip()
+        pid = param_id(d)
         if pid:
             return {f"PARAM.{pid}": d.get("param_value")}
     for k, v in d.items():
@@ -231,6 +279,14 @@ class SikAdapter(QThread):
         # Mo phong dut telemetry ma khong phai rut day: bo goi ca hai chieu, y nhu
         # radio ra ngoai tam song. Socket van mo, nen bo len la co du lieu ngay.
         self.muted = False
+
+        # Geofence + home: FC khong tu gui, phai hoi. Xem _fence_ask().
+        self._fence = {}        # ten tham so FENCE_* -> gia tri da nhan
+        self._fence_items = {}  # seq -> (command, param1, lat, lon)
+        self._fence_n = None    # so muc FC bao co; None = chua hoi duoc
+        self._home_seen = False
+        self._ask_at = 0.0
+        self._asks = 0
 
     def stop(self):
         self._running = False
@@ -329,6 +385,85 @@ class SikAdapter(QThread):
             raise ValueError(f"khong biet lenh {action!r}")
         self._emit("cmd", {"action": action, "args": args})
 
+    # ---- geofence --------------------------------------------------------
+
+    def _fence_done(self):
+        return (
+            self._home_seen
+            and all(n in self._fence for n in FENCE_PARAMS)
+            and self._fence_n is not None
+            and len(self._fence_items) >= self._fence_n
+        )
+
+    def _fence_ask(self, master):
+        """Hoi FC ve home va hang rao. Chi hoi cai CON THIEU, va hoi lai vai lan.
+
+        Khong hoi thi ban do khong ve gi — ma man hinh trong lai giong het "khong
+        co rao nao", dung kieu noi doi nguy hiem nhat truoc gio cat canh. Mot lan
+        hoi khong du: SiK 57600 mat goi la chuyen thuong ngay.
+        """
+        m, sysid = master.mav, master.target_system
+        for n in FENCE_PARAMS:
+            if n not in self._fence:
+                m.param_request_read_send(sysid, AUTOPILOT, n.encode(), -1)
+        if not self._home_seen:
+            m.command_long_send(
+                sysid, AUTOPILOT, mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE, 0,
+                mavutil.mavlink.MAVLINK_MSG_ID_HOME_POSITION, 0, 0, 0, 0, 0, 0,
+            )
+        if self._fence_n is not None:
+            self._fence_ask_items(master)
+            return
+        try:
+            m.mission_request_list_send(sysid, AUTOPILOT, mission_type=FENCE)
+        except TypeError:
+            # `mission_type` la truong mo rong cua MAVLink2. pymavlink tu nang len
+            # v2 khi nhan duoc goi v2 dau tien, nen duong nay chi xay ra khi FC bi
+            # ep MAVLink1 (SERIALn_PROTOCOL=1). Vong tron + tran do cao van ve
+            # duoc tu tham so; rieng da giac thi chiu — va phai noi ra.
+            self._fence_n = 0
+            self._emit("fence", {"items": [], "err": "FC dang o MAVLink1 — khong doc duoc da giac"})
+
+    def _fence_ask_items(self, master):
+        """Xin cac dinh CON THIEU. Tach rieng de goi duoc ngay khi biet so luong:
+        doi het nhip 3s moi xin thi rao hien ra cham hon can thiet."""
+        for i in range(self._fence_n or 0):
+            if i not in self._fence_items:
+                master.mav.mission_request_int_send(
+                    master.target_system, AUTOPILOT, i, mission_type=FENCE
+                )
+
+    def _fence_rx(self, master, name, d):
+        """Goi lien quan den rao/home vua ve. True neu vua nhan du bo dinh."""
+        if self.muted:
+            return False  # dang mo phong mat song: goi nay coi nhu chua tung toi
+        if name == "HOME_POSITION":
+            self._home_seen = True
+        elif name == "PARAM_VALUE" and param_id(d).startswith("FENCE_"):
+            self._fence[param_id(d)] = d["param_value"]
+        elif name == "MISSION_COUNT" and d.get("mission_type") == FENCE:
+            # Dem lai tu dau: FC vua noi hien co bao nhieu muc.
+            self._fence_n = d["count"]
+            self._fence_items.clear()
+            self._fence_ask_items(master)
+            return self._fence_n == 0  # khong co da giac nao -> bao ngay, ve rong
+        elif name == "MISSION_ITEM_INT" and d.get("mission_type") == FENCE:
+            # mission_type phai khop: `goto` cung dung mission item (type 0), gop
+            # chung vao la mot waypoint hoa thanh mot dinh hang rao.
+            self._fence_items[d["seq"]] = (d["command"], d["param1"],
+                                           d["x"] / 1e7, d["y"] / 1e7)
+            return self._fence_n is not None and len(self._fence_items) >= self._fence_n
+        return False
+
+    def _fence_emit(self, master):
+        self._emit("fence", {"items": [self._fence_items[i] for i in sorted(self._fence_items)]})
+        if self.mode == "REPLAY":
+            return  # log co ghi lai rao thi van ve duoc, nhung khong gui gi ca
+        try:  # dong giao dich cho FC khoi cho — thieu cai nay no giu trang thai
+            master.mav.mission_ack_send(master.target_system, AUTOPILOT, 0, mission_type=FENCE)
+        except TypeError:
+            pass
+
     def _emit(self, topic, data, ts=None):
         if self.muted:
             return  # dang mo phong dut telemetry — xem self.muted
@@ -418,7 +553,11 @@ class SikAdapter(QThread):
                     out = normalize(name, d)
                     if out:
                         topic, data = out
-                        if topic == "heartbeat":
+                        # Dieu kien phai bam theo TEN MESSAGE, khong theo topic:
+                        # EXTENDED_SYS_STATE cung do ve topic `heartbeat`, va
+                        # mode_string_v10() doi `.autopilot` — goi do khong co,
+                        # nen luong doc chet ngay goi dau tien.
+                        if name == "HEARTBEAT":
                             # Tinh mode tu CHINH goi nay, khong lay master.flightmode:
                             # pymavlink cap nhat flightmode tu BAT KY heartbeat nao
                             # khong phai GCS, ke ca cua MAVROS (comp 191, custom_mode
@@ -430,6 +569,9 @@ class SikAdapter(QThread):
 
                     self._emit("status", flatten_status(name, d), ts)
 
+                    if self._fence_rx(master, name, d):
+                        self._fence_emit(master)
+
                     # Xin stream rate ngay sau heartbeat dau tien (luc do moi biet
                     # target_system). REPLAY khong gui gi ca.
                     if name == "HEARTBEAT" and not streams_sent and self.mode != "REPLAY":
@@ -437,14 +579,32 @@ class SikAdapter(QThread):
                             master.mav.request_data_stream_send(
                                 master.target_system, AUTOPILOT, sid, hz, 1
                             )
+                        # EXTENDED_SYS_STATE khong nam trong bo stream cu nao —
+                        # phai xin rieng, neu khong FC khong gui goi nao (do that:
+                        # 0 goi trong 8s truoc khi xin, 17 goi sau khi xin).
+                        master.mav.command_long_send(
+                            master.target_system, AUTOPILOT,
+                            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                            mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE,
+                            int(1e6 / LANDED_HZ), 0, 0, 0, 0, 0,
+                        )
                         streams_sent = True
 
                 elif self.mode == "REPLAY":
                     self._emit("link", {"bps": 0, "eof": True})
                     break
 
-                # Byte/s that, 1 Hz — nguon cho widget Link status
                 now = time.time()
+
+                # Rao va home: hoi sau khi da co target_system (tuc sau heartbeat
+                # dau), roi hoi lai cai con thieu cho toi khi du hoac het luot.
+                if (streams_sent and not self.muted and not self._fence_done()
+                        and self._asks < FENCE_ASK_MAX
+                        and now - self._ask_at >= FENCE_ASK_EVERY):
+                    self._ask_at, self._asks = now, self._asks + 1
+                    self._fence_ask(master)
+
+                # Byte/s that, 1 Hz — nguon cho widget Link status
                 if now - last_bps_at >= 1.0:
                     total = master.mav.total_bytes_received
                     self._emit(
@@ -461,8 +621,15 @@ class SikAdapter(QThread):
             self.failed.emit(f"{self.profile['name']}: {e}")
         finally:
             if self._tlog_f:
+                # Mo nguon xong ma khong nhan duoc goi nao (cong sai, radio chua
+                # bat) thi de lai mot file 0 byte: no khong phai chuyen bay, chi
+                # lam ban thu muc log va lam hop thoai REPLAY chon nham file rong.
+                empty = self._tlog_f.tell() == 0
                 self._tlog_f.close()
                 self._tlog_f = None
+                if empty:
+                    self.tlog.unlink(missing_ok=True)
+                    self.tlog = None
             try:
                 master.close()
             except Exception:

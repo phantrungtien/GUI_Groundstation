@@ -4,8 +4,8 @@ __pycache__/
 # Log bay va log app — sinh ra moi lan chay, khong phai ma nguon
 logs/
 
-# Tile ban do: 247 MB / 17k file nhi phan, va tai lai duoc bang mot lenh
-#   python3 tools/fetch_tiles.py --lat ... --lon ... --km 2 --zoom 13-19
+# Tile ban do: 265 MB / 21k file nhi phan, va tai lai duoc bang mot lenh
+#   python3 tools/fetch_tiles.py --lat ... --lon ... --km 2 --zoom 13-19 --source google
 assets/tiles/
 
 # Trang thai phien lam viec, khong lien quan toi du an

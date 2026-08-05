@@ -2,7 +2,10 @@
 """Bai chay lien tuc — rui ro #2: ghep pymavlink/WebSocket voi Qt sinh crash
 ngau nhien sau vai phut. Ke hoach bat chay o cuoi MOI phase, khong chi N5.
 
-    python3 tools/soak.py [phut] [chuoi_ket_noi]
+    python3 tools/soak.py [phut] [chuoi_ket_noi] [mode]
+
+`mode` mac dinh SIM. Chay tren FC that thi truyen REAL — banner phai do, khong
+thi bai soak lai vi pham chinh nguyen tac 2.5 ma no di kiem tra.
 
 Do ba thu moi phut: envelope co con chay khong, RAM co phinh khong, va vong lap
 Qt co con nhip khong (UI dung hinh la hong, du chua crash).
@@ -24,6 +27,7 @@ from laptop.app import MainWindow  # noqa: E402
 
 MINUTES = float(sys.argv[1]) if len(sys.argv) > 1 else 30
 CONN = sys.argv[2] if len(sys.argv) > 2 else "tcp:127.0.0.1:5760"
+MODE = sys.argv[3] if len(sys.argv) > 3 else "SIM"
 
 
 def rss_mb():
@@ -32,9 +36,9 @@ def rss_mb():
 
 
 app = QApplication([])
-win = MainWindow([{"name": "soak", "mode": "SIM", "conn": CONN, "sysid": 254}])
+win = MainWindow([{"name": "soak", "mode": MODE, "conn": CONN, "sysid": 254}])
 win.show()
-win.panel.list.setCurrentRow(0)
+assert win.panel.select("soak")
 win.panel.btn_connect.click()
 
 n = {"env": 0, "tick": 0, "last_env": 0}

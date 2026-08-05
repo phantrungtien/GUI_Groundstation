@@ -121,15 +121,36 @@ setpoint**, nên không tranh luồng 30 Hz với node offboard. Muốn bridge t
 ### Bản đồ
 
 Tile offline ở `assets/tiles/{z}/{x}/{y}.png`. Hiện có sẵn nền thế giới z0–6,
-cả Việt Nam z7–10, TP.HCM z11–14, hai bãi bay z13–19 (**17 238 tile, 247 MB**).
+cả Việt Nam z7–10, TP.HCM z11–14, hai bãi bay z13–19, riêng IUH thêm z20–21
+(**21 038 tile, 265 MB**). Trong đó 7757 tile quanh IUH là Google, phần còn lại
+vẫn là Esri cũ — zoom ra khỏi bán kính 2 km sẽ thấy tông ảnh đổi.
 
 ```bash
-# Tai truoc cho mot bai bay (~12 phut, ~47 MB)
-python3 tools/fetch_tiles.py --lat 10.8221 --lon 106.6868 --km 2 --zoom 13-19 --max 6000
+# Tai truoc cho mot bai bay (~12 phut)
+python3 tools/fetch_tiles.py --lat 10.8221 --lon 106.6868 --km 2 --zoom 13-19 \
+    --source google --max 6000
+
+# Doi nguon anh: --refetch de GHI DE tile cu, khong thi no bo qua ("co roi")
+# va man hinh tron hai kieu anh
+python3 tools/fetch_tiles.py ... --source esri --refetch
 
 # Xem muc zoom nao ve duoc, muc nao trong
 python3 tools/fetch_tiles.py --coverage
 ```
+
+Nguồn ghi ở `assets/tiles/SOURCE.txt` (dòng 1 tên nguồn để ghi công trên map,
+dòng 2 URL template để app tải bù đúng nguồn đã prefetch).
+
+**Vì sao dùng `--source google`.** Đo tại IUH, ba tile khác vị trí mỗi mức zoom:
+Esri cho z19 22/15/18 KB rồi **z20 và z21 đều là 2521 byte cùng md5** — tấm "no
+data" lặp lại; Google cho z21 vẫn 7,6/6,1/4,8 KB, tức ảnh gốc thật. Quy ra
+**Esri trần ở 29 cm/pixel, Google xuống tới 7,3 cm/pixel**.
+
+Đổi lại: `mt1.google.com/vt` là **endpoint không chính thức**, Google có thể chặn
+IP hoặc đổi endpoint bất cứ lúc nào. Nên **luôn prefetch khu bay trước**, coi
+online chỉ là phần bù — mất mạng hay bị chặn giữa buổi bay thì map vẫn vẽ từ đĩa.
+`DEFAULT_TILE_URL` trong `map_widget.py` vẫn để Esri làm dự phòng khi `SOURCE.txt`
+mất.
 
 Có mạng thì app **tự tải bù** tile còn thiếu và lưu lại cho lần bay offline sau.
 Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
@@ -139,10 +160,21 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 21 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 24 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
+```
+
+Hai kịch bản hỏng chỉ đo được trên phần cứng thật — **tháo cánh quạt trước**:
+
+```bash
+python3 tools/hitl.py 12              # profile SIM cam vao FC that -> banner van SIM
+python3 tools/hitl.py 7               # SIGKILL app -> FC giu nguyen mode
+python3 tools/hitl.py 7 --arm         # nhu tren nhung ARM truoc (cho ha ga ve min)
+python3 tools/hitl.py armcycle        # ARM/DISARM: do tre, tu ngat, chan ga cao, lenh thua
+python3 tools/hitl.py disarm          # nut do DISARM hai bac tren FC that
+python3 tools/measure_bandwidth.py    # byte/s that theo tung loai message
 ```
 
 `selfcheck.py` là hàng rào chính: chuẩn hoá NED→ENU, lọc nguồn MAVLink, trọng tài
@@ -152,6 +184,72 @@ TAKEOFF, tải tile.
 ---
 
 ## Bẫy đã gặp — đọc trước khi mất một tiếng
+
+**Hộp thoại chặn làm nút đỏ chết trong khi vẫn báo là đang bật.** Đo: lúc một
+`QMessageBox` đang mở, `QApplication.activeModalWidget()` khác `None` nên cửa sổ
+chính không nhận input — ba nút đỏ vẫn trả `isEnabled() == True` nhưng bấm không
+ăn. Xác nhận TAKEOFF ở chế độ REAL vì thế đổi sang **bấm lại trong 3 giây**
+(`CONFIRM_S`), không dùng dialog. Hai `QMessageBox` còn lại trong app đều chỉ bật
+khi **chưa** kết nối (`app.py:253` chỉ hiện khi chưa từng nhận được byte nào,
+`connection.py:272` khi chưa chọn file `.tlog`) — không có drone trên trời thì
+không có gì để cứu.
+
+**FC không kiểm cần ga khi nhận lệnh ARM.** `AP_Arming.cpp:81-115` chỉ kiểm ga có
+**thấp hơn** ngưỡng failsafe không; kiểm "ga quá cao" chỉ áp cho arm bằng cần lái.
+Đo được: ga 1496 → `ack = 0` → động cơ ra 1654/1506/1347/1080 ngay lập tức. Tháo
+cánh thì đó là tiếng ồn, lắp cánh thì không. **App tự chặn** — `THR_ARM_MAX` trong
+`laptop/tabs/control.py`, đặt theo `RC3_MIN` + `THR_DZ` của khung; đổi radio thì
+đọc lại hai tham số đó. Không thấy `RC_CHANNELS` thì vẫn gửi và nói rõ là không
+biết cần ga ở đâu — mất telemetry mà khoá luôn nút ARM là đổi một kiểu hỏng lấy
+một kiểu hỏng khác.
+
+**Lệnh DISARM thường ngừng ăn ngay khi cần nó nhất.** ArduCopter chặn mọi lệnh
+disarm đến từ GCS khi nó chưa tin là đã hạ cánh (`ArduCopter/AP_Arming.cpp:788`).
+Đo trên MicoAir743, tháo cánh:
+
+| Trạng thái FC | Lệnh DISARM thường |
+|---|---|
+| ga min, motor 1000 (idle) | **chấp nhận** — `armed=False` ngay |
+| ga giữa tầm, motor 1654/1506/1347/1080 | **`ack = 4`, 3/3 lần từ chối** |
+
+Dãy motor chênh nhau ở hàng hai là FC đang ổn định tư thế — nó tin là đang bay,
+nên `land_complete` sai. `force = 21196` ăn ngay lần đầu ở cả hai trạng thái.
+
+Nghĩa là **vị trí cần ga quyết định nút DISARM có ăn hay không** — thứ không ai
+đoán được lúc cần ngắt gấp. Nên cả hai nút DISARM (nút đỏ và nút thường) chia
+theo **đang ở dưới đất hay không**, không theo cần ga:
+
+| Đang ở dưới đất? | Bấm một phát | Giữ 2 giây |
+|---|---|---|
+| **có** | **force ngay** — ga ở mức nào cũng ngắt được | — |
+| **không** (FC báo đang bay) | lệnh thường (FC từ chối nếu nó tin là đang bay) | force |
+| **không biết** (mất telemetry, số liệu quá 2 s) | lệnh thường | force |
+
+Hàng cuối là chỗ dễ làm sai nhất: không có số liệu thì **không được đoán là đang
+dưới đất**. Đoán bừa hướng đó là cho một cú bấm nhầm tắt động cơ giữa không
+trung. Đang bay mà giữ đủ 2 giây thì drone rơi — đó là chủ ý, không phải tác
+dụng phụ.
+
+**Không được suy "dưới đất" từ độ cao.** `position.alt_rel` đọc ra **-8,5 m suốt
+10 giây** khi MicoAir743 treo yên và rangefinder nói 0,6 m — GPS fix 0 thì độ cao
+tương đối là rác. Lệch 8,5 m theo chiều âm nghĩa là máy bay ở 7 m vẫn ra "dưới
+1 m", đúng hướng hỏng tệ nhất. `_on_ground()` (`laptop/tabs/control.py`) hỏi hai
+nguồn độc lập, nguồn nào nói "dưới đất" cũng đủ:
+
+1. `EXTENDED_SYS_STATE.landed_state` — chính là `land_complete` của FC, tức đúng
+   cái cờ quyết định lệnh thường có ăn hay không. Message này **không nằm trong
+   bộ stream cũ nào**, phải xin riêng bằng `MAV_CMD_SET_MESSAGE_INTERVAL` (đo
+   thật: 0 gói trong 8 s trước khi xin, 17 gói sau khi xin).
+2. Cảm biến khoảng cách ≤ `RNG_GROUND_CM` (1 m) — thứ duy nhất **không đổi khi
+   đẩy ga lên**: 60 cm suốt cả buổi kể cả lúc động cơ quay, trong khi
+   `landed_state` lật sang IN_AIR ngay khi ga rời khỏi min. Chỉ tin khi số nằm
+   trong dải hợp lệ của chính cảm biến — hỏng mà trả 0 cm thì không được coi là
+   sát đất (tlog 04/08 có gói 0 cm thật).
+
+**Công cụ tự động không được chọn nguồn theo số thứ tự dòng.** `ConnectionPanel`
+xếp cổng USB tự quét **lên đầu** danh sách, nên `setCurrentRow(0)` trỏ vào FC
+thật ngay khi có dây cắm. Đã xảy ra: bài test REPLAY nối thẳng vào máy bay thật.
+Dùng `win.panel.select("<ten profile>")`, nó trả `False` nếu không tìm thấy.
 
 **`SIM_*` là trạng thái dai dẳng.** ArduPilot lưu tham số vào `eeprom.bin`, sống
 qua mọi lần khởi động lại SITL. Tiêm lỗi xong (`SIM_MAG1_FAIL`, `SIM_ENGINE_FAIL`)
@@ -190,6 +288,14 @@ env -u LOCPATH -u GTK_PATH -u GTK_EXE_PREFIX -u GIO_MODULE_DIR \
 **TAKEOFF cần mode GUIDED.** Ở STABILIZE thì FC trả THẤT BẠI; ở LOITER nó trả
 CHẤP NHẬN rồi không làm gì — app chặn trước và nói rõ.
 
+**Geofence phải hỏi mới có.** FC không tự gửi hàng rào: bán kính và trần độ cao là
+tham số (`FENCE_RADIUS`, `FENCE_ALT_MAX`), còn đa giác nằm trong một "nhiệm vụ"
+riêng (`mission_type = 1`), tải về như tải waypoint. Tâm vòng tròn là **home của
+FC**, không phải vị trí hiện tại — nên app xin luôn `HOME_POSITION` bằng
+`MAV_CMD_REQUEST_MESSAGE`. Đa giác cần MAVLink2; pymavlink tự nâng lên v2 ngay khi
+nhận gói v2 đầu tiên, nên chỉ khi FC bị ép MAVLink1 (`SERIALn_PROTOCOL=1`) mới
+mất phần đa giác — lúc đó dải chữ dưới bản đồ nói thẳng.
+
 **Treo tại chỗ thì dùng BRAKE hoặc GUIDED**, đừng ép cần điều khiển về giữa bằng
 RC override: ArduPilot sẽ từ chối arm với `"Throttle (RC3) is not neutral"`.
 
@@ -224,7 +330,9 @@ laptop/
   widgets/       # map, compass, attitude, telemetry_bar
 
 tools/
-  selfcheck.py     # 21 check, khong can SITL
+  selfcheck.py     # 24 check, khong can SITL
+  hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
+  measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that
   ros2_bridge.py   # chay tren COMPANION: ROS2 <-> WebSocket
   fetch_tiles.py   # tai tile ban do offline

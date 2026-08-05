@@ -59,7 +59,7 @@ threading.Thread(target=mav_sender, daemon=True).start()
 win = MainWindow([{"name": "hai nua", "mode": "SIM", "conn": f"udp:127.0.0.1:{MAV_PORT}",
                    "remote": f"ws://127.0.0.1:{WS_PORT}"}])
 win.show()
-win.panel.list.setCurrentRow(0)
+assert win.panel.select("hai nua")
 win.panel.btn_connect.click()
 ct = win.control_tab
 logs = []

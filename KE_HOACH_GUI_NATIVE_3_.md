@@ -127,6 +127,12 @@ stream setpoint**, nhường lại cho bạn.
 > Switch phần mềm chỉ là thỏa thuận giữa laptop và node offboard, không phải cơ
 > chế an toàn của toàn hệ thống.
 
+⚠️ Lưu ý một chỗ dễ nói tắt thành sai: **laptop không cài ROS2 nên không tự
+`publish` được gì cả.** Câu "app publish `/gcs/authority`" ở trên là nói gọn — thực
+tế app gửi envelope qua WebSocket, và một **bridge node trên companion** mới là
+thứ publish lên topic đó. Toàn bộ đường lệnh ROS2 đi theo cơ chế này, đặc tả đầy
+đủ ở **Phụ lục 7.8**.
+
 ### 2.5. Chế độ mô phỏng phải không thể nhầm lẫn
 
 App hỗ trợ **ba nguồn kết nối**, tất cả đi qua cùng một `SikAdapter` vì đều là
@@ -363,6 +369,11 @@ Designer lưu `.ui`, `pyside6-uic` dịch sang Python.
 - [ ] System ID riêng cho laptop
 - [ ] Node offboard trên companion subscribe `/gcs/authority`, tự dừng stream
       setpoint khi mất quyền
+- [ ] **`bridge_node.py` trên companion** — WebSocket server dịch envelope thành
+      lời gọi ROS2 (Phụ lục 7.8)
+- [ ] **Bảng lệnh chờ + timeout 3 giây** ở `remote.py` — không có nó thì nút bấm
+      hỏng sẽ treo mãi mà không ai biết
+- [ ] Nút đường ROS2 tự khóa khi đang chờ ack; **nút đỏ không bao giờ khóa**
 
 #### Mã nguồn — chỗ dễ sai nhất
 
@@ -533,6 +544,12 @@ telemetry_control_realtime/
     ├── operating_procedure.md # quy trinh bay
     └── KE_HOACH_GUI_NATIVE.md # file nay
 ```
+
+> 📌 **Một file nằm ngoài cây này nhưng không thể thiếu:** `bridge_node.py` chạy
+> trên **companion**, không phải laptop. Nó là đầu bên kia của `remote.py` — dịch
+> envelope WebSocket thành lời gọi ROS2. Đặt nó trong ROS2 workspace của
+> companion, và giữ `docs/protocol.md` là nguồn sự thật chung cho cả hai đầu
+> (xem Phụ lục 7.8).
 
 ---
 
@@ -756,11 +773,18 @@ STALE    = 2.0                       # giay
 {"src": "remote", "topic": "position", "data": {...}, "ts": 1721...}
 
 # Ra drone
-{"target": "sik", "action": "rtl", "args": {}}
+{"id": "c17", "target": "sik",  "action": "rtl",      "args": {},                  "ts": 1721...}
+{"id": "c18", "target": "ros2", "action": "set_task", "args": {"task": "WAYPOINT"}, "ts": 1721...}
+
+# Ack tra ve (chi duong ros2)
+{"id": "c18", "ok": true, "message": "Da chuyen sang WAYPOINT"}
 ```
 
 Nhờ trường `src`, UI hiển thị `Lat 10.762 (sik)` và `Lat 10.763 (remote)` cạnh
 nhau mà không nhầm.
+
+Trường `id` là bắt buộc với mọi envelope đi ra — nó là thứ duy nhất ghép được ack
+về với nút đã bấm. Chi tiết ở Phụ lục 7.8.
 
 ### 7.6. Chuỗi kết nối và SITL
 
@@ -838,6 +862,199 @@ class FlightTab(QWidget):
 Điểm dễ quên: overlay phải đặt `setAttribute(Qt.WA_TransparentForMouseEvents)` nếu
 bạn muốn click **xuyên qua** chúng tới map (ví dụ click map để goto). Nếu overlay
 cần nhận click riêng thì để mặc định.
+
+---
+
+### 7.8. Cơ chế gửi lệnh — hai đường, hai kiểu hoàn toàn khác nhau
+
+Đây là phần dễ viết sai nhất vì hai đường lệnh **trông giống nhau ở tầng UI**
+(đều là một cái nút) nhưng cơ chế bên dưới khác hẳn nhau.
+
+| | **Đường SiK** | **Đường Remote** |
+|---|---|---|
+| Giao thức | MAVLink qua serial | Envelope JSON qua WebSocket |
+| Kiểu gọi | Đồng bộ — ghi xong là xong | Bất đồng bộ — phải đợi ack |
+| Chặng trung gian | Không | `bridge_node` trên companion |
+| Biết lệnh có ăn không? | `COMMAND_ACK` về sau, rời rạc | Ack kèm `id` trong cùng envelope |
+| Mất WiFi giữa chừng | Không ảnh hưởng | Lệnh treo → timeout |
+| Dùng cho | ARM, mode, takeoff, **nút đỏ** | Đổi task ROS2, authority, param |
+
+> ⚠️ **`dispatch()` ở Phase N3 trả về kết quả ngay — điều đó chỉ đúng với đường
+> SiK.** Đường ROS2 không thể trả kết quả ngay được, vì kết quả nằm bên kia sóng
+> WiFi. Đừng viết `dispatch()` như thể hai đường giống nhau; hãy để nó trả về
+> `id` của lệnh, còn kết quả đến sau bằng Qt signal.
+
+#### 7.8.1. Chuỗi đầy đủ của một lần đổi task
+
+```
+[Nut WAYPOINT]                                    GUI thread
+   |
+   +-> dispatch()                    kiem tra AUTHORITY, sinh id = "c18"
+   +-> RemoteAdapter.send(env)       dat vao hang doi, TRA VE NGAY
+   +-> nut tu khoa, hien "dang gui..."
+          |
+          |  QThread + asyncio loop
+          v
+       WebSocket  {"id":"c18","target":"ros2","action":"set_task",
+                   "args":{"task":"WAYPOINT"}}
+- - - - - - - - - - - - -  WiFi  - - - - - - - - - - - - -
+[bridge_node]                                     companion, rclpy
+   |
+   +-> tra bang ACTIONS -> service /mission/set_task
+   +-> cli.call_async(SetTask)
+   +-> task_manager doi active_task, bat dau stream setpoint moi
+   |
+   <-- {"id":"c18","ok":true,"message":"Da chuyen sang WAYPOINT"}
+- - - - - - - - - - - - -  WiFi  - - - - - - - - - - - - -
+       RemoteAdapter nhan, tra bang PENDING theo id
+   +-> phat Qt signal ack_received(id, ok, message)
+   +-> nut mo khoa, hien ket qua
+```
+
+Bảy chặng, ba tiến trình, hai lần qua sóng WiFi. **Chỗ nào cũng có thể đứt** — đó
+là lý do phải có `id` và timeout, không thể "gửi rồi tin là xong".
+
+#### 7.8.2. Vì sao bắt buộc phải có `id`
+
+Bấm `WAYPOINT` rồi đổi ý bấm `HOVER` ngay sau đó. Hai lệnh cùng bay trên dây. Ack
+về không theo thứ tự (bridge xử lý song song, hoặc gói bị gửi lại). Không có `id`
+thì bạn ghép ack đầu tiên vào lệnh thứ hai — GUI báo "HOVER thành công" trong khi
+thứ thực sự thành công là `WAYPOINT`.
+
+`id` chỉ cần là số đếm tăng dần trong phiên: `c1`, `c2`, `c3`. Không cần UUID.
+
+#### 7.8.3. Bảng lệnh chờ và timeout
+
+`remote.py` giữ một dict lệnh đang bay:
+
+```python
+PENDING = {}          # id -> {"action": str, "deadline": float}
+TIMEOUT = 3.0         # giay
+
+def send(self, env):
+    env["id"] = self._next_id()
+    env["ts"] = time.time()
+    PENDING[env["id"]] = {"action": env["action"],
+                          "deadline": time.time() + TIMEOUT}
+    asyncio.run_coroutine_threadsafe(self._ws.send(json.dumps(env)), self._loop)
+    return env["id"]
+
+def _sweep(self):                      # QTimer 200 ms tren main thread
+    now = time.time()
+    for cid in [c for c, p in PENDING.items() if p["deadline"] < now]:
+        p = PENDING.pop(cid)
+        self.ack_received.emit(cid, False, f"Qua han: {p['action']}")
+```
+
+> 🚫 **Không tự động gửi lại.** Timeout nghĩa là *không biết* lệnh đã tới hay
+> chưa, không phải *biết là chưa tới*. Gửi lại `set_task` thì vô hại vì nó
+> idempotent, nhưng gửi lại `takeoff` thì có thể cất cánh hai lần. Quy tắc chung:
+> báo lỗi cho người dùng, để họ quyết định bấm lại.
+
+#### 7.8.4. Bẫy Qt × asyncio — chỗ sinh crash ngẫu nhiên
+
+Đây là biến thể của rủi ro #2 trong mục 5.1, nhưng nguy hiểm hơn vì nó xảy ra ở
+**cả hai chiều**:
+
+| Chiều | Sai | Đúng |
+|---|---|---|
+| GUI → WebSocket | Gọi thẳng `ws.send()` từ slot của nút | `asyncio.run_coroutine_threadsafe(..., loop)` |
+| WebSocket → GUI | Gọi `label.setText()` trong callback WebSocket | Phát Qt signal, main thread nhận |
+
+`websockets` chạy trên asyncio loop của riêng nó trong `QThread`. Đụng vào loop đó
+từ GUI thread mà không qua `run_coroutine_threadsafe` sẽ hỏng theo kiểu không tái
+hiện được — đúng triệu chứng "crash sau vài phút" đã ghi ở mục 6.7.
+
+#### 7.8.5. `bridge_node.py` trên companion
+
+Node này là thứ **duy nhất** ở phía drone được phép nhận lệnh từ laptop. Nó chỉ
+làm một việc: tra bảng và gọi tiếp. Không có logic bay nào ở đây.
+
+```python
+ACTIONS = {
+    "set_task":      ("service", "/mission/set_task", SetTask),
+    "set_authority": ("topic",   "/gcs/authority",    String),
+}
+
+async def handle(self, raw):
+    env = json.loads(raw)
+    kind = ACTIONS.get(env["action"])
+    if kind is None:
+        return {"id": env["id"], "ok": False, "message": "Lenh khong biet"}
+
+    if kind[0] == "topic":
+        self._pubs[env["action"]].publish(String(data=env["args"]["owner"]))
+        return {"id": env["id"], "ok": True, "message": "Da publish"}
+
+    fut = self._clis[env["action"]].call_async(self._build_req(env))
+    try:
+        res = await asyncio.wait_for(_wrap(fut), timeout=2.0)
+    except asyncio.TimeoutError:
+        return {"id": env["id"], "ok": False, "message": "Service khong tra loi"}
+    return {"id": env["id"], "ok": res.success, "message": res.message}
+```
+
+Ba điều bắt buộc ở node này:
+
+- **Bảng trắng, không phải bảng đen.** `ACTIONS` liệt kê thứ được phép; mọi thứ
+  khác bị từ chối. Đừng bao giờ để bridge nhận tên topic/service tuỳ ý từ dây —
+  đó là lỗ hổng cho phép laptop (hoặc bất kỳ ai vào được WiFi) gọi mọi thứ trong
+  ROS graph.
+- **Timeout riêng ở phía companion** (2 s). Nếu `task_manager` chết, bridge phải
+  trả lời "không tra lời" thay vì để laptop đợi tới hết 3 s của nó.
+- **Chạy `MultiThreadedExecutor`,** hoặc đặt client vào `ReentrantCallbackGroup`.
+  Gọi service từ trong callback của một `SingleThreadedExecutor` sẽ deadlock.
+
+#### 7.8.6. Vì sao service, không phải topic
+
+Cho việc đổi task, service là lựa chọn đúng:
+
+| | Topic | Service |
+|---|---|---|
+| Biết bên kia đã nhận? | Không | Có |
+| Từ chối được tên task sai? | Không | Có |
+| Lệnh gửi trước khi discovery xong | **Mất im lặng** | Báo lỗi rõ |
+
+Cái bẫy ở hàng cuối là thứ tốn nhiều giờ debug nhất: publish ngay sau khi tạo
+publisher thì gói đầu tiên biến mất, vì DDS chưa bắt tay xong với subscriber.
+Service không có vấn đề này — nó báo lỗi thay vì im lặng.
+
+**Khi nào cần Action thay vì Service:** khi lệnh chạy lâu và bạn muốn xem tiến độ
+(bay hết một mission 12 waypoint) hoặc muốn huỷ giữa chừng. Hiện tại `set_task`
+trả lời tức thì — nó chỉ đổi một biến — nên service là đủ và đơn giản hơn nhiều.
+
+#### 7.8.7. Nút bấm trong lúc chờ
+
+- Khoá **đúng nút vừa bấm**, không khoá cả tab. Người dùng vẫn phải bấm được nút
+  khác trong khi một lệnh đang bay
+- **Không dùng `QMessageBox` hay bất cứ dialog chặn nào** trong lúc chờ — nó đóng
+  băng vòng lặp sự kiện, và bạn sẽ không bấm được nút đỏ
+- Ack trễ về sau khi đã timeout thì **bỏ qua, chỉ ghi log**. Đừng mở lại nút hay
+  đổi trạng thái theo một ack đã hết hạn
+
+#### 7.8.8. Ranh giới an toàn của cơ chế này
+
+Toàn bộ mục 7.8 nói về **đường Remote**. Nút đỏ không dính dáng gì tới nó: không
+có `id`, không có bảng chờ, không có bridge, không có timeout — ghi thẳng MAVLink
+xuống serial (mục 2.1).
+
+Còn một câu hỏi thiết kế phải trả lời dứt khoát, vì nó quyết định drone làm gì khi
+WiFi rớt:
+
+> **Có nên cho `task_manager` tự chuyển về `IDLE` khi mất heartbeat từ GCS không?**
+
+Hai lựa chọn, đều có lý:
+
+- **Không (mặc định).** Task tự hành chạy tiếp đúng như kịch bản hỏng kiểu A ở mục
+  1.3. Mission vision hoàn thành được dù bạn mất quan sát. Việc kéo drone về là
+  của nút đỏ qua SiK — đường không bao giờ chết.
+- **Có.** An toàn hơn theo nghĩa "mất liên lạc thì dừng", nhưng biến một sự cố
+  mạng thành **thay đổi hành vi bay**. Với mission tự hành bay xa khỏi vùng WiFi
+  thì đây là hành vi sai — drone sẽ tự dừng ngay chỗ nó vừa ra khỏi tầm sóng.
+
+Chốt: **mặc định không bật**, vì kiến trúc này đã có đường SiK độc lập làm nhiệm
+vụ đó. Nếu sau này bật, phải ghi rõ vào `docs/operating_procedure.md` và thêm một
+kịch bản hỏng vào bảng mục Phase N5 — người bay phải biết trước drone sẽ làm gì.
 
 ---
 
