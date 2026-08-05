@@ -71,7 +71,15 @@ class Bridge(Node):
         self.lock = threading.Lock()
         self.sent = 0
 
-        self.authority_pub = self.create_publisher(String, "/gcs/authority", 10)
+        # TRANSIENT_LOCAL: quyen la TRANG THAI, khong phai luong. Nhiem vu khoi
+        # dong SAU khi ban da gat MANUAL van phai biet minh dang mat quyen —
+        # VOLATILE thi no khong nghe duoc gi va stream setpoint ngay. Phai khop
+        # voi `authority_qos()` ben guided_base.py, lech mot ben la DDS im het.
+        self.authority_pub = self.create_publisher(
+            String, "/gcs/authority",
+            QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
+                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                       history=QoSHistoryPolicy.KEEP_LAST, depth=1))
         # Moi lenh khac tu laptop di ra day nguyen dang JSON. Node nhiem vu tu doc
         # va tu quyet — laptop KHONG gui setpoint, khong tranh luong 30 Hz voi ai.
         # Doi nhiem vu la doi trang thai ben trong node dang so huu luong do; chen

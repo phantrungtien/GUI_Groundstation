@@ -118,10 +118,16 @@ def script():
     assert div < 5.0, f"hai nguon lech {div:.1f} m — nghi sai he toa do"
     print(f"  ok  SiK va MAVROS lech {div:.2f} m (nguong 5 m)")
 
-    # Mission cua launch da bay xong tu truoc; can mot chuyen moi de con dang
-    # bay luc bam nut do.
+    # Can mot chuyen bay MOI de con dang bay luc bam nut do, nen don bai truoc.
+    # `pkill` mot mission dang bay do thi drone treo o GUIDED MAI MAI — GUIDED
+    # khong tu ha canh, va khong con ai stream setpoint de bao no lam gi. Nen
+    # phai chu dong goi no ve, khong thi buoc cho disarm duoi day treo het gio
+    # va bai test bao FAIL trong khi chang co gi hong.
     subprocess.run(["pkill", "-f", "mission_"], check=False)
-    yield "drone ha canh, disarm xong", lambda: val("heartbeat.armed") is False, 120
+    if val("heartbeat.armed"):
+        print("  ..  drone dang bay san (mission cua launch) -> RTL cho ve da")
+        ct.btn_rtl.click()
+    yield "drone ha canh, disarm xong", lambda: val("heartbeat.armed") is False, 180
     # PYTHONUNBUFFERED: bai test doc tien do qua log nay. Khong co no thi python
     # block-buffer 8 KB khi stdout la file, va dieu kien cho khong bao gio thay chu.
     sh(f"PYTHONUNBUFFERED=1 ros2 run simtofly_mavros_sitl {MISSION}",
@@ -141,9 +147,11 @@ def script():
     assert "TU CHOI" in logs[-1], logs
     print(f"  ok  quyen thuoc ROS2 -> \"{logs[-1]}\"")
 
-    # Nghe /gcs/authority truoc khi bam: topic nay khong latch.
-    sh("timeout 25 ros2 topic echo /gcs/authority", out=open(AUTH_LOG, "w"))
-    # `ros2 topic echo` mat vai giay moi subscribe xong; bam som hon thi mat goi.
+    # Nghe /gcs/authority truoc khi bam. Topic nay TRANSIENT_LOCAL nen gia tri
+    # cuoi con lai cho nguoi vao sau, nhung `ros2 topic echo` mac dinh subscribe
+    # VOLATILE — QoS lech thi khong nhan duoc gi. Phai xin durability khop.
+    sh("timeout 25 ros2 topic echo --qos-durability transient_local "
+       "--qos-reliability reliable /gcs/authority", out=open(AUTH_LOG, "w"))
     yield "may nghe /gcs/authority san sang", (
         lambda t0=time.time(): time.time() - t0 > 5), 15
 
@@ -165,13 +173,24 @@ def script():
     yield "FC nhan RTL", lambda: val("heartbeat.mode") == "RTL", 15
     after = MISSION_LOG.read_text()
     assert "circle complete" not in after, "node tu RTL trong luc do — khong ket luan duoc"
-    still = after.count("laps ") - mission_at_press.count("laps ")
-    print(f"  ok  FC doi sang RTL, va node ROS2 van in them {still} dong 'laps'"
-          " sau khi bam -> no VAN DANG stream setpoint")
-    if still > 0:
-        print("  !!  node offboard KHONG nhuong quyen theo /gcs/authority"
-              " (hang muc N3 con lai ben companion). FC bo qua setpoint o mode RTL"
-              " nen drone van ve nha — nhung do la ArduPilot cuu, khong phai thoa thuan.")
+    lag = after.count("laps ") - mission_at_press.count("laps ")
+    print(f"  ok  FC doi sang RTL ({lag} dong 'laps' in ra trong luc lenh con"
+          " tren duong WebSocket -> bridge -> topic)")
+
+    # Day moi la hang muc N3 ben companion: node offboard phai TU DUNG stream,
+    # khong phai de ArduPilot bo qua setpoint giup. `laps` in ra o cuoi
+    # _control_loop, sau cong phan quyen — con dem tang la con chay vong lap.
+    yield "duong nhuong quyen kip lan toi node", (
+        lambda t0=time.time(): time.time() - t0 > 3), 10
+    laps_a = MISSION_LOG.read_text().count("laps ")
+    yield "do lai sau 2s nua", (lambda t0=time.time(): time.time() - t0 > 2), 10
+    laps_b = MISSION_LOG.read_text().count("laps ")
+    assert laps_b == laps_a, (
+        f"node offboard VAN chay sau khi mat quyen ({laps_b - laps_a} dong 'laps'"
+        " moi trong 2s) — kich ban hong #5, kiem tra authority_gate() ben guided_base")
+    assert "dung stream setpoint" in MISSION_LOG.read_text(), \
+        "node khong he nhan duoc /gcs/authority — kiem tra QoS hai dau"
+    print("  ok  node ROS2 dung han sau khi mat quyen (khong phai ArduPilot cuu)")
 
     yield "drone thuc su ha do cao", (
         lambda: (val("position.alt_rel") or 99) < alt_at_press - 1.0), 60
