@@ -19,6 +19,7 @@ from core import bus
 from core.adapters.sik import SikAdapter, flatten_status, normalize
 
 PORT = 14559  # cong rieng cho self-check, khong dung vao SITL that
+VIDEO_PORT = 14560  # may chu MJPEG gia cua check_video
 
 
 def deadline(app, ms):
@@ -1145,6 +1146,93 @@ def check_adapter_live(app):
     print(f"  ok  SikAdapter live — {seen['link']['data']['bps']} B/s, topic: {sorted(seen)}")
 
 
+def check_video(app):
+    """Video MJPEG: suy URL, doc multipart that qua socket that, va — cho quan
+    trong nhat — mat tin hieu thi phai XOA khung cu.
+
+    Dong bang khung cuoi la kieu hong nguy hiem nhat cua man hinh nay: phi cong
+    nhin mot canh quay cach day 10 giay ma tuong dang thay drone luc nay.
+    """
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from PySide6.QtCore import QBuffer
+    from PySide6.QtGui import QColor, QPixmap
+
+    from laptop.widgets.video import VideoSource, VideoView, url_for
+
+    # IP lay tu `remote` da co, khong them key config va khong di do IP.
+    assert url_for("ws://192.168.1.50:8765") == "http://192.168.1.50:8080/stream"
+    assert url_for("ws://127.0.0.1:8765") == "http://127.0.0.1:8080/stream"
+    assert url_for("") is None
+
+    # JPEG that chu khong phai byte rac: bat loi giai ma, khong chi bat loi truyen.
+    pm = QPixmap(32, 24)
+    pm.fill(QColor("#c0392b"))
+    buf = QBuffer()
+    buf.open(QBuffer.WriteOnly)
+    pm.save(buf, "JPEG")
+    jpeg = bytes(buf.data())
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.end_headers()
+            for _ in range(2):
+                self.wfile.write(
+                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n"
+                    % len(jpeg)
+                )
+                self.wfile.write(jpeg + b"\r\n")
+                time.sleep(0.05)
+            # Roi im lang, KHONG dong ket noi: dung y hinh WiFi rot am tham, kieu
+            # ma `read()` treo mai chu khong nem loi.
+            time.sleep(30)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", VIDEO_PORT), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def wait(sig, pred, ms):
+        t = deadline(app, ms)
+
+        def on():
+            if pred():
+                app.quit()
+
+        sig.connect(on)
+        app.exec()
+        sig.disconnect(on)
+        t.stop()
+
+    src = VideoSource()
+    view = VideoView(src)
+    view.resize(160, 120)
+    src.start(f"http://127.0.0.1:{VIDEO_PORT}/stream")
+
+    wait(src.updated, lambda: src.pixmap is not None, 6000)
+    assert src.alive and src.pixmap is not None, f"khong nhan duoc khung: {src.note}"
+    assert src.pixmap.width() == 32, f"giai ma sai kich thuoc: {src.pixmap.width()}"
+
+    # Ve len that, khong chi tin vao co trang thai.
+    c = view.grab().toImage().pixelColor(5, 5)
+    assert c.red() > 150 and c.green() < 90, f"khung khong len man hinh: {c.getRgb()}"
+
+    # Het khung moi -> phai lat sang o xam trong vong STALE_S.
+    wait(src.updated, lambda: not src.alive, 6000)
+    assert not src.alive, "van bao con song sau khi het khung"
+    assert src.pixmap is None, "dong bang khung cuoi — phai xoa de hien o xam"
+    c = view.grab().toImage().pixelColor(5, 5)
+    assert abs(c.red() - 0x25) < 12 and abs(c.blue() - 0x2C) < 12, \
+        f"mat video ma khong phai o xam: {c.getRgb()}"
+
+    src.stop()
+    srv.shutdown()
+    print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -1173,4 +1261,5 @@ if __name__ == "__main__":
     check_dead_socket(app)
     check_banner_health(app)
     check_adapter_live(app)
+    check_video(app)
     print("selfcheck: PASS")

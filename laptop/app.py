@@ -29,6 +29,7 @@ from laptop.tabs.control import ControlTab
 from laptop.tabs.flight import FlightTab
 from laptop.tabs.messages import MessagesTab
 from laptop.tabs.status import StatusTab
+from laptop.widgets.video import VideoSource, VideoView, url_for
 from laptop.ui.main_window_ui import Ui_MainWindow
 
 # Nen toi la chuan de facto cua GCS: ngoai nang do choi, nhin lau do moi.
@@ -91,6 +92,14 @@ class MainWindow(QMainWindow):
         mount(self.ui.Control, self.control_tab)
         mount(self.ui.Flight, self.flight_tab)
         self.control_tab.log.connect(self._on_cmd_log)
+
+        # Mot nguon video, hai cho ve: tab Camera de xem ky, o PiP tren tab Flight
+        # de phi cong theo doi ma khong roi ban do. Pi chi phai phuc vu mot luong.
+        # ponytail: addTab bang code, khoi phai sua .ui roi chay lai build_ui.sh.
+        self.video = VideoSource(self)
+        self.camera_tab = VideoView(self.video)
+        self.ui.tabWidget.addTab(self.camera_tab, "Camera")
+        self.flight_tab.set_video_source(self.video)
 
         # Trong tai da nguon an theo bus, tab Flight doc lai tu no.
         bus.on("*", REGISTRY.feed)
@@ -165,6 +174,12 @@ class MainWindow(QMainWindow):
             self.remote.start()
             authority.register("remote", self.remote)
 
+            # Video di cung nua WiFi va chi nua do — SiK (~470-3200 B/s) khong du
+            # cho noi mot khung JPEG. Khong co `remote` thi khong co video, dung.
+            url = url_for(profile["remote"])
+            if url:
+                self.video.start(url)
+
         self.control_tab.set_mode(self.mode)
         self.flight_tab.set_mode(self.mode)
         self.status_tab.attach(self.adapter)
@@ -218,6 +233,7 @@ class MainWindow(QMainWindow):
                 a.stop()
                 setattr(self, attr, None)
             authority.unregister(name)
+        self.video.stop()
         self.profile = self.mode = None
         self.setWindowTitle(TITLE)
         self.banner.show_disconnected()

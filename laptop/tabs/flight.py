@@ -16,8 +16,10 @@ from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
 from laptop.widgets.map_widget import MapWidget
 from laptop.widgets.telemetry_bar import TelemetryBar
+from laptop.widgets.video import VideoView
 
 MARGIN = 12
+PIP_W, PIP_H = 256, 192  # o camera goc tren-trai; tab Camera moi la cho xem ky
 
 
 class FlightTab(QWidget):
@@ -37,7 +39,12 @@ class FlightTab(QWidget):
         )
         self.warn.hide()
 
-        for w in (self.compass, self.attitude, self.telemetry, self.warn):
+        # O camera cho phi cong theo doi ma khong roi man hinh bay. Tat mac dinh:
+        # ai can video thi bat, con man hinh bay mac dinh phai la ban do.
+        self.video = VideoView(parent=self)
+        self.video.hide()
+
+        for w in (self.compass, self.attitude, self.telemetry, self.warn, self.video):
             w.raise_()
             # Click xuyen qua overlay xuong map (de con click-to-goto).
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -58,6 +65,10 @@ class FlightTab(QWidget):
         self.mode = mode
         if mode is None:
             self.map.reset()
+
+    def set_video_source(self, source):
+        """Dung chung mot `VideoSource` voi tab Camera — mot ket noi, hai cho ve."""
+        self.video.set_source(source)
 
     # ------------------------------------------------------------------
 
@@ -105,16 +116,28 @@ class FlightTab(QWidget):
             self.warn.hide()
 
     def _menu(self, point):
-        """Click phai tren map -> GUIDED + bay toi (chi khi cam quyen MANUAL)."""
-        if self.mode not in ("REAL", "SIM"):
-            return
-        lat, lon = self.map.latlon_at(point)
+        """Click phai tren map -> GUIDED + bay toi (chi khi cam quyen MANUAL).
+
+        Bat/tat camera cung nam o day chu khong lam nut rieng: o PiP de click
+        xuyen qua xuong map, nen no khong tu nhan duoc cu bam nao.
+        """
         menu = QMenu(self)
-        act = menu.addAction(f"GUIDED + bay toi {lat:.5f}, {lon:.5f}")
-        if authority.AUTHORITY != authority.GCS:
-            act.setEnabled(False)
-            menu.addAction("(quyen dang thuoc ve ROS2)").setEnabled(False)
-        if menu.exec(QCursor.pos()) is act:
+
+        act_goto = None
+        if self.mode in ("REAL", "SIM"):
+            lat, lon = self.map.latlon_at(point)
+            act_goto = menu.addAction(f"GUIDED + bay toi {lat:.5f}, {lon:.5f}")
+            if authority.AUTHORITY != authority.GCS:
+                act_goto.setEnabled(False)
+                menu.addAction("(quyen dang thuoc ve ROS2)").setEnabled(False)
+            menu.addSeparator()
+
+        act_video = menu.addAction("An camera" if self.video.isVisible() else "Hien camera")
+
+        chosen = menu.exec(QCursor.pos())
+        if chosen is act_video:
+            self.video.setVisible(not self.video.isVisible())
+        elif chosen is not None and chosen is act_goto:
             authority.dispatch({"target": "sik", "action": "mode", "args": {"name": "GUIDED"}})
             authority.dispatch(
                 {"target": "sik", "action": "goto", "args": {"lat": lat, "lon": lon}}
@@ -130,6 +153,11 @@ class FlightTab(QWidget):
                            h - self.attitude.height() - m)
         self._place_telemetry()
         self.warn.setGeometry(m, m, max(240, w // 2), 28)
+
+        # Duoi cho thanh canh bao, KE CA khi no dang an: o camera dung yen mot
+        # cho, khong nhay len nhay xuong theo luc hai nguon lech vi tri.
+        pw = min(PIP_W, w // 3)
+        self.video.setGeometry(m, m + 28 + 6, pw, pw * PIP_H // PIP_W)
         super().resizeEvent(e)
 
     def _place_telemetry(self):

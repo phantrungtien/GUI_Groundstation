@@ -20,7 +20,13 @@
   sysid: 254          # sysid rieng cho laptop, khac companion (nguyen tac 2.3)
   # Nua ROS2 qua WiFi toi companion. Bo trong thi app chi chay nua SiK — van bay
   # va van co nut do, chi mat vision/SLAM/task. Do la ranh gioi suy giam chuc nang.
-  # remote: "ws://192.168.1.50:8765"
+  #
+  # Dia chi video (MJPEG cong 8080) SUY TU dong nay, khong co key rieng: video chi
+  # chay tren nua WiFi, nen dung dieu kien de co video cung la dieu kien da biet IP.
+  #
+  # IP nay do DHCP cap nen co the doi sau khi khoi dong lai router. Muon co dinh
+  # that thi dat DHCP reservation theo MAC cua Pi tren router — 0 dong code.
+  remote: "ws://192.168.1.113:8765"
 
 # Mo phong. Can hai thu chay truoc:
 #   1. ros2 launch simtofly_mavros_sitl sitl_mission.launch.py
