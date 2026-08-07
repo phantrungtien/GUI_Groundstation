@@ -6,6 +6,9 @@ pymavlink, nhận dữ liệu **ROS2** qua WebSocket từ companion.
 Kế hoạch đầy đủ: [`KE_HOACH_GUI_NATIVE(3).md`](KE_HOACH_GUI_NATIVE\(3\).md) ·
 Đặc tả envelope: [`docs/protocol.md`](docs/protocol.md)
 
+**Ngày bay thì cầm [`docs/operating_procedure.md`](docs/operating_procedure.md)** —
+checklist trước cất cánh, ngưỡng phải hành động, 12 kịch bản hỏng.
+
 ---
 
 ## Chạy giao diện
