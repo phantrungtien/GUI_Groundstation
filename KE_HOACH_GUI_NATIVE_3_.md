@@ -182,15 +182,22 @@ NetID, cùng dải tần. Mua theo cặp thì thường có sẵn; mua lẻ ph�
 
 #### Việc cần làm
 
-- [ ] `ls /dev/ttyUSB0` nhận diện được SiK @ 57600
-- [ ] SITL ArduCopter chạy được *(dùng chung với bản web — làm một lần)*
+- [ ] `ls /dev/ttyUSB0` nhận diện được SiK @ 57600 — **chưa từng có `ttyUSB*` cắm vào máy**
+- [x] SITL ArduCopter chạy được *(dùng chung với bản web — làm một lần)*
 - [ ] **Đo băng thông SiK thật** (xem Phụ lục 7.1) — đừng tin ước lượng
-- [ ] Cài Mission Planner để đối chiếu *(không nằm trong kiến trúc, chỉ để test)*
+      → mới đo được trên USB (`ttyACM0`): **1895–1986 B/s**, gấp ~2,4× ước lượng
+      800 B/s của Phụ lục 7.1. Còn nợ số trên radio SiK, và nó **chặn bàn hai cần**
+- [x] Cài Mission Planner để đối chiếu *(không nằm trong kiến trúc, chỉ để test)*
+      → `mono-complete` 6.8 + MP 1.3.83 chạy được, nhưng **việc đối chiếu làm bằng
+      MAVProxy** (`tools/compare_gcs.py`). Lý do MP không đọc được số: `docs/doi_chieu_gcs.md` mục 7
 
 #### Nghiệm thu
 
 Kết nối SITL hoặc FC thật qua SiK bằng script pymavlink 10 dòng, in ra được
 lat/lon/alt/battery/mode.
+
+> **Đạt một nửa.** SITL thì xong từ lâu. **Qua SiK thì chưa** — chưa từng có
+> `/dev/ttyUSB*` cắm vào máy này. Đó là món chặn duy nhất còn lại của N0.
 
 ---
 
@@ -272,12 +279,14 @@ for k, v in d.items():
 
 #### Nghiệm thu
 
-- Khởi động → hiện hộp thoại chọn nguồn, **không tự nối gì cả**
-- Chọn `SITL localhost` → banner xanh dương, tiêu đề `[SIM] ...`, dữ liệu chảy
-- Chọn `SiK radio` → banner đỏ, tiêu đề `[REAL] ...`
-- Chọn `.tlog` → banner xám, dữ liệu phát lại đúng nhịp, tua được
-- Widget Link status hiện **hai hàng** với byte/s thật
-- Rút WiFi → hàng `Remote` xám trong 2 giây, hàng `SiK` vẫn xanh, app không treo
+- [x] Khởi động → hiện hộp thoại chọn nguồn, **không tự nối gì cả**
+- [x] Chọn `SITL localhost` → banner xanh dương, tiêu đề `[SIM] ...`, dữ liệu chảy
+- [x] Chọn `SiK radio` → banner đỏ, tiêu đề `[REAL] ...`
+- [x] Chọn `.tlog` → banner xám, dữ liệu phát lại đúng nhịp, tua được
+- [x] Widget Link status hiện **hai hàng** với byte/s thật
+- [x] Rút WiFi → hàng `Remote` xám trong 2 giây, hàng `SiK` vẫn xanh, app không treo
+
+Cả sáu dòng nằm trong `tools/selfcheck.py` (**25/25 PASS**) và `tools/check_halves.py`.
 - Tắt SITL → hàng `SiK` xám, app không treo
 
 ---
@@ -350,9 +359,15 @@ Designer lưu `.ui`, `pyside6-uic` dịch sang Python.
 
 #### Nghiệm thu
 
-- Chạy SITL, so từng con số với Mission Planner — sai lệch chỉ do làm tròn
-- Rút WiFi giữa chừng → số liệu **không đứng hình**, tụt xuống SiK, đổi màu chấm
-- Chạy liên tục 30 phút không crash
+- [x] Chạy SITL, so từng con số với Mission Planner — sai lệch chỉ do làm tròn
+      → **ĐẠT 07/08/2026** bằng `tools/compare_gcs.py`, đối chiếu với MAVProxy.
+      Treo 10 m: độ cao lệch 0.000 m, điện áp 0 V, **toạ độ lệch 0**; trên đất
+      toạ độ lệch 0,70 m so với chỗ SITL đặt drone. Số đo: `docs/doi_chieu_gcs.md`
+- [x] Rút WiFi giữa chừng → số liệu **không đứng hình**, tụt xuống SiK, đổi màu chấm
+      → `tools/check_halves.py` PASS
+- [x] Chạy liên tục 30 phút không crash
+      → **ĐẠT 07/08/2026**: 178 413 envelope (99/s), RAM 109,3 → 119,8 MB và
+      **đứng yên từ phút 1 tới phút 30**, nhịp Qt 17999/18000
 
 ---
 
@@ -362,18 +377,25 @@ Designer lưu `.ui`, `pyside6-uic` dịch sang Python.
 
 #### Hạng mục
 
-- [ ] Thanh trên: switch **MANUAL (GCS)** ↔ **AUTO (ROS2)**, hiện rõ ai cầm quyền
-- [ ] Nút thường: ARM / DISARM / chọn mode / TAKEOFF
-- [ ] **Nhóm nút đỏ tách riêng về mặt mã nguồn** — gọi thẳng `SikAdapter`,
-      không đi qua `dispatch()`
-- [ ] System ID riêng cho laptop
-- [ ] Node offboard trên companion subscribe `/gcs/authority`, tự dừng stream
-      setpoint khi mất quyền
-- [ ] **`bridge_node.py` trên companion** — WebSocket server dịch envelope thành
-      lời gọi ROS2 (Phụ lục 7.8)
-- [ ] **Bảng lệnh chờ + timeout 3 giây** ở `remote.py` — không có nó thì nút bấm
-      hỏng sẽ treo mãi mà không ai biết
-- [ ] Nút đường ROS2 tự khóa khi đang chờ ack; **nút đỏ không bao giờ khóa**
+- [x] Thanh trên: switch **MANUAL (GCS)** ↔ **AUTO (ROS2)**, hiện rõ ai cầm quyền
+      → `laptop/tabs/control.py:82`
+- [x] Nút thường: ARM / DISARM / chọn mode / TAKEOFF
+      → TAKEOFF ở REAL xác nhận bằng bấm lại trong 3 s, không dùng hộp thoại
+- [x] **Nhóm nút đỏ tách riêng về mặt mã nguồn** — gọi thẳng `SikAdapter`,
+      không đi qua `dispatch()` → `core/authority.py:15` `ESCAPE`
+- [x] System ID riêng cho laptop → `sysid: 254` trong `config/connections.yaml`
+- [x] Node offboard trên companion subscribe `/gcs/authority`, tự dừng stream
+      setpoint khi mất quyền → repo `ros2-ardupilot-sitl-hardware`; QoS phải
+      **TRANSIENT_LOCAL** cả hai đầu, lệch durability là DDS bỏ qua cặp ghép mà
+      **không một lỗi nào**. `tools/e2e_ros2.py` assert cứng
+- [x] **`bridge_node.py` trên companion** — WebSocket server dịch envelope thành
+      lời gọi ROS2 (Phụ lục 7.8) → `tools/ros2_bridge.py`, `--spawn` chỉ chạy tên
+      trong danh sách trắng
+- [x] **Bảng lệnh chờ + timeout 3 giây** — không có nó thì nút bấm hỏng sẽ treo
+      mãi mà không ai biết → `laptop/tabs/control.py:204` `_pending`, **nằm ở
+      control.py chứ không phải `remote.py`** như kế hoạch dự định
+- [x] Nút đường ROS2 tự khóa khi đang chờ ack; **nút đỏ không bao giờ khóa**
+      → `tools/selfcheck.py` có check riêng cho điều này
 
 #### Mã nguồn — chỗ dễ sai nhất
 
@@ -393,10 +415,18 @@ Nút đỏ đi trước mọi kiểm tra. Không có nhánh nào làm nó bị c
 
 #### Nghiệm thu
 
-- Trên SITL: ARM → TAKEOFF 5 m → RTL hoàn chỉnh chỉ bằng app này
-- **Tắt hẳn companion giữa lúc drone đang bay**, bấm RTL → drone vẫn về nhà
-- Rút WiFi (kiểu hỏng A), bấm RTL → drone về nhà, node offboard mất quyền
-- Set authority sang `ros2`, bấm TAKEOFF → bị từ chối; bấm RTL → vẫn ăn
+- [x] Trên SITL: ARM → TAKEOFF 5 m → RTL hoàn chỉnh chỉ bằng app này
+- [x] **Tắt hẳn companion giữa lúc drone đang bay**, bấm RTL → drone vẫn về nhà
+      → `tools/check_halves.py`
+- [x] Rút WiFi (kiểu hỏng A), bấm RTL → drone về nhà, node offboard mất quyền
+- [x] Set authority sang `ros2`, bấm TAKEOFF → bị từ chối; bấm RTL → vẫn ăn
+      → `tools/e2e_ros2.py` trên stack ROS2 thật: mission stream 30 Hz ở 10,2 m,
+      bấm RTL → **không thêm một vòng `laps` nào**, node dừng hẳn
+
+> **Còn nợ: nghiệm thu trên phần cứng thật.** Bốn dòng trên mới đạt trên SITL.
+> Bằng chứng còn thiếu là chặng ga-giữa-tầm của `tools/hitl.py disarm` — phải in
+> `landed = False` mà vẫn gửi FORCE, chứng minh rangefinder gánh được lúc
+> `landed_state` lật sang IN_AIR. Hai tlog 04/08 đều chỉ có `landed_state = 1`.
 
 ---
 
@@ -417,11 +447,15 @@ Chốt hướng dựa trên prototype đã làm ở cuối Phase N2:
 **Với drone bay ngoài hiện trường, tile offline gần như chắc chắn là lựa chọn
 đúng** — laptop ngoài bãi bay không có internet.
 
-- [ ] Vẽ tile offline, pan/zoom
-- [ ] Vị trí realtime + vệt đường bay
-- [ ] Home position, geofence
-- [ ] Tải sẵn tile cho khu vực bay trước khi ra hiện trường
-- [ ] Click bản đồ → GUIDED + goto **(chỉ khi cầm quyền MANUAL)**
+- [x] Vẽ tile offline, pan/zoom → `map_widget.py:348` `wheelEvent`, `:359` kéo map
+- [x] Vị trí realtime + vệt đường bay → `map_widget.py:279` `trail`, cắt bớt theo `MAX_TRAIL`
+- [x] Home position, geofence → `set_home`, `set_fence`; đã test rào 4 điểm trên SITL
+- [x] Tải sẵn tile cho khu vực bay trước khi ra hiện trường
+      → `tools/fetch_tiles.py`, hiện có **21 038 tile / 265 MB**. Nguồn đổi Esri →
+      **Google** vì Esri trần ở 29 cm/pixel còn Google xuống 7,3 cm/pixel; đổi nguồn
+      **phải kèm `--refetch`** không thì màn hình trộn hai kiểu ảnh
+- [x] Click bản đồ → GUIDED + goto **(chỉ khi cầm quyền MANUAL)**
+      → `laptop/tabs/flight.py:130` — quyền thuộc ROS2 thì mục này xám đi
 
 #### Bước 2 — Widget tự vẽ đè lên map
 
@@ -429,9 +463,11 @@ Làm từng widget riêng lẻ trước, test trên cửa sổ trống với d�
 ghép lên map. **Thứ tự học `QPainter`: la bàn trước (một phép xoay), attitude sau
 (xoay + dịch chồng nhau).**
 
-- [ ] La bàn — xoay theo heading
-- [ ] Attitude indicator — đường chân trời theo roll + pitch
-- [ ] Thanh telemetry (tốc độ, độ cao, pin) — overlay góc dưới
+- [x] La bàn — xoay theo heading → `laptop/widgets/compass.py`
+- [x] Attitude indicator — đường chân trời theo roll + pitch → `laptop/widgets/attitude.py`
+- [x] Thanh telemetry (tốc độ, độ cao, pin) — overlay góc dưới
+      → `laptop/widgets/telemetry_bar.py`; mỗi ô mang một chấm màu chỉ nguồn dữ
+      liệu, nguồn hết tươi thì số xám đi (nguyên tắc 2.2)
 
 #### Bước 3 — Xếp overlay
 
@@ -441,10 +477,12 @@ trên map, và cập nhật lại vị trí trong `resizeEvent`.
 
 #### Nghiệm thu
 
-- Tab Flight hiện map offline, la bàn quay theo heading thật từ SITL
-- Attitude indicator nghiêng đúng theo roll/pitch
-- Phóng to/thu nhỏ cửa sổ → overlay giữ đúng vị trí góc, không trôi
-- Ngắt mạng hoàn toàn → map vẫn hiện (tile offline)
+- [x] Tab Flight hiện map offline, la bàn quay theo heading thật từ SITL
+      → heading lấy `attitude.heading` trước, tụt về `position.heading` sau. FC gửi
+      **hai** hướng mũi khác nhau, lệch ~1° là thật — xem `docs/doi_chieu_gcs.md` mục 6
+- [x] Attitude indicator nghiêng đúng theo roll/pitch
+- [x] Phóng to/thu nhỏ cửa sổ → overlay giữ đúng vị trí góc, không trôi
+- [x] Ngắt mạng hoàn toàn → map vẫn hiện (tile offline)
 
 ---
 
@@ -465,13 +503,21 @@ Một **panel Sim** (cửa sổ phụ hoặc dock, **không phải một tab th�
 hiện khi `mode == SIM`, phục vụ đúng bảng kịch bản bên dưới. Không có nó thì việc
 tái hiện lỗi rất thủ công.
 
-- [ ] **Tiêm lỗi** — đặt các tham số `SIM_*` của ArduPilot SITL để giả lập nhiễu
-      GPS, mất GPS, tụt điện áp pin. Mỗi lỗi một nút
-- [ ] **Cắt link** — dừng gửi/nhận trên `SikAdapter` hoặc `RemoteAdapter` theo yêu
+- [x] ~~**Tiêm lỗi** — đặt các tham số `SIM_*` của ArduPilot SITL để giả lập nhiễu
+      GPS, mất GPS, tụt điện áp pin. Mỗi lỗi một nút~~
+      → **bỏ có chủ ý.** Panel này đã viết rồi xoá: chỉnh world hoặc `param set`
+      trong MAVProxy là đủ, không đáng có một giao diện riêng trong app bay
+- [x] **Cắt link** — dừng gửi/nhận trên `SikAdapter` hoặc `RemoteAdapter` theo yêu
       cầu, để tái hiện kịch bản #1–#4 **mà không phải rút dây**
-- [ ] **Ghi `.tlog`** — bật ở mọi chế độ, kể cả REAL. Đây là đầu vào cho REPLAY
+      → `laptop/link_faults.py`. Đây là phần **giữ lại** khi xoá panel tiêm lỗi:
+      lỗi phía app thì world không mô phỏng được
+- [x] **Ghi `.tlog`** — bật ở mọi chế độ, kể cả REAL. Đây là đầu vào cho REPLAY
+      → `core/adapters/sik.py:267`. Không dùng `master.setup_logfile()`: nó ghi đè
+      `mavudp.recv_msg` và bỏ mất gói
 - [ ] **Hệ số tăng tốc** — SITL chạy nhanh hơn thời gian thực để rút ngắn bài test
       dài. Lưu ý: **không dùng tăng tốc khi đo hiệu năng giao diện**, kết quả sẽ sai
+      → **chưa dùng bao giờ**, mọi bài đều chạy `--speedup 1`. Bài dài nhất là
+      `soak.py 30` và nó *đo hiệu năng giao diện*, tức đúng chỗ cấm tăng tốc
 
 > ⚠️ Tên và ý nghĩa tham số `SIM_*` **khác nhau giữa các phiên bản ArduPilot**.
 > Tra trên đúng bản SITL đang chạy, đừng chép từ hướng dẫn cũ.
