@@ -167,6 +167,19 @@ python3 tools/selfcheck.py      # 24 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
+python3 tools/compare_gcs.py --takeoff   # so tung con so voi MAVProxy, cung mot luong
+```
+
+`compare_gcs.py` là nghiệm thu N2: nó cho GUI và một GCS khác **đọc chung một
+luồng gói tin**, rồi so từng con số ở hai trạng thái tĩnh (trên đất, treo 10 m).
+Số đo và cái nó *chưa* chứng minh được: [`docs/doi_chieu_gcs.md`](docs/doi_chieu_gcs.md).
+
+⚠️ **`--takeoff` nâng drone lên thật.** Không có cờ đó thì nó chỉ đo trạng thái
+đang có, không ARM. Cắm FC thật thì đọc mục 8 của tài liệu trên trước:
+
+```bash
+CMP_MASTER=/dev/ttyUSB0 CMP_BAUD=57600 \
+    python3 tools/compare_gcs.py --home 10.8221,106.6868
 ```
 
 Hai kịch bản hỏng chỉ đo được trên phần cứng thật — **tháo cánh quạt trước**:
