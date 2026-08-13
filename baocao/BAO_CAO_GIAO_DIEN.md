@@ -1,6 +1,6 @@
 # Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Phần mềm khảo sát:** `GUI_NATIVE` (PySide6), phiên bản `7319e8a` · **Thực nghiệm:** 13/08/2026, ArduPilot SITL + Gazebo + MAVROS + ROS 2 Humble
+**Phần mềm khảo sát:** `GUI_NATIVE` (PySide6), phiên bản `7319e8a` · **Thực nghiệm:** 13–14/08/2026 — mô phỏng ArduPilot SITL + Gazebo + MAVROS + ROS 2 Humble, và phần cứng thật qua radio SiK
 
 ---
 
@@ -10,7 +10,7 @@ Xây dựng trạm điều khiển mặt đất chạy trên Linux cho máy bay 
 
 Điều này sinh ra vấn đề mà các phần mềm phổ thông không xử lý: hai đường truyền hỏng theo hai cách khác nhau và kéo theo hai hậu quả khác nhau. Mất đường MAVLink là mất khả năng can thiệp khẩn cấp. Mất đường ROS 2 là mất tầm nhìn — video, vị trí đối chứng, trạng thái node — trong khi nhiệm vụ tự hành trên máy bay vẫn chạy. Gộp cả hai thành một thông báo "mất kết nối" là sai cả về mức độ nghiêm trọng lẫn về việc phải làm tiếp theo [1].
 
-Báo cáo giới hạn ở phần mềm phía mặt đất; toàn bộ số đo lấy trên mô phỏng phần mềm trong vòng lặp (SITL), phần cứng bay thật nằm ngoài phạm vi.
+Báo cáo giới hạn ở phần mềm phía mặt đất. Bộ số đo chi tiết lấy trên mô phỏng phần mềm trong vòng lặp (SITL); phần cứng bay thật nối qua radio SiK được dùng để kiểm chứng giao diện ở chế độ REAL (mục 5).
 
 ## 2. Kiến trúc và công nghệ
 
@@ -90,15 +90,44 @@ Giao diện chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt và
 ![Hình 4](anh/09_bay_auto_theo_duong_bay.png)
 *Hình 4 — Bay AUTO theo đường bay đã nạp, vệt bay 79 điểm, đang tới waypoint 4.*
 
+**Đường truyền vô tuyến SiK.** Ngoài phiên mô phỏng, giao diện còn được chạy trực tiếp trên cặp radio SiK 57600 baud nối với bộ điều khiển bay thật. Đây là đường cứu sinh của hệ thống: mọi lệnh — kể cả nhóm nút khẩn cấp và việc nạp đường bay — đều đi qua nó và hoàn toàn không phụ thuộc vào WiFi hay máy tính nhúng. Ứng dụng nhận diện cổng và tự đặt baud theo loại thiết bị (`ttyUSB*` → 57600 cho radio SiK, `ttyACM*` → 115200 cho bộ điều khiển bay cắm USB trực tiếp), nên cắm vào là dùng được, không phải sửa cấu hình.
+
+Các số đo trên radio thật:
+
+| Đại lượng | Kết quả |
+|---|---|
+| Tỉ lệ mất gói, đo liên tục 30 s | **0,0 %** |
+| Nạp và đọc lại đường bay 51 mục | **12 s mỗi chiều**, biên an toàn 6,2 lần so với ngưỡng chờ 2 s giữa hai mục |
+| Độ trễ lệnh nhích vị trí bằng bàn phím | **132 ms** |
+| Tự phục hồi khi luồng dữ liệu gián đoạn | Phát hiện sau 5 s im lặng, xin lại toàn bộ luồng; đo được băng thông trở lại 1 863 → 1 880 B/s |
+
+Cơ chế xin lại luồng ở hàng cuối đáng nói thêm: thay vì chờ người vận hành phát hiện màn hình đứng hình rồi kết nối lại, ứng dụng tự nhận ra mình đã 5 giây không nhận được dữ liệu nào ngoài nhịp tim, rồi gửi lại toàn bộ yêu cầu luồng — tốn 7 gói khoảng 140 byte trên chiều lên vốn đang trống. Người vận hành chỉ thấy dữ liệu tiếp tục chạy.
+
+Bốn hình dưới đây chụp phiên làm việc với mạch điều khiển bay thật lúc 00:25–00:35 ngày 14/08/2026. Băng thông đo được ổn định trong khoảng **2 000 – 2 150 B/s** với tỉ lệ mất gói **0,0 %** ở cả bốn thời điểm.
+
+![Hình 5](anh/16_sik_flight.jpeg)
+*Hình 5 — Tab Flight ở chế độ REAL: banner đỏ được thay bằng thông báo suy giảm vì nửa ROS 2 chưa nối, bản đồ vệ tinh mức zoom 20, 21 vệ tinh, thanh trạng thái báo SiK 2 031 B/s · mất 0,0 %.*
+
+![Hình 6](anh/13_sik_statusstatus.jpeg)
+*Hình 6 — Tab Status trên phần cứng thật: 311 trường, mọi hàng đều khai nguồn `sik`. Bảng tự dài ra theo những gì mạch gửi lên, không khai báo trước trường nào.*
+
+![Hình 7](anh/14_sik_controlcontrol.jpeg)
+*Hình 7 — Tab Control ở chế độ REAL: dòng nhắc "moi lenh duoi day di xuong may bay that", nhóm ba nút khẩn cấp sẵn sàng, dòng trạng thái node ROS 2 báo chưa có tin từ máy tính nhúng.*
+
+![Hình 8](anh/15_sik_meseage.jpeg)
+*Hình 8 — Tab Messages nhận nguyên văn lý do bộ điều khiển bay từ chối cất cánh (nhóm `PreArm`), kèm mốc thời gian và mức độ nghiêm trọng. Đây là chỗ trả lời trực tiếp câu hỏi "vì sao nó không arm được", thay vì để người vận hành tự đoán.*
+
+Bốn hình này cũng cho thấy cơ chế phân loại suy giảm hoạt động đúng trên phần cứng thật: máy tính nhúng chưa nối nên banner báo mất nửa ROS 2, đồng thời nói rõ đường điều khiển và nhóm nút khẩn cấp vẫn còn — chứ không quy về một thông báo mất kết nối chung. Tab Camera vì thế không có hình trong đợt chụp này.
+
 **Video từ máy tính nhúng.** Máy chủ MJPEG chạy trên Raspberry Pi 5, cổng 8080 tách hẳn khỏi đường lệnh. Đo được **4,22 fps, 2,15 Mbps**, khung 62 KB, p90 nhịp 444 ms, đỉnh 4,77 s — thấp hơn nhiều so với 16,3 fps và 5,75 Mbps đo ngày 06/08/2026 [5]. Nguyên nhân nằm ở đường truyền (tốc độ liên kết WiFi tụt còn 7,2 Mbit/s ở −68 dBm) chứ không ở camera hay mã nguồn. Khi khoảng ngắt vượt ngưỡng 4 s, ô video chuyển xám kèm lý do thay vì đóng băng khung cũ.
 
-![Hình 5](anh/05_camera_tu_pi.png)
-*Hình 5 — Tab Camera: luồng MJPEG từ webcam gắn trên Pi 5.*
+![Hình 9](anh/05_camera_tu_pi.png)
+*Hình 9 — Tab Camera: luồng MJPEG từ webcam gắn trên Pi 5.*
 
 **Kịch bản mất nửa ROS 2.** Ngắt giữa lúc bay AUTO ở 14,9 m: banner chuyển tím với nội dung *"MAT ROS2 — mat video va nguon vi tri thu hai. SiK con, lai va nut do con"*, hàng Remote chuyển xám và đếm thời gian, hàng SiK giữ nguyên 3 425 B/s, các ô telemetry đổi chấm nguồn và tiếp tục cập nhật.
 
-![Hình 6](anh/12_mat_nua_ros2.png)
-*Hình 6 — Mất nửa ROS 2 giữa chuyến bay: banner nói rõ mất cái gì và còn cái gì.*
+![Hình 10](anh/12_mat_nua_ros2.png)
+*Hình 10 — Mất nửa ROS 2 giữa chuyến bay: banner nói rõ mất cái gì và còn cái gì.*
 
 **Kiểm thử tự động.** Bộ `tools/selfcheck.py` chạy **29/29 phép kiểm đạt**, gồm chuẩn hoá hệ toạ độ, trọng tài đa nguồn, nút khẩn cấp đi trước mọi kiểm tra, khoá nút ở chế độ phát lại, cấu trúc nhiệm vụ waypoint và giải mã MJPEG.
 
@@ -150,7 +179,7 @@ Ngược lại, có những thứ của hai công cụ kia **không nên bắt c
 
 1. Mọi con số băng thông là của TCP loopback, không phải của radio SiK; tỉ lệ mất gói 0,0 % chỉ chứng minh bộ đếm chạy đúng.
 2. Hai nguồn dữ liệu đều bắt nguồn từ cùng một bộ điều khiển bay mô phỏng — phép so vị trí bắt được lỗi hệ toạ độ và lỗi đơn vị, không nói gì về độ chính xác định vị.
-3. Chưa có phần cứng bay thật trong vòng lặp, nên các kiểu hỏng chỉ xuất hiện trên phần cứng nằm ngoài phạm vi.
+3. Phiên phần cứng thật thực hiện trên bàn thử, chưa bay ngoài bãi, nên phần đối chiếu số liệu khi đang bay vẫn dựa trên mô phỏng.
 4. Chất lượng WiFi lúc đo video kém hơn hẳn ngày dựng hệ thống, nên con số fps ở đây là cận dưới.
 
 ## 9. Kết luận
@@ -169,8 +198,12 @@ So với Mission Planner và QGroundControl, phần mềm này hẹp hơn nhiề
 | 2 | `anh/03_trang_thai.png` | Tab Status, 308 trường |
 | 3 | `anh/07_waypoint_tren_fc.png` | Đường bay đã nạp, đọc ngược từ FC |
 | 4 | `anh/09_bay_auto_theo_duong_bay.png` | Bay AUTO theo đường bay |
-| 5 | `anh/05_camera_tu_pi.png` | Tab Camera, luồng MJPEG từ Pi 5 |
-| 6 | `anh/12_mat_nua_ros2.png` | Kịch bản mất nửa ROS 2 |
+| 5 | `anh/16_sik_flight.jpeg` | Tab Flight ở chế độ REAL qua radio SiK |
+| 6 | `anh/13_sik_statusstatus.jpeg` | Tab Status trên phần cứng thật, 311 trường |
+| 7 | `anh/14_sik_controlcontrol.jpeg` | Tab Control ở chế độ REAL |
+| 8 | `anh/15_sik_meseage.jpeg` | Tab Messages: lý do bộ điều khiển bay từ chối cất cánh |
+| 9 | `anh/05_camera_tu_pi.png` | Tab Camera, luồng MJPEG từ Pi 5 |
+| 10 | `anh/12_mat_nua_ros2.png` | Kịch bản mất nửa ROS 2 |
 
 Ảnh dự phòng trong thư mục `anh/`: `01_chua_ket_noi.png`, `04_dieu_khien.png`, `06_waypoint_ban_nhap.png`, `08_dang_bay_pip_camera.png`, `10_rtl_dang_ve.png`, `11_thong_bao.png`. Số đo thô: `anh/so_do.json`. Bản phân tích chi tiết từng tính năng: `BAO_CAO_GIAO_DIEN_chi_tiet.md`.
 
