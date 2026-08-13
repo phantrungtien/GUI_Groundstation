@@ -1,0 +1,51 @@
+{
+ "t_first_sik_s": 0.62,
+ "t_first_remote_s": 1.42,
+ "bps_sik": 2918,
+ "bps_remote": 4081,
+ "loss_sik_pct": 0.0,
+ "fields": 46,
+ "divergence_m": 0.0,
+ "lat": 10.8221589,
+ "lon": 106.6868453,
+ "src_lat": "remote",
+ "mode_fc": "STABILIZE",
+ "sats": 10,
+ "n_field_status": 308,
+ "video_url": "http://127.0.0.1:8080/stream",
+ "video_alive": true,
+ "n_draft": 4,
+ "t_wp_upload_s": 0.68,
+ "n_wp_tren_fc": 7,
+ "log_wp": [
+  "nap 4 waypoint: da gui, cho FC tra loi",
+  "nap duong bay: FC nhan 4 waypoint — dang doc lai de doi chieu"
+ ],
+ "t_arm_s": 1.2,
+ "t_takeoff_12m_s": 9.2,
+ "alt_takeoff": 13.27,
+ "log_takeoff": [
+  "mode: da gui",
+  "doi mode: FC chap nhan",
+  "arm: da gui",
+  "ARM/DISARM: FC chap nhan",
+  "takeoff: da gui",
+  "TAKEOFF: FC chap nhan"
+ ],
+ "wp_seq_khi_chup": 2,
+ "divergence_bay_m": 0.1,
+ "bps_sik_bay": 3687,
+ "bps_remote_bay": 4224,
+ "t_rtl_ack_s": 0.68,
+ "log_rtl": [
+  "RTL: da gui",
+  "doi mode: FC chap nhan"
+ ],
+ "t_rtl_xong_s": 50.68,
+ "t_auto_wp1_wp4_s": 22.4,
+ "speed_auto_ms": 4.63027286529541,
+ "divergence_auto_m": 0.379,
+ "trail_diem": 79,
+ "banner_mat_ros2": "⚠  SIM  ·  MAT ROS2 — mat video va nguon vi tri thu hai. SiK con, lai va nut do con.",
+ "sik_van_song_khi_mat_ros2": true
+}

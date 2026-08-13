@@ -3,8 +3,8 @@
 Ứng dụng PySide6 chạy trên laptop Ubuntu. Nhận telemetry qua **SiK radio** bằng
 pymavlink, nhận dữ liệu **ROS2** qua WebSocket từ companion.
 
-Kế hoạch đầy đủ: [`KE_HOACH_GUI_NATIVE(3).md`](KE_HOACH_GUI_NATIVE\(3\).md) ·
-Đặc tả envelope: [`docs/protocol.md`](docs/protocol.md)
+Đặc tả envelope: [`docs/protocol.md`](docs/protocol.md) ·
+Báo cáo giao diện: [`baocao/BAO_CAO_GIAO_DIEN.md`](baocao/BAO_CAO_GIAO_DIEN.md)
 
 **Ngày bay thì cầm [`docs/operating_procedure.md`](docs/operating_procedure.md)** —
 checklist trước cất cánh, ngưỡng phải hành động, 12 kịch bản hỏng.

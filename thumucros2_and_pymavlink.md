@@ -1,3 +1,0 @@
-- Thư mục code ros2 điều khiển drone realtime qua máy tính nhúng nămf ở folder /Home/ros2-ardupilot-sitl-hardware/. nó chứa phần mô phỏng ros2 với ardupilot qua giao thức mavros và sitl qua gazebo. Đây là nguồn source chính của ros2 để tham khảo.
-- Thư mục code pymavlink điều khiển drone bằng cổng telemetry nằm tại folder /Home/telemetry_control_realtime/. nó chứa file code phần điều khiển drone qua các nút trên bàn phím. hiện tôi cũng đang cần tạo giao diện điều khiển có 2 cần như này để điều khiển drone bằng pymavlink khi cần thiết. Hiện tại có các loại điều khiển như trong folder cần tinh gọn lại và hoàn thiện hơn để đáp ứng tốt được với dữ liệu thật. 
-

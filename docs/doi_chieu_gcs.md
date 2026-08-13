@@ -1,6 +1,6 @@
 # Đối chiếu số liệu với GCS khác
 
-Nghiệm thu phase N2 của `KE_HOACH_GUI_NATIVE_3_.md`:
+Nghiệm thu phase N2:
 
 > Chạy SITL, so từng con số với Mission Planner — sai lệch chỉ do làm tròn
 
