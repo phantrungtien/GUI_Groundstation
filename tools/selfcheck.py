@@ -217,12 +217,29 @@ def check_link_status(app):
 
     ls.on_envelope({"src": "sik", "topic": "position", "data": {}, "ts": time.time()})
     ls._tick()
-    assert ls._info["sik"].text() == "800 B/s", ls._info["sik"].text()
+    assert ls._info["sik"].text() == "800 B/s · mat 0.0%", ls._info["sik"].text()
+
+    # Mat goi la thu thay cho RSSI (radio SiK nay khong chen RADIO_STATUS). Duoi
+    # nguong thi chi hien so; qua nguong phai DOI MAU — con so tu no khong keo
+    # duoc mat nguoi dang nhin cho khac tren man hinh.
+    from laptop.link_status import WARN, WARN_LOSS
+
+    ls.on_envelope({"src": "sik", "topic": "link",
+                    "data": {"bps": 700, "loss": WARN_LOSS - 0.1}, "ts": time.time()})
+    ls.last_seen["sik"] = time.time()
+    ls._tick()
+    assert WARN not in ls._info["sik"].styleSheet(), "chua toi nguong ma da bao dong"
+
+    ls.on_envelope({"src": "sik", "topic": "link",
+                    "data": {"bps": 700, "loss": 12.5}, "ts": time.time()})
+    ls._tick()
+    assert ls._info["sik"].text() == "700 B/s · mat 12.5%", ls._info["sik"].text()
+    assert WARN in ls._info["sik"].styleSheet(), "mat 12,5% goi ma van hien binh thuong"
 
     ls.last_seen["sik"] = time.time() - 5
     ls._tick()
     assert ls._info["sik"].text().startswith("MAT"), ls._info["sik"].text()
-    print("  ok  Link status xam khi mat goi")
+    print(f"  ok  Link status: xam khi mat goi, doi mau khi mat >{WARN_LOSS:g}% goi")
 
 
 def check_tabs(app):
@@ -289,7 +306,12 @@ def check_field(app):
 
 
 def check_authority(app):
-    """Nut do phai di truoc moi kiem tra quyen."""
+    """Laptop cam toan quyen: khong con duong nao nhuong quyen di.
+
+    Check nay canh gac mot thu de quay lai luc sua: mot ham `set_authority` moc
+    lai, hay mot nhanh tu choi lenh vi "quyen dang thuoc ve ros2". Ca hai deu
+    lam laptop mat lai giua chuyen bay.
+    """
     from core import authority
 
     sent = []
@@ -299,25 +321,26 @@ def check_authority(app):
             sent.append(action)
             return {"ok": action}
 
+    assert not hasattr(authority, "set_authority"), "nhuong quyen quay lai roi"
+    assert not hasattr(authority, "ROS2"), "van con khai niem ben kia cam quyen"
+    assert authority.AUTHORITY == authority.GCS
+
     authority.register("sik", FakeAdapter())
     try:
-        authority.set_authority(authority.ROS2)
-        assert "error" in authority.dispatch({"target": "sik", "action": "arm"})
-        assert "error" in authority.dispatch({"target": "sik", "action": "takeoff"})
+        # Moi lenh xuong FC deu di duoc, khong co cua nao chan lai.
+        for act in ("arm", "takeoff", "wp_write", "mode"):
+            assert "ok" in authority.dispatch({"target": "sik", "action": act}), act
         for esc in ("rtl", "land", "disarm"):
-            authority.set_authority(authority.ROS2)
             assert "ok" in authority.dispatch({"action": esc}), esc
-            # Bam nut do la tin hieu nhuong quyen (2.4): khong keo quyen ve GCS
-            # thi node offboard van stream setpoint -> kich ban hong #5.
-            assert authority.AUTHORITY == authority.GCS, esc
-        assert sent == ["rtl", "land", "disarm"], sent
+        assert sent == ["arm", "takeoff", "wp_write", "mode", "rtl", "land", "disarm"], sent
 
-        authority.set_authority(authority.GCS)
-        assert "ok" in authority.dispatch({"target": "sik", "action": "arm"})
+        # Nut do van phai xuong SiK ke ca khi bi goi kem mot target khac.
+        sent.clear()
+        assert "ok" in authority.dispatch({"target": "remote", "action": "rtl"})
+        assert sent == ["rtl"], "nut do di vong qua companion — cam (2.1)"
     finally:
         authority.unregister("sik")
-        authority.set_authority(authority.GCS)
-    print("  ok  nut do di duoc trong luc quyen thuoc ve ROS2")
+    print("  ok  laptop toan quyen: khong con duong nhuong quyen, nut do van thang SiK")
 
 
 def check_arm_throttle_guard(app):
@@ -489,7 +512,6 @@ def check_disarm_hold(app):
         assert sent == [("disarm", {})], sent
     finally:
         authority.unregister("sik")
-        authority.set_authority(authority.GCS)
         REGISTRY.fields.clear()
         ct.close()
     print("  ok  DISARM: duoi dat bam mot phat la force (ga o dau cung ngat duoc), "
@@ -669,10 +691,16 @@ def check_takeoff_guard(app):
           "xac nhan REAL bang bam lai (khong hop thoai)")
 
 
-def check_mission_buttons(app):
-    """Nhiem vu ROS2 di sang companion, KHONG xuong FC — va chi khi da giao quyen."""
+def check_mission_readonly(app):
+    """Tab Control khong con gui duoc lenh nao sang ROS2, chi doc trang thai.
+
+    Bo nut di roi thi phai chac la bo THAT: mot nut con sot lai se gui lenh cho
+    mot node khong con quyen lai — bam khong co gi xay ra, va khong ai biet vi sao.
+    """
+    import ast
+
     from core import authority
-    from laptop.tabs.control import ControlTab
+    from laptop.tabs.control import MISSIONS, ControlTab
 
     sent = {"sik": [], "remote": []}
 
@@ -687,49 +715,42 @@ def check_mission_buttons(app):
     authority.register("sik", Fake("sik"))
     authority.register("remote", Fake("remote"))
     ct = ControlTab()
-    logs = []
-    ct.log.connect(logs.append)
     try:
         ct.set_mode("SIM")
-        # Dang cam lai (MANUAL) ma bam mot nhiem vu tu hanh -> khong duoc phep
-        assert not ct.mission_btns[0].isEnabled(), "MANUAL ma nut nhiem vu van bam duoc"
-        ct.mission_btns[0].click()
-        # `set_authority` cung gui qua nua remote, nen chi loc dung lenh nhiem vu
-        missions = lambda: [x for x in sent["remote"] if x[0] == "mission"]
-        assert not missions(), sent["remote"]
+        assert not hasattr(ct, "mission_btns"), "nut nhiem vu ROS2 van con"
+        assert not hasattr(ct, "manual"), "switch MANUAL/AUTO van con"
+        # Bam het nut trong tab: khong duoc co lenh nao ra cong `remote`.
+        for b in ct.findChildren(type(ct.btn_arm)):
+            if b not in ct.reds and b is not ct.btn_kill:
+                b.click()
+        assert not sent["remote"], f"van con nut gui lenh sang ROS2: {sent['remote']}"
 
-        ct.auto.setChecked(True)
-        assert ct.mission_btns[0].isEnabled()
-        ct.mission_btns[0].click()
-        assert missions() == [("mission", {"name": "mission_circle"})], sent["remote"]
-        assert not sent["sik"], "nhiem vu ROS2 khong duoc gui xuong FC"
+        # Trang thai companion thi VAN phai hien — day la telemetry, khong phai lai.
+        bus.emit("remote", "mission", {"running": "mission_circle"})
+        assert "mission_circle" in ct.mission_now.text(), ct.mission_now.text()
+        bus.emit("remote", "mission", {"running": ""})
+        assert "khong co nhiem vu" in ct.mission_now.text(), ct.mission_now.text()
 
-        # Bam nut do trong luc nhiem vu dang chay: quyen ve GCS, nut nhiem vu tat theo
-        ct.btn_rtl.click()
-        assert authority.AUTHORITY == authority.GCS
-        assert not ct.mission_btns[0].isEnabled(), "keo quyen ve roi ma nut nhiem vu con bat"
-
-        # Ten nut ben nay phai nam trong danh sach trang ben bridge. Lech mot ky tu
-        # thi bam nut khong co gi xay ra, va bridge chi ghi mot dong warn tren
-        # companion — cho ma nguoi bay khong bao gio nhin thay.
-        import ast
-
-        from laptop.tabs.control import MISSIONS
-
+        # Bridge phai tu choi doi quyen, khong duoc im lang bo qua.
         src = (Path(__file__).resolve().parent / "ros2_bridge.py").read_text()
+        fn = next(n for n in ast.walk(ast.parse(src))
+                  if isinstance(n, ast.FunctionDef) and n.name == "handle_command")
+        body = ast.unparse(fn)
+        assert "authority_pub.publish" not in body, "bridge van doi duoc /gcs/authority"
+        assert "tu choi doi /gcs/authority" in body, "bridge bo qua im lang lenh authority"
+        # Ten node van phai khop ben bridge: cho nay chi con dung de dich ten.
         allowed = next(
             ast.literal_eval(node.value)
             for node in ast.parse(src).body
             if isinstance(node, ast.Assign) and node.targets[0].id == "MISSIONS_OK"
         )
         thieu = [n for _, n in MISSIONS if n not in allowed]
-        assert not thieu, f"nut co ma bridge tu choi: {thieu}"
+        assert not thieu, f"ten nhiem vu bridge khong biet: {thieu}"
     finally:
         authority.unregister("sik")
         authority.unregister("remote")
-        authority.set_authority(authority.GCS)
         ct.close()
-    print("  ok  nut nhiem vu ROS2 (chan o MANUAL, gui qua nua remote)")
+    print("  ok  nua ROS2 chi con la nguon telemetry (khong nut, bridge chot quyen)")
 
 
 def check_replay_locks(app):
@@ -917,6 +938,436 @@ def check_fence(app):
     assert not ct._pending and "chap nhan" in logs[-1], logs
     ct.close()
     print("  ok  geofence: vong tron quanh home + da giac, TAT thi ve dut net")
+
+
+def check_waypoints(app):
+    """Duong bay nhieu waypoint: tu goi MAVLink toi net ve tren ban do.
+
+    Day la thu duy nhat cho biet drone bay AUTO SAP di dau — cham xanh tren ban
+    do chi noi no dang o dau. Nen check nay do ca ba cho hong duoc: tran 50 muc,
+    muc khong co toa do, va viec ai do nap nhiem vu khac giua chung.
+    """
+    from core.adapters.sik import WP_ITEMS_MAX, WP_MAX
+    from laptop.tabs.flight import FlightTab
+    from laptop.widgets.map_widget import WP_LINE, wp_points
+
+    # `total` thieu (firmware < 4.3) thi phai BIEN MAT khoi trong tai, khong duoc
+    # thanh None: ben ve gop tung manh vao mot dict, None se xoa con so that.
+    assert normalize("MISSION_CURRENT", {"seq": 3, "total": 8}) == ("wp", {"seq": 3, "total": 8})
+    assert normalize("MISSION_CURRENT", {"seq": 3, "total": 0}) == ("wp", {"seq": 3})
+
+    # Muc khong mang toa do (TAKEOFF de trong, DO_CHANGE_SPEED) phai bi loai.
+    items = [(0, 16, 10.8221, 106.6868, 0.0), (1, 22, 0.0, 0.0, 15.0),
+             (2, 16, 10.8231, 106.6868, 20.0), (3, 178, 0.0, 0.0, 0.0),
+             (4, 16, 10.8241, 106.6878, 25.0)]
+    assert [s for s, *_ in wp_points(items)] == [0, 2, 4], wp_points(items)
+
+    # --- tran WP_MAX tren chinh adapter -------------------------------------
+    class FakeMav:
+        def __init__(self):
+            self.asked = []
+
+        def mission_request_list_send(self, *a, **k):
+            pass
+
+        def mission_request_int_send(self, sysid, comp, i, **k):
+            self.asked.append(i)
+
+        def mission_ack_send(self, *a, **k):
+            pass
+
+    class FakeMaster:
+        target_system = 1
+
+        def __init__(self):
+            self.mav = FakeMav()
+
+    ad = SikAdapter({"name": "wp", "mode": "SIM", "conn": f"udp:127.0.0.1:{PORT}"})
+    master = FakeMaster()
+    assert ad._wp_rx(master, "MISSION_COUNT", {"count": 80, "mission_type": 0}) is False
+    assert ad._wp_n == WP_ITEMS_MAX and ad._wp_total == 80, (ad._wp_n, ad._wp_total)
+    assert master.mav.asked == list(range(WP_ITEMS_MAX)), master.mav.asked[-3:]
+    for i in range(WP_ITEMS_MAX):
+        ad._wp_rx(master, "MISSION_ITEM_INT",
+                  {"seq": i, "mission_type": 0, "command": 16,
+                   "x": 108221589 + i * 1000, "y": 1066868454, "z": 20.0})
+    assert ad._wp_done() and len(ad._wp_items) == WP_ITEMS_MAX, len(ad._wp_items)
+
+    # Nhiem vu 80 muc thi _wp_n = 50 mai mai khac 80: so sanh nham cot nay la
+    # vong tai lai chay hoai, chiem het duong SiK.
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 3, "total": 80})
+    assert ad._wp_done(), "so muc khong doi ma van tai lai"
+    # Con doi that (ai do nap nhiem vu khac) thi phai tai lai tu dau.
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 4})
+    assert ad._wp_n is None and ad._wp_items == {}, (ad._wp_n, ad._wp_items)
+
+    # --- duong that: adapter -> bus -> tab -> net ve tren man hinh -----------
+    lat, lon = 10.8221589, 106.6868454
+    ft = FlightTab()
+    ft.resize(600, 400)
+    ft.map.zoom = 16
+    ft.map.follow = False  # khong de vi tri cu tu check khac keo tam man hinh di
+    ft.map.center = (lat, lon)
+    # Hai diem cung vi do, doi xung qua tam: doan thang nam dung hang giua anh.
+    # 0,001 do kinh do o z16 = 2**16/360*256*0.001 = 46,6 px.
+    bus.emit("sik", "wp", {"items": [(0, 16, lat, lon - 0.001, 0.0),
+                                     (1, 16, lat, lon + 0.001, 20.0)], "total": 2})
+    assert ft.map.wp["total"] == 2, ft.map.wp
+
+    img = ft.map.grab().toImage()
+    cx, cy = img.width() // 2, img.height() // 2
+    rows = (cy - 1, cy, cy + 1)  # but 2 px: Qt dat net o hang nao la tuy no
+    assert any(img.pixel(cx + 20, y) == WP_LINE.rgb() for y in rows), \
+        "duong bay khong len man hinh"
+    assert all(img.pixel(cx + 80, y) != WP_LINE.rgb() for y in rows), \
+        "duong bay keo dai qua diem cuoi (47 px) — nghi ve nham toa do"
+
+    # MISSION_CURRENT ve rieng, sau: no phai gop vao chu khong xoa danh sach diem.
+    bus.emit("sik", "wp", {"seq": 1})
+    assert len(ft.map.wp["items"]) == 2 and "toi #1" in ft.map._wp_note(), ft.map._wp_note()
+
+    # Cat bot ma im lang thi nguoi bay tuong da nhin thay ca duong bay.
+    bus.emit("sik", "wp", {"items": [(i, 16, lat, lon + i * 1e-4, 20.0)
+                                     for i in range(WP_ITEMS_MAX)], "total": 80})
+    assert f"FC co 80, chi tai {WP_ITEMS_MAX}" in ft.map._wp_note(), ft.map._wp_note()
+
+    # Ngat ket noi: duong bay cua drone cu phai bien mat cung home va rao.
+    ft.set_mode(None)
+    assert ft.map.wp == {}, ft.map.wp
+    ft.close()
+    print(f"  ok  duong bay waypoint: ve tren ban do, cat o {WP_MAX} waypoint "
+          f"({WP_ITEMS_MAX} muc ke ca home/TAKEOFF/LAND)")
+
+
+def check_wp_write(app):
+    """Chieu ghi: dat waypoint bang chuot roi nap len FC.
+
+    Ba cho hong duoc, va check nay do ca ba:
+      - muc 0 khong duoc chen -> ArduPilot nuot waypoint dau tien lam home
+      - FC im giua chung -> phai gui lai roi BO CUOC TO, khong im lang
+      - nap xong ma khong doc lai -> "da gui" bi hieu thanh "FC da luu"
+    """
+    from core import authority
+    from core.adapters.sik import (LAND, TAKEOFF, WAYPOINT, WP_ITEMS_MAX, WP_MAX,
+                                   WP_UP_TRIES)
+    from core.field import REGISTRY
+    from laptop.tabs.flight import FlightTab
+
+    lat, lon = 10.8221589, 106.6868454
+
+    class FakeMav:
+        def __init__(self):
+            self.counts, self.items = [], []
+
+        def mission_count_send(self, sysid, comp, n, **k):
+            self.counts.append(n)
+
+        def mission_item_int_send(self, sysid, comp, seq, frame, cmd, cur, cont,
+                                  p1, p2, p3, p4, x, y, z, **k):
+            self.items.append((seq, cmd, x / 1e7, y / 1e7, z))
+
+        def mission_request_list_send(self, *a, **k):
+            pass
+
+        def mission_request_int_send(self, *a, **k):
+            pass
+
+        def mission_ack_send(self, *a, **k):
+            pass
+
+    class FakeMaster:
+        target_system = 1
+
+        def __init__(self):
+            self.mav = FakeMav()
+
+    ad = SikAdapter({"name": "wpw", "mode": "SIM", "conn": f"udp:127.0.0.1:{PORT}"})
+    got = []
+    ad.envelope.connect(lambda e: got.append(e) if e["topic"] == "wp" else None)
+    master = FakeMaster()
+    ad._home = (lat, lon)
+
+    pts = [(lat + 1e-4, lon, 20.0), (lat + 2e-4, lon + 1e-4, 25.0)]
+    ad._wp_upload(master, pts)
+    # 2 waypoint -> 5 muc: home + TAKEOFF o dau, LAND o cuoi. Thieu home la drone
+    # bay 1 diem; thieu TAKEOFF la no khong roi mat dat; thieu LAND la no treo
+    # tai diem cuoi cho den het pin.
+    assert master.mav.counts == [5], master.mav.counts
+    for i in range(5):
+        ad._wp_up_rx(master, "MISSION_REQUEST_INT", {"seq": i, "mission_type": 0})
+    assert [i[0] for i in master.mav.items] == [0, 1, 2, 3, 4], master.mav.items
+    assert [i[1] for i in master.mav.items] == [
+        WAYPOINT, TAKEOFF, WAYPOINT, WAYPOINT, LAND], master.mav.items
+    assert abs(master.mav.items[0][2] - lat) < 1e-7, "muc 0 phai la home"
+    # TAKEOFF: khong toa do (ArduCopter leo thang tu cho dang dung), do cao lay
+    # cua waypoint dau — leo 20 m roi moi di, chu khong leo 25 m cua diem cuoi.
+    assert master.mav.items[1][2:] == (0.0, 0.0, 20.0), master.mav.items[1]
+    assert abs(master.mav.items[3][4] - 25.0) < 1e-6, master.mav.items[3]
+    # LAND ha tai chinh waypoint cuoi, khong phai tai home.
+    assert abs(master.mav.items[4][2] - pts[-1][0]) < 1e-7, master.mav.items[4]
+
+    # Dang nap thi KHONG duoc chen mot phien tai ve vao giua.
+    ad._wp_ask(master)
+    assert master.mav.counts == [5], "vua tai vua nap cung luc"
+
+    assert ad._wp_up_rx(master, "MISSION_ACK", {"type": 0, "mission_type": 0}) is True
+    assert got[-1]["data"]["write"] == {"ok": True, "result": 0, "n": 2}, got[-1]
+    # Nap xong phai quen danh sach cu de doc lai tu FC — bang chung, khong niem tin.
+    assert ad._wp_n is None and ad._wp_items == {}, (ad._wp_n, ad._wp_items)
+
+    # FC im: gui lai WP_UP_TRIES lan roi bo cuoc, va phai bao ra ngoai.
+    got.clear()
+    master.mav.counts.clear()
+    ad._wp_upload(master, pts)
+    for _ in range(WP_UP_TRIES + 2):
+        ad._up_at = 0  # gia vo da qua WP_UP_RETRY giay
+        ad._wp_up_tick(master, time.time())
+    assert len(master.mav.counts) == WP_UP_TRIES, master.mav.counts
+    assert ad._up is None and got[-1]["data"]["write"]["ok"] is False, got[-1]
+    assert "khong tra loi" in got[-1]["data"]["write"]["err"], got[-1]
+
+    # Tran: dat 60 diem thi chi 50 cai len duong, khong phai 60. Cong 3 muc tu
+    # chen (home + TAKEOFF + LAND) = 53, va do phai bang WP_ITEMS_MAX — khong
+    # bang thi chieu doc ve tu cat cut chinh nhiem vu vua nap.
+    master.mav.counts.clear()
+    ad._wp_upload(master, [(lat + i * 1e-4, lon, 20.0) for i in range(60)])
+    assert master.mav.counts == [WP_MAX + 3] == [WP_ITEMS_MAX], master.mav.counts
+
+    # Cat link giua phien nap (nut "Cat telemetry" o panel Sim): goi khong duoc
+    # ra khoi radio, va tra loi cua FC khong duoc coi la da toi. Bo qua cho nay
+    # thi bai tap "rot link giua luc nap" hien ra thanh cong ma that ra chua gui.
+    master.mav.counts.clear()
+    master.mav.items.clear()
+    ad.muted = True
+    ad._wp_upload(master, pts)
+    ad._wp_up_rx(master, "MISSION_REQUEST_INT", {"seq": 0, "mission_type": 0})
+    assert not master.mav.counts and not master.mav.items, "muted ma goi van di"
+    ad.muted = False
+    ad._up = None
+
+    # --- duong that: menu ban do -> dispatch -> adapter ---------------------
+    sent = []
+
+    class Fake:
+        def send(self, action, args=None):
+            sent.append((action, args))
+            return {"ok": action}
+
+    authority.register("sik", Fake())
+    ft = FlightTab()
+    logs = []
+    ft.log.connect(logs.append)
+    try:
+        ft.resize(600, 400)
+        ft.set_mode("SIM")
+        ft.map.center = (lat, lon)
+        assert ft.map.add_draft(lat + 1e-4, lon) is True
+        assert ft.map.add_draft(lat + 2e-4, lon + 1e-4) is True
+        assert ft.map.draft[0][2] == ft.map.wp_alt, ft.map.draft
+        assert "dang dat 2 diem" in ft.map._draft_note(), ft.map._draft_note()
+
+        ft._send_wp()
+        assert sent == [("wp_write", {"items": [list(p) for p in ft.map.draft]})], sent
+
+        # FC xac nhan -> ban nhap phai bien mat, neu khong hai duong chong len nhau
+        bus.emit("sik", "wp", {"write": {"ok": True, "result": 0, "n": 2}})
+        assert ft.map.draft == [], ft.map.draft
+        assert "FC nhan 2 waypoint" in logs[-1], logs[-1]
+
+        # FC tu choi -> ban nhap phai CON NGUYEN de bam nap lai
+        ft.map.add_draft(lat, lon)
+        bus.emit("sik", "wp", {"write": {"ok": False, "result": 5, "n": 1}})
+        assert len(ft.map.draft) == 1, "tu choi ma van xoa mat ban nhap"
+        assert "THAT BAI" in logs[-1], logs[-1]
+
+        # Dang bay AUTO: cu bam dau tien chi canh bao, khong gui gi ca
+        sent.clear()
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat",
+                       "data": {"mode": "AUTO", "armed": True}, "ts": time.time()})
+        ft._send_wp()
+        assert not sent, "ghi de nhiem vu dang bay ma khong hoi lai"
+        assert "DANG BAY AUTO" in logs[-1], logs[-1]
+        ft._send_wp()  # bam lai trong CONFIRM_S -> di
+        assert sent and sent[0][0] == "wp_write", sent
+
+        # Tran o tang UI: 50 la 50, cai thu 51 khong dat duoc
+        ft.map.drop_draft(all_of_them=True)
+        for i in range(WP_MAX):
+            assert ft.map.add_draft(lat + i * 1e-5, lon) is True, i
+        assert ft.map.add_draft(lat, lon) is False, "dat qua tran WP_MAX"
+    finally:
+        authority.unregister("sik")
+        REGISTRY.fields.clear()
+        ft.close()
+    print(f"  ok  nap duong bay len FC: home + TAKEOFF dau, LAND cuoi, tran {WP_MAX}, "
+          f"bo cuoc sau {WP_UP_TRIES} lan va noi ra")
+
+
+def check_nudge_keys(app):
+    """Nhich vi tri bang ban phim: bon chot chan, ramp toc do, va tha la DUNG."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QFocusEvent, QKeyEvent
+
+    from core import authority
+    from core.field import REGISTRY
+    from laptop.tabs.flight import NUDGE_RAMP, NUDGE_V0, NUDGE_VMAX, FlightTab
+
+    sent = []
+
+    class Fake:
+        def send(self, action, args=None):
+            sent.append((action, args))
+            return {"ok": action}
+
+    def press(ft, key):
+        ft.keyPressEvent(QKeyEvent(QEvent.KeyPress, key, Qt.NoModifier))
+
+    def release(ft, key):
+        ft.keyReleaseEvent(QKeyEvent(QEvent.KeyRelease, key, Qt.NoModifier))
+
+    def state(**kw):
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": kw, "ts": time.time()})
+
+    authority.register("sik", Fake())
+    ft = FlightTab()
+    logs = []
+    ft.log.connect(logs.append)
+    try:
+        ft.set_mode("REAL")
+
+        # --- bon chot: moi cai deu phai chan, va phai NOI RA ly do
+        for label, st in [
+            ("chua armed", {"mode": "GUIDED", "armed": False, "landed": False}),
+            ("con duoi dat", {"mode": "GUIDED", "armed": True, "landed": True}),
+            ("dang o AUTO", {"mode": "AUTO", "armed": True, "landed": False}),
+        ]:
+            state(**st)
+            sent.clear()
+            press(ft, Qt.Key_Up)
+            assert not sent, f"{label}: van gui lenh nhich"
+            assert "KHONG duoc" in logs[-1], (label, logs[-1])
+        REGISTRY.fields.clear()
+
+        # REPLAY khong gui gi ke ca khi trang thai dep
+        ft.set_mode("REPLAY")
+        state(mode="GUIDED", armed=True, landed=False)
+        sent.clear()
+        press(ft, Qt.Key_Up)
+        assert not sent, "REPLAY ma van gui lenh nhich"
+        ft.set_mode("REAL")
+
+        # --- duoc phep: giu phim -> nhich, toc do tang theo thoi gian giu
+        state(mode="GUIDED", armed=True, landed=False)
+        sent.clear()
+        press(ft, Qt.Key_Up)
+        ft._nudge_tick()
+        act, args = sent[-1]
+        assert act == "nudge", sent
+        assert abs(args["vn"] - NUDGE_V0) < 0.3, f"vua cham phim phai di cham: {args}"
+        assert args["ve"] == 0 and args["vd"] == 0, args
+
+        ft._nudge_since = time.time() - 60  # giu that lau
+        ft._nudge_tick()
+        assert abs(sent[-1][1]["vn"] - NUDGE_VMAX) < 1e-6, f"phai cham tran: {sent[-1]}"
+
+        # duong cheo khong duoc nhanh hon: hai phim van la NUDGE_VMAX, khong phai 1,41 lan
+        press(ft, Qt.Key_Right)
+        ft._nudge_tick()
+        a = sent[-1][1]
+        mag = (a["vn"] ** 2 + a["ve"] ** 2) ** 0.5
+        assert abs(mag - NUDGE_VMAX) < 1e-6, f"cheo bi nhanh hon: {mag:.2f} m/s"
+
+        # --- tha het phim -> van toc 0 (treo tai cho)
+        sent.clear()
+        release(ft, Qt.Key_Up)
+        assert not sent, "moi tha mot phim ma da dung"
+        release(ft, Qt.Key_Right)
+        assert sent[-1] == ("nudge", {"vn": 0.0, "ve": 0.0, "vd": 0.0}), sent
+        assert not ft._nudge_timer.isActive(), "tha phim roi ma timer van chay"
+
+        # --- mat focus giua luc dang giu: KHONG co keyRelease, phai tu dung
+        press(ft, Qt.Key_Left)
+        sent.clear()
+        ft.focusOutEvent(QFocusEvent(QEvent.FocusOut, Qt.OtherFocusReason))
+        assert sent[-1] == ("nudge", {"vn": 0.0, "ve": 0.0, "vd": 0.0}), \
+            "alt-tab giua luc giu phim ma drone van giu van toc"
+
+        # --- ba phim con lai
+        sent.clear()
+        press(ft, Qt.Key_Space)
+        assert sent[-1][0] == "nudge" and sent[-1][1]["vn"] == 0.0, sent
+        press(ft, Qt.Key_Return)
+        assert sent[-1] == ("mode", {"name": "AUTO"}), sent
+        press(ft, Qt.Key_L)
+        assert sent[-1][0] == "land", sent
+    finally:
+        authority.unregister("sik")
+        REGISTRY.fields.clear()
+        ft.close()
+    print(f"  ok  nhich bang ban phim: 4 chot chan, ramp {NUDGE_V0:g}->{NUDGE_VMAX:g} m/s "
+          f"(+{NUDGE_RAMP:g}/s), tha phim va mat focus deu dung")
+
+
+def check_stream_rearm(app):
+    """Im lang qua STREAM_REARM thi phai xin lai stream — va chi xin MOT lan.
+
+    Bay do duoc tren radio SiK that (13/08/2026): FC tut xuong 21 B/s chi con
+    HEARTBEAT, app xin mot lan la ve 1986 B/s. Truoc do app xin dung mot lan luc
+    ket noi nen no nam im vinh vien — HUD dung hinh ma link van bao "co song".
+
+    Cai thu hai quan trong khong kem cai thu nhat: sau khi xin phai dat lai dong
+    ho. Khong dat thi dieu kien con dung o MOI vong lap, tuc ban 7 goi moi vong —
+    hang nghin goi mot giay vao dung cai duong truyen dang co van de.
+    """
+    from core.adapters.sik import STREAM_REARM, STREAMS, SikAdapter
+
+    class FakeMav:
+        def __init__(self):
+            self.asks = []
+
+        def request_data_stream_send(self, sysid, comp, sid, hz, on):
+            self.asks.append((sid, hz, on))
+
+    class FakeMaster:
+        target_system = 1
+
+        def __init__(self):
+            self.mav = FakeMav()
+
+    ad = SikAdapter({"name": "rearm", "mode": "SIM", "conn": f"udp:127.0.0.1:{PORT}"})
+    master = FakeMaster()
+    now = time.time()
+
+    # stream con chay -> khong xin gi ca
+    ad._stream_rx = now
+    ad._stream_tick(master, now)
+    assert master.mav.asks == [], "stream dang song ma van xin lai"
+
+    # im qua nguong -> xin lai DU ca bo, khong thieu luong nao
+    ad._stream_rx = now - STREAM_REARM - 0.1
+    ad._stream_tick(master, now)
+    assert master.mav.asks == [(sid, hz, 1) for sid, hz in STREAMS], master.mav.asks
+
+    # goi lai ngay -> im, vi dong ho da dat lai
+    master.mav.asks.clear()
+    ad._stream_tick(master, now)
+    assert master.mav.asks == [], "xin lai moi vong lap — ban ngap duong truyen"
+
+    # dut link mo phong: khong goi nao duoc ra khoi radio
+    ad.muted = True
+    ad._stream_rx = now - STREAM_REARM - 0.1
+    ad._stream_tick(master, now)
+    assert master.mav.asks == [], "muted ma goi van di"
+    ad.muted = False
+
+    # REPLAY chi doc file, khong duoc gui gi ve phia FC
+    ad.mode = "REPLAY"
+    ad._stream_rx = now - STREAM_REARM - 0.1
+    ad._stream_tick(master, now)
+    assert master.mav.asks == [], "REPLAY ma van gui lenh"
+
+    print(f"  ok  FC ngung stream: xin lai sau {STREAM_REARM:g}s im lang, "
+          f"{len(STREAMS)} luong, khong ban lap")
 
 
 def check_replay(app):
@@ -1253,9 +1704,13 @@ if __name__ == "__main__":
     check_remote(app)
     check_online_tiles(app)
     check_takeoff_guard(app)
-    check_mission_buttons(app)
+    check_mission_readonly(app)
     check_replay_locks(app)
     check_fence(app)
+    check_waypoints(app)
+    check_wp_write(app)
+    check_nudge_keys(app)
+    check_stream_rearm(app)
     check_replay(app)
     check_tlog_roundtrip(app)
     check_dead_socket(app)

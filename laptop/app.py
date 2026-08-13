@@ -92,6 +92,9 @@ class MainWindow(QMainWindow):
         mount(self.ui.Control, self.control_tab)
         mount(self.ui.Flight, self.flight_tab)
         self.control_tab.log.connect(self._on_cmd_log)
+        # Nap duong bay cung la lenh xuong FC — vao chung mot duong log voi
+        # ARM/TAKEOFF, khong lam duong rieng.
+        self.flight_tab.log.connect(self._on_cmd_log)
 
         # Mot nguon video, hai cho ve: tab Camera de xem ky, o PiP tren tab Flight
         # de phi cong theo doi ma khong roi ban do. Pi chi phai phuc vu mot luong.
@@ -216,12 +219,13 @@ class MainWindow(QMainWindow):
             # Mat duong cuu sinh. Nang nhat, bat ke nua ROS2 con song hay khong.
             self.banner.show_lost(self.profile, f"SiK im lang {int(sik)}s")
         elif has_remote and (remote is None or remote > STALE):
-            # Kieu hong A: WiFi rot nhung companion con song -> task tu hanh VAN
-            # DANG CHAY tren drone. Nguy hiem hon kieu B vi drone van chu dong bay
-            # theo mot he thong khong con nhin thay duoc.
+            # Kieu hong A: WiFi rot nhung companion con song. Tu khi laptop cam
+            # toan quyen thi day khong con la mat quyen dieu khien — node offboard
+            # khong lai duoc dau ma so. Mat la mat TAM NHIN: video, vi tri nguon
+            # thu hai, trang thai node. Van phai bao, chi la bao dung muc do.
             self.banner.show_degraded(
                 self.profile,
-                "MAT ROS2 — task tu hanh co the VAN DANG CHAY tren drone. SiK con, nut do con.",
+                "MAT ROS2 — mat video va nguon vi tri thu hai. SiK con, lai va nut do con.",
             )
         else:
             self.banner.show_profile(self.profile)

@@ -24,11 +24,28 @@ AUTOPILOT = mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1  # = 1
 
 # Hang rao la mot "nhiem vu" rieng trong MAVLink, khong phai waypoint (type 0).
 FENCE = mavutil.mavlink.MAV_MISSION_TYPE_FENCE  # = 1
+WP = mavutil.mavlink.MAV_MISSION_TYPE_MISSION   # = 0 — duong bay waypoint
+WAYPOINT = mavutil.mavlink.MAV_CMD_NAV_WAYPOINT
+TAKEOFF = mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
+LAND = mavutil.mavlink.MAV_CMD_NAV_LAND
+# Tran so waypoint. 50 muc la ~2,5 kB chieu xuong + 50 goi xin ~0,7 kB chieu len:
+# duoi mot giay tren duong SiK 57600 (~4-5 kB/s that, Phu luc 7.1). Nhiem vu dai
+# hon thi tai 50 diem dau va noi RO la da cat — chiem duong truyen hang chuc giay
+# de ve het duong bay thi HUD dung hinh dung luc can no nhat, ma muc 7.1 da xep
+# "mission nhieu waypoint" vao loai bulk transfer khong hop SiK.
+WP_MAX = 50
+# ArduPilot LUON giu muc 0 la home va tu ghi de toa do cua no. Cong them TAKEOFF
+# mo dau va LAND ket thuc (xem _wp_upload), mot nhiem vu 50 waypoint nam tren day
+# la 53 muc. Tran tai ve phai la 53, neu khong app tu cat cut chinh cai nhiem vu
+# no vua nap va bao "FC co 53, chi tai 51".
+WP_ITEMS_MAX = WP_MAX + 3
+WP_UP_RETRY = 2.0  # giay cho FC xin muc dau tien truoc khi gui lai MISSION_COUNT
+WP_UP_TRIES = 5
 # Bon tham so quyet dinh hinh cua rao. Ban kinh va tran do cao khong nam trong
 # danh sach nhiem vu ma la tham so — phai hoi rieng.
 FENCE_PARAMS = ("FENCE_ENABLE", "FENCE_TYPE", "FENCE_RADIUS", "FENCE_ALT_MAX")
-FENCE_ASK_EVERY = 3.0  # giay giua hai lan hoi lai cai con thieu
-FENCE_ASK_MAX = 8      # bo cuoc sau ~24s: firmware khong co rao thi hoi mai vo ich
+ASK_EVERY = 3.0  # giay giua hai lan hoi lai cai con thieu (rao + duong bay)
+ASK_MAX = 8      # bo cuoc sau ~24s: firmware khong co rao thi hoi mai vo ich
 
 
 def from_autopilot(msg):
@@ -42,8 +59,12 @@ def from_autopilot(msg):
       - pymavlink doi `target_component` sang 191 (post_message() lay tu bat ky
         heartbeat nao khong phai GCS) -> lenh gui di dia chi vao MAVROS
 
-    RADIO_STATUS giu lai: tren SiK that no do chinh cai radio duoi dat chen vao
-    (khong phai FC), va do la nguon RSSI duy nhat.
+    RADIO_STATUS giu lai: tren SiK that no do chinh cai radio duoi dat chen vao,
+    khong phai FC. Rieng cap Holybro 433 dang dung thi KHONG bao gio den — do
+    13/08/2026: 0 goi trong 30s, quet byte tho thay 22 khung v2 va 0 khung v1,
+    nghia la firmware radio khong doc noi khung MAVLink2 nen khong chen duoc.
+    Chat luong link vi vay lay tu ti le mat goi (xem cho phat topic "link"), con
+    dong nay giu de radio nao chen duoc thi van dung.
 
     Component 0 (MAV_COMP_ID_ALL) cung cho qua: mot so nguon gui don gian va log
     cu ghi nhu vay. Chan no thi REPLAY mot .tlog la ra man hinh trong tron — dung
@@ -73,6 +94,11 @@ STREAMS = [
 # Nhip xin EXTENDED_SYS_STATE. 2 Hz la du: no chi doi trang thai khi cat/ha canh,
 # va cang thua thi cang ton bang thong tren duong SiK 57600.
 LANDED_HZ = 2
+
+# Im lang bao nhieu giay (khong ke HEARTBEAT/TIMESYNC) thi xin lai ca bo stream.
+# 5s: du dai de khong xin lai vi mot lo hong ngan, du ngan de HUD khong dung hinh
+# lau. Moi lan xin lai ton 7 goi ~140 byte tren chieu len — chieu len dang trong.
+STREAM_REARM = 5.0
 
 # Bit cam bien trong SYS_STATUS. Lay thang tu bang enum cua pymavlink chu khong
 # go tay: doi ban MAVLink co them cam bien moi thi tu co, khong phai sua code.
@@ -209,6 +235,19 @@ def normalize(name, d):
             "alt_msl": d["altitude"] / 1000.0,
         }
 
+    if name == "MISSION_CURRENT":
+        # Waypoint FC dang bay TOI (khong phai cai vua qua). Day la thu duy nhat
+        # phan biet "duong bay da nap" voi "drone dang di den dau tren duong do".
+        #
+        # `total` la truong mo rong, chi co tu ArduPilot 4.3 — thieu thi pymavlink
+        # tra 0. Bo han key thay vi de None: ben ve gop tung manh vao cung mot
+        # dict (nhu topic `fence`), nen mot so 0 hay None se xoa mat con so that
+        # ma MISSION_COUNT vua dat vao.
+        out = {"seq": d["seq"]}
+        if d.get("total"):
+            out["total"] = d["total"]
+        return "wp", out
+
     if name == "PARAM_VALUE" and param_id(d).startswith("FENCE_"):
         # Rao di chung mot topic voi cac dinh da giac: ben ve chi phai nghe mot cho.
         return "fence", {param_id(d): d["param_value"]}
@@ -287,6 +326,19 @@ class SikAdapter(QThread):
         self._home_seen = False
         self._ask_at = 0.0
         self._asks = 0
+
+        # Duong bay (nhiem vu type 0). Cung co che hoi nhu rao. Xem _wp_ask().
+        self._wp_items = {}  # seq -> (command, lat, lon, alt)
+        self._wp_n = None    # so muc SE tai (da cat theo WP_ITEMS_MAX); None = chua hoi
+        self._wp_total = None  # so muc FC BAO CO — de con biet la da cat hay chua
+        self._home = None    # (lat, lon) that cua FC — muc 0 cua nhiem vu nap len
+
+        # Dang nap duong bay len FC: danh sach muc cho FC xin, None = khong nap.
+        self._up = None
+        self._up_at = 0.0
+        self._up_tries = 0
+        self._up_n = 0  # so waypoint nguoi bay dat trong phien nap dang chay
+        self._stream_rx = 0.0  # lan cuoi nhan goi CUA STREAM — xem _stream_tick()
 
     def stop(self):
         self._running = False
@@ -375,6 +427,35 @@ class SikAdapter(QThread):
             # ArduCopter doi mode bang set_mode la duong chac an nhat
             name = {"rtl": "RTL", "land": "LAND"}.get(action) or args["name"]
             master.set_mode(name)
+        elif action == "wp_write":
+            self._wp_upload(master, args.get("items") or [])
+        elif action == "wp_clear":
+            self._wp_upload(master, [])
+        elif action == "nudge":
+            # Nhich bang VAN TOC, khong bang toa do. Ly do la con so do 13/08/2026:
+            # vi tri tren man hinh gia ~387 ms (3 Hz + 66 ms mot chieu), nen bay
+            # 5 m/s la drone da di qua cham xanh 1,9 m. Gui "ve toa do vua nhin
+            # thay" tuc bat no quay NGUOC lai 1,9 m moi lan tha phim.
+            #
+            # Van toc khong co cai benh do: 0 m/s nghia la "dung ngay tai cho
+            # anh dang o", khong can biet cho do o dau. Va quang duong van ti le
+            # voi thoi gian de phim vi do la tich phan cua van toc.
+            #
+            # Lenh van toc GUIDED cua ArduPilot tu het han sau ~3 s: mat link
+            # giua chung thi drone DUNG VA TREO, khong phai roi vao failsafe nhu
+            # RC_CHANNELS_OVERRIDE. Do la ly do chon duong nay chu khong gia lap
+            # can lai. Nguoi goi phai lap lai lenh trong khi phim con giu.
+            #
+            # Frame LOCAL_NED (bac/dong) chu khong BODY_NED: ban do ve huong bac
+            # len tren, nen phim mui ten trung voi cai mat nhin thay.
+            m.set_position_target_local_ned_send(
+                0, sysid, compid, mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                0b0000111111000111,  # chi dung van toc, bo qua vi tri/gia toc/yaw
+                0, 0, 0,
+                float(args.get("vn", 0.0)), float(args.get("ve", 0.0)),
+                float(args.get("vd", 0.0)),  # NED: vd duong la XUONG
+                0, 0, 0, 0, 0,
+            )
         elif action == "goto":
             m.mission_item_send(
                 sysid, compid, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
@@ -439,6 +520,8 @@ class SikAdapter(QThread):
             return False  # dang mo phong mat song: goi nay coi nhu chua tung toi
         if name == "HOME_POSITION":
             self._home_seen = True
+            # Giu lai toa do: muc 0 cua nhiem vu nap len phai la home (xem _wp_upload).
+            self._home = (d["latitude"] / 1e7, d["longitude"] / 1e7)
         elif name == "PARAM_VALUE" and param_id(d).startswith("FENCE_"):
             self._fence[param_id(d)] = d["param_value"]
         elif name == "MISSION_COUNT" and d.get("mission_type") == FENCE:
@@ -464,6 +547,211 @@ class SikAdapter(QThread):
         except TypeError:
             pass
 
+    # ---- duong bay waypoint ----------------------------------------------
+
+    def _wp_done(self):
+        return self._wp_n is not None and len(self._wp_items) >= self._wp_n
+
+    def _wp_ask(self, master):
+        """Hoi FC danh sach waypoint. Cung nhip, cung ly do voi _fence_ask.
+
+        Khong hoi thi tab Flight chi co mot cham xanh troi tren ban do: nhin thay
+        drone dang o dau, khong thay no SAP di dau. Trong bay AUTO thi day la
+        thong tin quan trong hon ca vi tri hien tai.
+
+        `mission_type` la truong mo rong cua MAVLink2. FC bi ep MAVLink1 thi bo
+        no di, khong sao: MAVLink1 chi co dung mot loai nhiem vu la waypoint.
+        """
+        if self._up is not None:
+            return  # dang nap len: chen mot phien tai ve vao giua la hong ca hai
+        m, sysid = master.mav, master.target_system
+        if self._wp_n is None:
+            try:
+                m.mission_request_list_send(sysid, AUTOPILOT, mission_type=WP)
+            except TypeError:
+                m.mission_request_list_send(sysid, AUTOPILOT)
+            return
+        for i in range(self._wp_n):
+            if i not in self._wp_items:
+                try:
+                    m.mission_request_int_send(sysid, AUTOPILOT, i, mission_type=WP)
+                except TypeError:
+                    m.mission_request_int_send(sysid, AUTOPILOT, i)
+
+    def _wp_rx(self, master, name, d):
+        """Goi lien quan den duong bay vua ve. True neu vua nhan du danh sach."""
+        if self.muted:
+            return False
+        if name == "MISSION_COUNT" and d.get("mission_type", 0) == WP:
+            self._wp_total = d["count"]
+            self._wp_n = min(d["count"], WP_ITEMS_MAX)
+            self._wp_items.clear()
+            self._wp_ask(master)
+            return self._wp_n == 0  # nhiem vu rong -> bao ngay de ben ve xoa duong cu
+        if name == "MISSION_ITEM_INT" and d.get("mission_type", 0) == WP:
+            # x/y la 1e7 do; z la met so voi frame cua chinh muc do (thuong la
+            # GLOBAL_RELATIVE_ALT, tuc so voi home).
+            if d["seq"] < WP_ITEMS_MAX:
+                self._wp_items[d["seq"]] = (d["command"], d["x"] / 1e7, d["y"] / 1e7, d["z"])
+            return self._wp_done()
+        if name == "MISSION_CURRENT" and d.get("total") and d["total"] != self._wp_total:
+            # Ai do nap nhiem vu khac trong luc app dang chay (MAVProxy, ban web):
+            # FC khong bao cho GCS thu hai biet. `total` trong MISSION_CURRENT la
+            # duong duy nhat phat hien, va no chi co tu ArduPilot 4.3 tro len —
+            # firmware cu hon thi duong bay cu nam lai toi khi noi lai.
+            #
+            # So sanh voi _wp_total (so FC bao) chu khong _wp_n (so da cat): nhiem
+            # vu 80 diem thi _wp_n = 50 mai mai khac 80, va vong tai lai chay hoai.
+            self._wp_n = self._wp_total = None
+            self._wp_items, self._asks = {}, 0
+        return False
+
+    def _wp_emit(self, master):
+        self._emit("wp", {
+            "items": [(i, *self._wp_items[i]) for i in sorted(self._wp_items)],
+            "total": self._wp_total,  # lech voi len(items) = da cat theo WP_MAX
+        })
+        if self.mode == "REPLAY":
+            return  # log co ghi lai duong bay thi van ve duoc, nhung khong gui gi ca
+        try:  # dong giao dich cho FC khoi giu trang thai cho — nhu ben rao
+            master.mav.mission_ack_send(master.target_system, AUTOPILOT, 0, mission_type=WP)
+        except TypeError:
+            master.mav.mission_ack_send(master.target_system, AUTOPILOT, 0)
+
+    # ---- nap duong bay len FC (chieu ghi) --------------------------------
+    #
+    # Chieu ghi CHI co o app nay. Nua ROS2 khong nap duoc duong bay: no khong
+    # cam quyen nua (core/authority.py), va lenh `wp_write` khong ton tai o
+    # RemoteAdapter. Mot nhiem vu tren FC chi den tu mot cho — cho nay.
+
+    def _wp_upload(self, master, points):
+        """Bat dau nap. `points` = [(lat, lon, alt)]; rong = xoa sach duong bay.
+
+        Muc 0 do minh tu chen: ArduPilot danh muc 0 lam HOME va tu ghi de toa do
+        cua no khi luu. Khong chen thi waypoint dau tien cua nguoi bay bi nuot
+        mat lam home — dat 5 diem, drone bay 4.
+
+        Hai muc nua cung do minh chen, va thieu chung thi nhiem vu nap len TRONG
+        NHU THAT ma khong bay duoc:
+
+          TAKEOFF mo dau — ArduCopter dung duoi dat vao AUTO ma lenh nav dau tien
+          khong phai NAV_TAKEOFF thi no khong leo. Nguoi bay nap xong, gat AUTO,
+          arm, va drone nam im tren bai: hong ma khong mot dong canh bao nao.
+
+          LAND ket thuc — bay het waypoint cuoi la FC giu nguyen vi tri do cho
+          den khi het pin. Ha tai chinh diem cuoi (2026-08-13: nguoi dung chon
+          LAND chu khong RTL).
+        """
+        pts = [(float(a), float(b), float(c)) for a, b, c in points][:WP_MAX]
+        self._up_n = len(pts)  # so waypoint CUA NGUOI BAY, khong ke 3 muc tu chen
+        if not pts:
+            self._up = []  # MISSION_COUNT = 0 la cach xoa nhiem vu trong MAVLink
+        else:
+            home = self._home or pts[0][:2]
+            self._up = [
+                (WAYPOINT, home[0], home[1], 0.0),
+                # lat/lon = 0: ArduCopter cat canh thang len tu cho no dang dung,
+                # va ben ve ban do bo qua muc khong co toa do (wp_points) nen
+                # duong bay khong keo mot net ra dao Null giua Dai Tay Duong.
+                (TAKEOFF, 0.0, 0.0, pts[0][2]),
+                *[(WAYPOINT, *p) for p in pts],
+                (LAND, pts[-1][0], pts[-1][1], 0.0),
+            ]
+        self._up_tries = 0
+        self._wp_up_count(master)
+
+    def _wp_up_count(self, master):
+        """Gui MISSION_COUNT — mo phien nap, va cung la cach gui lai khi FC im."""
+        self._up_at, self._up_tries = time.time(), self._up_tries + 1
+        if self.muted:
+            # Dang mo phong mat song: goi nay khong ra khoi radio. Van dem mot
+            # luot — dung cai muon do la "nap giua luc rot link thi ra sao".
+            return
+        n = len(self._up)
+        try:
+            master.mav.mission_count_send(master.target_system, AUTOPILOT, n, mission_type=WP)
+        except TypeError:
+            master.mav.mission_count_send(master.target_system, AUTOPILOT, n)
+
+    def _wp_up_rx(self, master, name, d):
+        """Goi cua phien NAP. True neu phien vua ket thuc (thanh cong hay khong).
+
+        FC dan nhip: no xin tung muc mot, minh tra loi tung muc. Khong tu ban ca
+        loat: qua SiK 57600 thi ban loat la tran bo dem cua radio, mat goi, va FC
+        xin lai tu dau — cham hon la de no dan.
+        """
+        if self.muted or self._up is None or d.get("mission_type", 0) != WP:
+            return False  # muted: goi nay coi nhu chua tung toi (nhu _fence_rx)
+
+        if name in ("MISSION_REQUEST", "MISSION_REQUEST_INT"):
+            seq = d["seq"]
+            if seq >= len(self._up):
+                return False  # FC xin muc khong co: bo qua, no se xin lai cai dung
+            cmd, lat, lon, alt = self._up[seq]
+            # Ca muc 0 cung gui frame RELATIVE_ALT: FC ghi de toa do home vao do
+            # ngay khi luu, nen frame cua rieng muc do khong anh huong gi.
+            args = (master.target_system, AUTOPILOT, seq,
+                    mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                    cmd, 0, 1, 0, 0, 0, 0,
+                    int(lat * 1e7), int(lon * 1e7), alt)
+            try:
+                master.mav.mission_item_int_send(*args, mission_type=WP)
+            except TypeError:
+                master.mav.mission_item_int_send(*args)
+            self._up_at = time.time()  # FC con noi chuyen -> chua phai gui lai
+            return False
+
+        if name == "MISSION_ACK":
+            n = self._up_n  # so waypoint nguoi bay dat, khong ke home/TAKEOFF/LAND
+            self._up = None
+            self._emit("wp", {"write": {"ok": d["type"] == 0, "result": d["type"], "n": n}})
+            # Doc lai ngay tu FC. "Da gui" khong phai "FC da luu" — thu duy nhat
+            # chung minh duoc la chinh danh sach doc nguoc ve, va no cung la thu
+            # ve len ban do.
+            self._wp_n = self._wp_total = None
+            self._wp_items, self._asks = {}, 0
+            return True
+        return False
+
+    def _stream_tick(self, master, now):
+        """FC ngung bom stream nhung VAN heartbeat -> xin lai ca bo.
+
+        Do that tren radio SiK ngay 13/08/2026: sau vai phut FC tut xuong con
+        21 B/s chi con HEARTBEAT, xin lai mot lan la ve 1986 B/s ngay lap tuc.
+        Radio vo can — dem cua no `txe=0 rxe=0 ecc=0/0` suot luc do.
+
+        Xin duy nhat mot lan luc ket noi thi khong du: dut giua chuyen bay la HUD
+        dung hinh trong khi link van bao "co song" va nhiem vu AUTO van chay tiep
+        — nguoi bay khong con so lieu nao de biet. Day la kieu hong muc 1.3 xep
+        vao loai nguy hiem nhat: im lang ma trong nhu binh thuong.
+
+        HEARTBEAT/TIMESYNC khong tinh la dau hieu song: FC gui chung ma khong can
+        ai xin, nen chung van deu dan dung luc moi thu khac da tat.
+        """
+        if (self.mode == "REPLAY" or self.muted
+                or now - self._stream_rx < STREAM_REARM):
+            return
+        self._stream_rx = now  # dat lai truoc khi gui: hong cach may cung khong ban
+        for sid, hz in STREAMS:
+            master.mav.request_data_stream_send(master.target_system, AUTOPILOT, sid, hz, 1)
+
+    def _wp_up_tick(self, master, now):
+        """FC im giua phien nap thi gui lai MISSION_COUNT, roi bo cuoc va NOI RA.
+
+        Bo cuoc im lang o day la kieu hong te nhat: nguoi bay dat 12 diem, thay
+        duong bay tren ban do, va khong bao gio biet FC chua he nhan duoc no.
+        """
+        if self._up is None or now - self._up_at < WP_UP_RETRY:
+            return
+        if self._up_tries >= WP_UP_TRIES:
+            self._up = None
+            self._emit("wp", {"write": {
+                "ok": False, "result": None, "n": self._up_n,
+                "err": f"FC khong tra loi sau {WP_UP_TRIES} lan gui MISSION_COUNT",
+            }})
+            return
+        self._wp_up_count(master)
+
     def _emit(self, topic, data, ts=None):
         if self.muted:
             return  # dang mo phong dut telemetry — xem self.muted
@@ -484,6 +772,13 @@ class SikAdapter(QThread):
             return mavutil.mavlink_connection(p["path"])
         if p.get("baud"):
             kw["baud"] = p["baud"]
+        elif p["conn"].startswith("/dev/"):
+            # mavlink_connection() mac dinh 115200. Doc radio SiK 57600 bang so do
+            # thi KHONG im lang — no ra mot luong UNKNOWN_* deu dan, app bao "da
+            # ket noi" va ve status tu rac (do that: 1156/1156 khung la UNKNOWN).
+            # Quy tac giong laptop/connection.py:78, dat o day vi profile dung tay
+            # (tools/soak.py) khong di qua duong do.
+            kw["baud"] = 115200 if "ttyACM" in p["conn"] else 57600
         master = mavutil.mavlink_connection(p["conn"], **kw)
 
         # Ghi .tlog o moi che do, ke ca REAL — sau su co day thuong la thu duy
@@ -509,6 +804,8 @@ class SikAdapter(QThread):
         streams_sent = False
         last_bps_at = time.time()
         last_bytes = 0
+        last_loss = last_count = 0  # so goi mat/nhan cua lan phat "link" truoc
+        self._stream_rx = time.time()
         prev_log_ts = None
 
         # File .tlog mo ra thanh mavmmaplog: recv_match(blocking=True) cua no
@@ -529,7 +826,12 @@ class SikAdapter(QThread):
 
                 if msg is not None:
                     name = msg.get_type()
-                    if name == "BAD_DATA" or not from_autopilot(msg):
+                    # UNKNOWN_*: msgid khong co trong dialect. Khung nhieu trung CRC
+                    # ra kieu nay, va no la thu duy nhat lam mot duong truyen hong
+                    # trong giong duong truyen song — bo di thi sai baud/nhieu nang
+                    # thanh IM LANG, dung kieu hong ma banner bat duoc.
+                    if (name == "BAD_DATA" or name.startswith("UNKNOWN_")
+                            or not from_autopilot(msg)):
                         continue
 
                     # REPLAY: phat lai dung nhip goc. Khoang trong > 1 s thi
@@ -544,6 +846,10 @@ class SikAdapter(QThread):
                     d = msg.to_dict()
                     ts = time.time()
                     self.last_rx = ts
+                    # HEARTBEAT/TIMESYNC den khong can xin, nen chung KHONG chung
+                    # minh stream con song — dem rieng, xem _stream_tick().
+                    if name not in ("HEARTBEAT", "TIMESYNC"):
+                        self._stream_rx = ts
 
                     if self._tlog_f:
                         # dinh dang .tlog: 8 byte timestamp micro-giay big-endian
@@ -572,6 +878,11 @@ class SikAdapter(QThread):
                     if self._fence_rx(master, name, d):
                         self._fence_emit(master)
 
+                    # Phien nap di truoc: dang nap thi MISSION_ACK la cua no,
+                    # khong phai cua mot phien tai ve nao.
+                    if not self._wp_up_rx(master, name, d) and self._wp_rx(master, name, d):
+                        self._wp_emit(master)
+
                     # Xin stream rate ngay sau heartbeat dau tien (luc do moi biet
                     # target_system). REPLAY khong gui gi ca.
                     if name == "HEARTBEAT" and not streams_sent and self.mode != "REPLAY":
@@ -596,23 +907,47 @@ class SikAdapter(QThread):
 
                 now = time.time()
 
-                # Rao va home: hoi sau khi da co target_system (tuc sau heartbeat
-                # dau), roi hoi lai cai con thieu cho toi khi du hoac het luot.
-                if (streams_sent and not self.muted and not self._fence_done()
-                        and self._asks < FENCE_ASK_MAX
-                        and now - self._ask_at >= FENCE_ASK_EVERY):
-                    self._ask_at, self._asks = now, self._asks + 1
-                    self._fence_ask(master)
+                if self.mode != "REPLAY":
+                    self._wp_up_tick(master, now)
+                    if streams_sent:
+                        self._stream_tick(master, now)
 
-                # Byte/s that, 1 Hz — nguon cho widget Link status
+                # Rao, home va duong bay: hoi sau khi da co target_system (tuc sau
+                # heartbeat dau), roi hoi lai cai con thieu cho toi khi du hoac
+                # het luot. Ba thu nay FC khong tu gui bao gio.
+                if (streams_sent and not self.muted
+                        and not (self._fence_done() and self._wp_done())
+                        and self._asks < ASK_MAX
+                        and now - self._ask_at >= ASK_EVERY):
+                    self._ask_at, self._asks = now, self._asks + 1
+                    if not self._fence_done():
+                        self._fence_ask(master)
+                    if not self._wp_done():
+                        self._wp_ask(master)
+
+                # Byte/s + ti le mat goi, 1 Hz — nguon cho widget Link status
                 if now - last_bps_at >= 1.0:
                     total = master.mav.total_bytes_received
+                    # Radio SiK nay KHONG chen RADIO_STATUS (do 13/08/2026: 0 goi
+                    # trong 30s, va quet byte tho thay 0 khung mang chu ky 51/68).
+                    # Firmware no chi nhan biet khung MAVLink1 nen khong tim duoc
+                    # ranh gioi goi trong luong v2 cua FC. Ep FC noi v1 thi co RSSI
+                    # nhung mat geofence (`mission_type` la truong cua v2) — doi
+                    # nhu vay la lo, nen chat luong link doi tu chinh luong dang
+                    # nhan: MAVLink danh so thu tu tung goi, thung so la mat goi.
+                    # Khong bang RSSI o cho bao truoc, nhung hon o cho no do dung
+                    # thu can biet — bao nhieu phan tram KHONG toi noi.
+                    lost = master.mav_loss - last_loss
+                    good = master.mav_count - last_count
                     self._emit(
                         "link",
-                        {"bps": int((total - last_bytes) / (now - last_bps_at)), "mode": self.mode},
+                        {"bps": int((total - last_bytes) / (now - last_bps_at)),
+                         "loss": round(100.0 * lost / (lost + good), 1) if lost + good else 0.0,
+                         "mode": self.mode},
                         now,
                     )
                     last_bytes, last_bps_at = total, now
+                    last_loss, last_count = master.mav_loss, master.mav_count
                     if self._tlog_f:
                         # App crash thi phan con nam trong buffer se mat — ma do
                         # dung la doan cuoi truoc su co, doan quan trong nhat.

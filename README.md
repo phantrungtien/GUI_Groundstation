@@ -100,26 +100,31 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 |---|---|
 | **Bay** | Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên |
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*` |
-| **Điều khiển** | Phân quyền · ARM/mode/TAKEOFF · **nút đỏ** · nhiệm vụ ROS2 |
+| **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`) |
 
 ### Nút đỏ — RTL / LAND / DISARM
 
-Đi thẳng qua SiK, **không qua companion, không kiểm tra quyền**. Bấm là tự kéo
-quyền về GCS và gạt switch về MANUAL. Chỉ bị khoá duy nhất ở chế độ REPLAY.
+Đi thẳng qua SiK, **không qua companion**. Chỉ bị khoá duy nhất ở chế độ REPLAY.
 
-### Phân quyền MANUAL ↔ AUTO
+### Laptop cầm toàn quyền
 
-- **MANUAL**: bạn lái, lệnh thường (ARM/mode/TAKEOFF) đi được
-- **AUTO**: giao cho node ROS2, lệnh thường bị từ chối, nút nhiệm vụ mở ra
+Không còn switch MANUAL/AUTO. Mọi lệnh xuống FC — kể cả nạp đường bay — đi từ
+app này qua SiK. `/gcs/authority` chốt cứng ở `"gcs"` ngay lúc `ros2_bridge.py`
+khởi động và không có đường nào đổi, nên **node offboard trên companion không
+bao giờ được lái**. Nửa ROS2 chỉ còn là nguồn telemetry: vị trí, vận tốc, video,
+tên node đang chạy. Mất nó là mất tầm nhìn, không phải mất quyền điều khiển.
 
-Bấm nút đỏ là cách giành lại quyền nhanh nhất.
+### Đường bay waypoint — đọc và ghi
 
-### Nhiệm vụ ROS2
+Chuột phải trên bản đồ: **đặt waypoint** (tối đa 50, chọn độ cao trong menu),
+**nạp lên FC**, hoặc **xoá đường bay trên FC**. Nạp xong app đọc ngược lại từ FC
+rồi mới vẽ — cái hiện trên bản đồ là cái FC đang thật sự giữ, không phải cái vừa
+gửi đi. Đường tím liền là đường bay trên FC (số theo `seq` của FC, mục 0 là home
+do ArduPilot tự giữ); đường tím nhạt đứt nét là đường **đang đặt, chưa nạp**.
 
-Nút chọn nhiệm vụ gửi lệnh sang companion qua WebSocket — **laptop không gửi
-setpoint**, nên không tranh luồng 30 Hz với node offboard. Muốn bridge tự khởi
-động node thì chạy nó với `--spawn` (chỉ chạy tên trong danh sách trắng).
+Đang bay AUTO mà nạp đè thì phải bấm hai lần — FC nhảy sang WP1 của đường mới
+ngay khi nhận.
 
 ### Bản đồ
 
@@ -333,7 +338,7 @@ RC override: ArduPilot sẽ từ chối arm với `"Throttle (RC3) is not neutra
 core/            # DUNG CHUNG voi ban web
   bus.py         # envelope {src, topic, data, ts}
   field.py       # trong tai da nguon: best() tra ca gia tri lan nguon
-  authority.py   # phan quyen + nhanh ESCAPE cho nut do
+  authority.py   # duong ra drone + nhanh ESCAPE cho nut do
   adapters/
     sik.py       # pymavlink trong QThread, chuan hoa NED -> ENU
     remote.py    # WebSocket client toi companion

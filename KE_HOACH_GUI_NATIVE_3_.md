@@ -182,11 +182,18 @@ NetID, cùng dải tần. Mua theo cặp thì thường có sẵn; mua lẻ ph�
 
 #### Việc cần làm
 
-- [ ] `ls /dev/ttyUSB0` nhận diện được SiK @ 57600 — **chưa từng có `ttyUSB*` cắm vào máy**
+- [x] `ls /dev/ttyUSB0` nhận diện được SiK @ 57600
+      → 13/08/2026: `usb-FTDI_FT231X_USB_UART_DU0ENXW7` → `ttyUSB0`. Cặp Holybro
+      433 MHz, `RFD SiK 2.0 on HM-TRP`, hai đầu trùng `AIR_SPEED=64 NETID=25
+      TXPOWER=20` (=100 mW), `ECC=0`
 - [x] SITL ArduCopter chạy được *(dùng chung với bản web — làm một lần)*
-- [ ] **Đo băng thông SiK thật** (xem Phụ lục 7.1) — đừng tin ước lượng
-      → mới đo được trên USB (`ttyACM0`): **1895–1986 B/s**, gấp ~2,4× ước lượng
-      800 B/s của Phụ lục 7.1. Còn nợ số trên radio SiK, và nó **chặn bàn hai cần**
+- [x] **Đo băng thông SiK thật** (xem Phụ lục 7.1) — đừng tin ước lượng
+      → 13/08/2026, trên chính radio SiK, đúng bộ `STREAMS` của app, 30 s:
+      **1762 B/s** — gấp **2,2×** ước lượng 800 B/s của Phụ lục 7.1. Sức chở một
+      chiều ~3900 B/s (tính từ `ATI6`: cửa sổ 7140 µs @ 64 kbps × 67,6 lần/s),
+      tức đang dùng **44%**. Link sạch: 0 khung hỏng, 0 lỗi giải mã, `txe=0 rxe=0`.
+      **Hết chặn bàn hai cần**: TDM cấp cửa sổ riêng mỗi chiều, chiều lên còn
+      trống (~20 B/s), nên lệnh điều khiển 10 Hz chỉ ăn ~8% cửa sổ lên
 - [x] Cài Mission Planner để đối chiếu *(không nằm trong kiến trúc, chỉ để test)*
       → `mono-complete` 6.8 + MP 1.3.83 chạy được, nhưng **việc đối chiếu làm bằng
       MAVProxy** (`tools/compare_gcs.py`). Lý do MP không đọc được số: `docs/doi_chieu_gcs.md` mục 7
@@ -423,8 +430,22 @@ Nút đỏ đi trước mọi kiểm tra. Không có nhánh nào làm nó bị c
       → `tools/e2e_ros2.py` trên stack ROS2 thật: mission stream 30 Hz ở 10,2 m,
       bấm RTL → **không thêm một vòng `laps` nào**, node dừng hẳn
 
-> **Còn nợ: nghiệm thu trên phần cứng thật.** Bốn dòng trên mới đạt trên SITL.
-> Bằng chứng còn thiếu là chặng ga-giữa-tầm của `tools/hitl.py disarm` — phải in
+> **ARM/DISARM đã đạt trên phần cứng thật — 13/08/2026**, qua radio SiK 433 MHz,
+> bằng chứng `logs/20260813-181529-real.tlog`:
+>
+> | mốc | sự kiện |
+> |---|---|
+> | 4,2 s | `COMMAND_ACK` 400 → **từ chối**, FC nói `Arm: GPS 1: Bad fix` (đang ở mode cần vị trí, GPS 0 vệ tinh) |
+> | 27,8 s | đổi sang STABILIZE → `COMMAND_ACK` 400 → **chấp nhận** |
+> | 28,0 s | heartbeat lật sang **ARMED**, mode STABILIZE |
+> | 43,0 s | `COMMAND_ACK` 400 → chấp nhận → **DISARMED** |
+>
+> `COMMAND_ACK` lệnh 400 chứng minh lệnh đến từ MAVLink, tức nút trên app — arm
+> bằng cần lái không sinh ack này. Đường từ chối cũng đạt: FC nêu lý do và app
+> hiện nguyên văn ở tab Messages, không nuốt mất.
+>
+> **Còn nợ: TAKEOFF → RTL trên phần cứng thật** (cần GPS fix ngoài trời), ba dòng
+> kịch bản companion, và chặng ga-giữa-tầm của `tools/hitl.py disarm` — phải in
 > `landed = False` mà vẫn gửi FORCE, chứng minh rangefinder gánh được lúc
 > `landed_state` lật sang IN_AIR. Hai tlog 04/08 đều chỉ có `landed_state = 1`.
 

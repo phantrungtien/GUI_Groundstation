@@ -12,6 +12,11 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 from core.adapters.sik import STALE
 
 ALIVE, DEAD = "#27ae60", "#7f8c8d"
+WARN = "#e67e22"
+# Tren 5% mat goi thi doi mau. Duong SiK khoe do duoc 0,0% (13/08/2026, 30s tren
+# radio that); vai phan tram la con song nhung da bat dau an mon, va do la luc
+# nguoi bay can biet — chu khong phai luc no ve 0.
+WARN_LOSS = 5.0
 
 
 class LinkStatus(QWidget):
@@ -21,6 +26,7 @@ class LinkStatus(QWidget):
         super().__init__(parent)
         self.last_seen = {}  # src -> ts goi cuoi
         self.bps = {}
+        self.loss = {}  # src -> % goi mat trong giay vua roi (thay cho RSSI)
         self._dots, self._info = {}, {}
 
         grid = QGridLayout(self)
@@ -50,6 +56,7 @@ class LinkStatus(QWidget):
         """
         if env["topic"] == "link":
             self.bps[env["src"]] = env["data"].get("bps", 0)
+            self.loss[env["src"]] = env["data"].get("loss", 0.0)
             return
         self.last_seen[env["src"]] = env["ts"]
 
@@ -58,12 +65,17 @@ class LinkStatus(QWidget):
         for src, _ in self.ROWS:
             seen = self.last_seen.get(src)
             alive = seen is not None and now - seen < STALE
+            loss = self.loss.get(src, 0.0)
             self._dots[src].setStyleSheet(f"color:{ALIVE if alive else DEAD};font-size:14px;")
             if seen is None:
                 text = "chua ket noi"
             elif alive:
-                text = f"{self.bps.get(src, 0)} B/s"
+                # Mat goi hien LUON, ke ca 0,0%: con so dung yen o 0 la bang chung
+                # duong truyen sach, con o trong thi khong phan biet duoc "sach"
+                # voi "chua do duoc" (nguyen tac 2.2).
+                text = f"{self.bps.get(src, 0)} B/s · mat {loss:.1f}%"
             else:
                 text = f"MAT — {now - seen:.0f}s"
             self._info[src].setText(text)
-            self._info[src].setStyleSheet(f"color:{'#ddd' if alive else DEAD};")
+            color = DEAD if not alive else (WARN if loss >= WARN_LOSS else "#ddd")
+            self._info[src].setStyleSheet(f"color:{color};")

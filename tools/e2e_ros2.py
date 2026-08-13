@@ -3,7 +3,16 @@
 
 `selfcheck.py` dung nguon MAVLink gia va WebSocket gia: no chung minh ma nguon
 dung, khong chung minh he thong dung. File nay cam app vao dung cai drone ma
-node ROS2 dang bay, roi bam nut do — kich ban hong #5.
+node ROS2 dinh bay, va do dung mot thu: node do KHONG LAI DUOC.
+
+Truoc day bai test nay do duong NHUONG QUYEN (giao quyen cho ROS2 roi bam nut do
+giat lai). Khong con duong do nua — laptop cam toan quyen, `/gcs/authority` chot
+cung o "gcs" ngay luc bridge khoi dong (xem core/authority.py). Nen cau hoi doi
+thanh: khoi dong node nhiem vu ra thi no co chiu dung yen khong, va laptop co bay
+duoc suot trong luc no dang chay khong.
+
+> ⚠️ Ban nay CHUA chay lai tren stack that sau khi doi mo hinh quyen. Con so cu
+> (o docs/) la cua bai test cu.
 
 Chay stack truoc (moi cua so mot terminal):
 
@@ -33,7 +42,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from core import authority  # noqa: E402
 from core.adapters.sik import STALE  # noqa: E402
 from core.field import REGISTRY  # noqa: E402
 from laptop.app import MainWindow  # noqa: E402
@@ -130,80 +138,55 @@ def script():
     yield "drone ha canh, disarm xong", lambda: val("heartbeat.armed") is False, 180
     # PYTHONUNBUFFERED: bai test doc tien do qua log nay. Khong co no thi python
     # block-buffer 8 KB khi stdout la file, va dieu kien cho khong bao gio thay chu.
-    sh(f"PYTHONUNBUFFERED=1 ros2 run simtofly_mavros_sitl {MISSION}",
-       out=open(MISSION_LOG, "w"))
-    print(f"  ..  da khoi dong {MISSION} (ROS2 cam quyen bay)")
-
-    yield "node ROS2 dang stream setpoint", (
-        lambda: "flying circle" in MISSION_LOG.read_text()
-        and (val("position.alt_rel") or 0) > 8.0), 180
-    print(f"  ok  drone dang bay o {val('position.alt_rel'):.1f} m, mode "
-          f"{val('heartbeat.mode')} — node ROS2 stream setpoint 30 Hz")
-
-    # Nguoi bay giao quyen cho ROS2. Tu day lenh thuong phai bi tu choi.
-    ct.auto.setChecked(True)
-    logs.clear()
-    ct.btn_takeoff.click()
-    assert "TU CHOI" in logs[-1], logs
-    print(f"  ok  quyen thuoc ROS2 -> \"{logs[-1]}\"")
-
-    # Nghe /gcs/authority truoc khi bam. Topic nay TRANSIENT_LOCAL nen gia tri
-    # cuoi con lai cho nguoi vao sau, nhung `ros2 topic echo` mac dinh subscribe
-    # VOLATILE — QoS lech thi khong nhan duoc gi. Phai xin durability khop.
+    # Topic nay TRANSIENT_LOCAL nen gia tri chot con lai cho nguoi vao sau, nhung
+    # `ros2 topic echo` mac dinh subscribe VOLATILE — QoS lech thi khong nhan duoc
+    # gi. Phai xin durability khop. Khong bam nut nao ca: gia tri phai co san tu
+    # luc bridge khoi dong.
     sh("timeout 25 ros2 topic echo --qos-durability transient_local "
        "--qos-reliability reliable /gcs/authority", out=open(AUTH_LOG, "w"))
-    yield "may nghe /gcs/authority san sang", (
-        lambda t0=time.time(): time.time() - t0 > 5), 15
+    yield "doc duoc /gcs/authority da chot", (
+        lambda: "gcs" in AUTH_LOG.read_text()), 20
+    print("  ok  /gcs/authority latch san 'gcs' — khong ai bam gi de co no")
 
-    alt_at_press = val("position.alt_rel")
-    mode_at_press = val("heartbeat.mode")
-    mission_at_press = MISSION_LOG.read_text()
-    # Neu node da tu RTL truoc thi bai test khong con chung minh duoc gi.
-    assert "circle complete" not in mission_at_press, "node da tu RTL truoc khi bam"
-    logs.clear()
-    ct.btn_rtl.click()
+    sh(f"PYTHONUNBUFFERED=1 ros2 run simtofly_mavros_sitl {MISSION}",
+       out=open(MISSION_LOG, "w"))
+    print(f"  ..  da khoi dong {MISSION} — no phai TU DUNG, khong bay duoc")
 
     # --- day la ca bai test -------------------------------------------------
-    assert "da gui" in logs[-1], logs
-    assert authority.AUTHORITY == authority.GCS, "nut do phai keo quyen ve GCS (2.4)"
-    assert ct.manual.isChecked(), "switch phai nhay ve MANUAL theo quyen thuc te"
-    print(f"  ok  bam RTL luc dang o mode {mode_at_press}, cao {alt_at_press:.1f} m"
-          f" -> \"{logs[-1]}\", quyen ve GCS")
-
-    yield "FC nhan RTL", lambda: val("heartbeat.mode") == "RTL", 15
-    after = MISSION_LOG.read_text()
-    assert "circle complete" not in after, "node tu RTL trong luc do — khong ket luan duoc"
-    lag = after.count("laps ") - mission_at_press.count("laps ")
-    print(f"  ok  FC doi sang RTL ({lag} dong 'laps' in ra trong luc lenh con"
-          " tren duong WebSocket -> bridge -> topic)")
-
-    # Day moi la hang muc N3 ben companion: node offboard phai TU DUNG stream,
-    # khong phai de ArduPilot bo qua setpoint giup. `laps` in ra o cuoi
-    # _control_loop, sau cong phan quyen — con dem tang la con chay vong lap.
-    yield "duong nhuong quyen kip lan toi node", (
-        lambda t0=time.time(): time.time() - t0 > 3), 10
-    laps_a = MISSION_LOG.read_text().count("laps ")
-    yield "do lai sau 2s nua", (lambda t0=time.time(): time.time() - t0 > 2), 10
-    laps_b = MISSION_LOG.read_text().count("laps ")
-    assert laps_b == laps_a, (
-        f"node offboard VAN chay sau khi mat quyen ({laps_b - laps_a} dong 'laps'"
-        " moi trong 2s) — kich ban hong #5, kiem tra authority_gate() ben guided_base")
-    assert "dung stream setpoint" in MISSION_LOG.read_text(), \
+    # Node khoi dong ra, doc thay minh khong cam quyen, va dung yen. Kiem bang
+    # HAI thu doc lap: log cua chinh no, va cai drone co nhac len khoi mat dat
+    # hay khong. Chi tin mot cai thi mot ben noi doi la bai test qua.
+    yield "cho node du thoi gian de cat canh neu no dinh cat", (
+        lambda t0=time.time(): time.time() - t0 > 20), 30
+    log = MISSION_LOG.read_text()
+    assert "dung stream setpoint" in log, \
         "node khong he nhan duoc /gcs/authority — kiem tra QoS hai dau"
-    print("  ok  node ROS2 dung han sau khi mat quyen (khong phai ArduPilot cuu)")
+    assert "flying circle" not in log, "node VAN bay du khong cam quyen — kich ban hong #5"
+    assert val("heartbeat.armed") is False, \
+        f"drone da ARM ma khong ai o laptop bam gi (cao {val('position.alt_rel')} m)"
+    print("  ok  node ROS2 nam yen: khong ARM, khong stream setpoint")
 
+    # Va laptop thi bay duoc, ngay trong luc node do dang chay.
+    logs.clear()
+    ct.mode_box.setCurrentText("GUIDED")
+    ct.btn_mode.click()
+    yield "FC vao GUIDED", lambda: val("heartbeat.mode") == "GUIDED", 15
+    ct.btn_arm.click()
+    yield "drone ARM", lambda: val("heartbeat.armed") is True, 15
+    ct.alt.setValue(10)
+    ct.btn_takeoff.click()
+    yield "drone len toi 8 m", lambda: (val("position.alt_rel") or 0) > 8.0, 90
+    alt = val("position.alt_rel")
+    print(f"  ok  laptop cat canh duoc len {alt:.1f} m trong luc node ROS2 dang chay")
+
+    logs.clear()
+    ct.btn_rtl.click()
+    assert "da gui" in logs[-1], logs
+    yield "FC nhan RTL", lambda: val("heartbeat.mode") == "RTL", 15
     yield "drone thuc su ha do cao", (
-        lambda: (val("position.alt_rel") or 99) < alt_at_press - 1.0), 60
-    print(f"  ok  do cao tut tu {alt_at_press:.1f} m xuong {val('position.alt_rel'):.1f} m")
-
+        lambda: (val("position.alt_rel") or 99) < alt - 1.0), 60
     yield "drone ve toi nha va disarm", lambda: val("heartbeat.armed") is False, 180
     print("  ok  RTL hoan tat — drone ve nha, disarm")
-
-    heard = AUTH_LOG.read_text()
-    if "gcs" in heard:
-        print("  ok  /gcs/authority nhan duoc 'gcs'")
-    else:
-        print("  !!  /gcs/authority KHONG thay 'gcs' — kiem tra lai ros2_bridge")
 
     print("\ne2e_ros2: PASS")
     cleanup()

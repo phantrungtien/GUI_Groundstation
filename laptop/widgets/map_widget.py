@@ -20,6 +20,10 @@ from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
+# Tran so waypoint la mot con so cua GIAO THUC (bang thong SiK), khong phai cua
+# ban do — lay tu adapter chu khong go lai o day.
+from core.adapters.sik import WP_MAX
+
 TILE = 256
 ROOT = Path(__file__).resolve().parent.parent.parent
 TILE_DIR = ROOT / "assets" / "tiles"
@@ -62,6 +66,15 @@ FENCE_OUT = QColor(192, 57, 43)    # vung cam vao
 # Rao dang TAT ve dut net, nhung phai SANG: xam toi thi chim han vao anh ve tinh
 # va "rao dang tat" nhin y het "khong co rao" — hai chuyen rat khac nhau.
 FENCE_OFF = QColor(210, 218, 226)
+# Duong bay da nap. Mau phai khac han vet bay (xanh duong): mot cai la KE HOACH,
+# cai kia la thu drone DA bay qua — nhin nham hai thu nay la hieu sai man hinh.
+WP_LINE = QColor(155, 89, 182)
+WP_NOW = QColor(236, 240, 241)  # waypoint dang bay toi
+# Duong bay DANG DAT tren man hinh, chua nap len FC. Cung ho mau voi duong bay
+# that (cung la mot ke hoach) nhung nhat va dut net: dat xong ma tuong da nap
+# roi la cat canh voi mot nhiem vu cu nam trong FC.
+WP_DRAFT = QColor(208, 168, 235)
+DRAFT_ALT = 20.0  # met so voi home, cho waypoint dat bang chuot. Doi o menu ban do.
 
 # MAV_CMD_NAV_FENCE_* — dinh da giac va tam vong tron
 VERTEX_IN, VERTEX_OUT, CIRCLE_IN, CIRCLE_OUT = 5001, 5002, 5003, 5004
@@ -133,6 +146,18 @@ def fence_shapes(items):
             flush()  # muc la khong phai rao: cat da giac dang do
     flush()
     return out
+
+
+def wp_points(items):
+    """Muc nhiem vu -> [(seq, lat, lon, alt)] ve duoc len ban do.
+
+    Bo muc lat/lon = 0: mot nua so lenh trong nhiem vu khong mang toa do
+    (`DO_CHANGE_SPEED`, `CONDITION_DELAY`, va `NAV_TAKEOFF` thuong de trong) —
+    ve chung thi duong bay keo mot net thang ra dao Null (0, 0) giua Dai Tay
+    Duong. Giu nguyen so `seq` cua FC lam nhan: do la con so `MISSION_CURRENT`
+    dung de noi "dang bay toi diem nao", hai ben phai goi cung mot ten.
+    """
+    return [(seq, lat, lon, alt) for seq, _cmd, lat, lon, alt in items if lat or lon]
 
 
 def num2deg(x, y, z):
@@ -276,6 +301,9 @@ class MapWidget(QWidget):
         self.pos = None  # (lat, lon) hien tai
         self.home = None
         self.fence = {}  # tham so FENCE_* + "items" (cac dinh da giac), xem set_fence
+        self.wp = {}  # "items" (duong bay) + "seq"/"total", xem set_wp
+        self.draft = []  # [(lat, lon, alt)] dang dat bang chuot, chua nap len FC
+        self.wp_alt = DRAFT_ALT
         self.trail = []
         self._drag = None
         self._cache = {}
@@ -332,8 +360,37 @@ class MapWidget(QWidget):
             self.fence.update(data)
         self.update()
 
+    def set_wp(self, data):
+        """Duong bay da nap tren FC. Gop tung manh nhu set_fence.
+
+        Hai nhip khac han nhau do ve cung mot cho: danh sach diem ve dung mot
+        lan sau khi tai xong (MISSION_ITEM_INT), con `seq` — diem dang bay toi —
+        ve deu deu suot chuyen (MISSION_CURRENT). Xem core/adapters/sik.py.
+        """
+        if data is None:
+            self.wp = {}
+        else:
+            self.wp.update(data)
+        self.update()
+
+    def add_draft(self, lat, lon, alt=None):
+        """Dat them mot waypoint. Tra ve False khi da cham tran WP_MAX."""
+        if len(self.draft) >= WP_MAX:
+            return False
+        self.draft.append((lat, lon, self.wp_alt if alt is None else alt))
+        self.update()
+        return True
+
+    def drop_draft(self, all_of_them=False):
+        """Bo diem cuoi, hoac xoa het."""
+        if all_of_them:
+            self.draft.clear()
+        elif self.draft:
+            self.draft.pop()
+        self.update()
+
     def reset(self):
-        """Ngat ket noi: xoa vet bay, home va rao cua chuyen truoc.
+        """Ngat ket noi: xoa vet bay, home, rao va duong bay cua chuyen truoc.
 
         Giu lai la ve du lieu cu de len drone moi — cai dau X va vong rao van
         nam do trong khi chung khong con dung nua.
@@ -341,6 +398,9 @@ class MapWidget(QWidget):
         self.trail.clear()
         self.home = None
         self.fence = {}
+        self.wp = {}
+        # `draft` KHONG xoa: no la thu nguoi bay dang soan, khong phai du lieu cua
+        # drone cu. Rot ket noi giua chung ma mat 12 diem vua dat la mat cong that.
         self.update()
 
     # --- tuong tac ----------------------------------------------------
@@ -501,6 +561,81 @@ class MapWidget(QWidget):
             bits.append(f"{n} da giac")
         return f"rao: {' '.join(bits)}" if bits else "rao BAT"
 
+    def _draw_wp(self, p, cx, cy):
+        """Duong bay: noi cac diem theo thu tu seq, danh so, to dam diem dang toi.
+
+        Ve sau rao va truoc vet bay co chu y: rao la ranh gioi cung nen nam duoi,
+        duong bay la KE HOACH, vet bay la thu drone DA bay — cai that phai nam
+        tren cung, khong bi ke hoach che mat.
+        """
+        pts = wp_points(self.wp.get("items") or [])
+        if not pts:
+            return
+        px = [self._to_px(lat, lon, cx, cy) for _, lat, lon, _ in pts]
+        p.setBrush(Qt.NoBrush)
+        if len(px) > 1:
+            p.setPen(QPen(WP_LINE, 2))
+            p.drawPolyline(px)
+        p.setFont(QFont("", 8))
+        now = self.wp.get("seq")
+        for (seq, *_), q in zip(pts, px):
+            here = seq == now
+            p.setPen(QPen(WP_NOW if here else WP_LINE, 2))
+            p.drawEllipse(q, 5, 5)
+            if here:
+                p.drawEllipse(q, 9, 9)  # vong ngoai: thay duoc o goc mat luot qua
+            # So thu tu tren anh ve tinh thi chim han — ke mot o toi phia sau,
+            # cung cach dai chu duoi day dang lam. Con so nay la thu doi chieu
+            # voi "toi #3" o dai chu, doc khong ra thi ca hai deu vo dung.
+            box = QRect(q.x() + 7, q.y() - 17, 8 + 7 * len(str(seq)), 14)
+            p.fillRect(box, QColor(0, 0, 0, 150))
+            p.drawText(box, Qt.AlignCenter, str(seq))
+
+    def _draw_draft(self, p, cx, cy):
+        """Duong bay dang soan: dut net, o vuong, danh so tu 1.
+
+        Danh so tu 1 chu khong tu 0 nhu duong bay that: muc 0 tren FC la home do
+        ArduPilot tu giu, khong phai diem nguoi bay dat ra. Hai cach danh so khac
+        nhau la co y — nhin so la biet dang xem cai nao.
+        """
+        if not self.draft:
+            return
+        px = [self._to_px(lat, lon, cx, cy) for lat, lon, _ in self.draft]
+        p.setBrush(Qt.NoBrush)
+        if len(px) > 1:
+            p.setPen(QPen(WP_DRAFT, 2, Qt.DashLine))
+            p.drawPolyline(px)
+        p.setFont(QFont("", 8))
+        p.setPen(QPen(WP_DRAFT, 2))
+        for i, q in enumerate(px, 1):
+            p.drawRect(q.x() - 4, q.y() - 4, 8, 8)
+            box = QRect(q.x() + 7, q.y() - 17, 8 + 7 * len(str(i)), 14)
+            p.fillRect(box, QColor(0, 0, 0, 150))
+            p.drawText(box, Qt.AlignCenter, str(i))
+
+    def _wp_note(self):
+        """Mot doan cho dai chu duoi day. Rong khac han "chua tai duoc": chua tai
+        thi khong noi gi, tai ve so 0 thi noi thang la FC khong co duong bay."""
+        w = self.wp
+        items = w.get("items")
+        if items is None:
+            return ""
+        n, total = len(wp_points(items)), w.get("total")
+        if not n:
+            return "khong co duong bay"
+        note = f"duong bay {n} diem"
+        if total and total > len(items):
+            # Cat bot ma im lang thi nguoi bay tuong da nhin thay ca duong bay.
+            note += f" (FC co {total}, chi tai {len(items)})"
+        if w.get("seq") is not None:
+            note += f" · toi #{w['seq']}"
+        return note
+
+    def _draft_note(self):
+        if not self.draft:
+            return ""
+        return f"dang dat {len(self.draft)} diem @{self.wp_alt:.0f}m — CHUA NAP"
+
     def paintEvent(self, _):
         p = QPainter(self)
         p.fillRect(self.rect(), BG)
@@ -560,6 +695,8 @@ class MapWidget(QWidget):
             p.drawText(box, Qt.AlignCenter, warn)
 
         self._draw_fence(p, cx, cy)
+        self._draw_wp(p, cx, cy)
+        self._draw_draft(p, cx, cy)
 
         if self.home:
             hp = self._to_px(*self.home, cx, cy)
@@ -587,6 +724,9 @@ class MapWidget(QWidget):
         fence = self._fence_note()
         if fence:
             note += f"  ·  {fence}"
+        for extra in (self._wp_note(), self._draft_note()):
+            if extra:
+                note += f"  ·  {extra}"
         if not self.follow:
             note += "  ·  nhay doi de bam lai theo drone"
         if self.credit:

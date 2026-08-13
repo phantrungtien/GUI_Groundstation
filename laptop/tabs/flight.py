@@ -6,11 +6,14 @@ la con truc tiep cua tab, KHONG nam trong layout nao, toa do tinh tay trong
 resizeEvent va goi .raise_() de noi len tren map.
 """
 
-from PySide6.QtCore import Qt, QTimer
+import time
+
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QLabel, QMenu, QWidget
 
 from core import authority, bus
+from core.adapters.sik import WP_MAX
 from core.field import REGISTRY
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
@@ -21,11 +24,50 @@ from laptop.widgets.video import VideoView
 MARGIN = 12
 PIP_W, PIP_H = 256, 192  # o camera goc tren-trai; tab Camera moi la cho xem ky
 
+# Do cao chon duoc cho waypoint dat bang chuot. Danh sach chu khong o nhap so:
+# menu la thu duy nhat o day, ma hop thoai nhap lieu thi lam nut do chet trong
+# vai giay (xem ControlTab._takeoff) — doi thang muc 2.1.
+ALTS = (10, 15, 20, 30, 50, 80)
+# Nap de len nhiem vu trong luc drone dang bay AUTO theo chinh nhiem vu do: FC
+# nhay sang WP1 cua duong bay moi ngay lap tuc. Bam lai trong ngan nay de xac
+# nhan — cung cach TAKEOFF o che do REAL dang lam.
+CONFIRM_S = 3.0
+
+# --- Nhich vi tri bang ban phim -------------------------------------------
+#
+# Gui VAN TOC chu khong toa do — ly do va so do nam o `sik.py`, action "nudge".
+# Quang duong = tich phan van toc, nen giu phim lau thi di xa: go nhe mot cai la
+# nhich mot chut, giu thi cang luc cang nhanh toi tran.
+NUDGE = {
+    Qt.Key_Up: (1, 0, 0),        # bac (ban do ve huong bac len tren)
+    Qt.Key_Down: (-1, 0, 0),
+    Qt.Key_Right: (0, 1, 0),     # dong
+    Qt.Key_Left: (0, -1, 0),
+    Qt.Key_PageUp: (0, 0, -1),   # NED: len la vd AM
+    Qt.Key_PageDown: (0, 0, 1),
+}
+NUDGE_V0 = 1.0     # m/s ngay khi cham phim
+NUDGE_VMAX = 5.0   # tran toc do
+NUDGE_RAMP = 2.0   # m/s cong them moi giay giu phim
+# Nhip gui lai. Lenh van toc GUIDED cua ArduPilot het han sau ~3 s, va do trung vi
+# cua duong SiK la 132 ms — 5 Hz vua du day de mot goi roi khong thanh mot khoang
+# khung, ma van chi ~115 B/s tren chieu len dang trong.
+NUDGE_HZ = 5
+
 
 class FlightTab(QWidget):
+    # Nap duong bay la mot LENH. No phai de lai vet o tab Messages va o
+    # logs/commands.log y nhu ARM/TAKEOFF, khong duoc chi hien thoang tren ban do.
+    log = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.mode = None
+        self._wp_confirm = 0.0  # lan bam dau cua "nap de len" khi dang bay AUTO
+        self._held = set()      # phim huong dang giu
+        self._nudge_since = 0.0  # luc phim dau tien xuong — goc tinh ramp toc do
+        # Phim chi toi tab nao dang giu focus, nen phai xin focus tuong minh.
+        self.setFocusPolicy(Qt.StrongFocus)
 
         self.map = MapWidget(self)
         self.compass = Compass(self)
@@ -52,14 +94,19 @@ class FlightTab(QWidget):
         self.map.setContextMenuPolicy(Qt.CustomContextMenu)
         self.map.customContextMenuRequested.connect(self._menu)
 
-        # Home va rao khong phai dai luong lien tuc, chung ve mot lan roi thoi —
-        # nen doc thang tu bus, khong qua REGISTRY (o do qua 2 giay la het tuoi).
+        # Home, rao va duong bay khong phai dai luong lien tuc, chung ve mot lan
+        # roi thoi — nen doc thang tu bus, khong qua REGISTRY (o do qua 2 giay la
+        # het tuoi, ma duong bay thi dung yen suot ca chuyen).
         bus.on("home", lambda e: self.map.set_home(e["data"]["lat"], e["data"]["lon"]))
         bus.on("fence", lambda e: self.map.set_fence(e["data"]))
+        bus.on("wp", self._on_wp)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(200)
+
+        self._nudge_timer = QTimer(self)
+        self._nudge_timer.timeout.connect(self._nudge_tick)
 
     def set_mode(self, mode):
         self.mode = mode
@@ -115,33 +162,206 @@ class FlightTab(QWidget):
         else:
             self.warn.hide()
 
+    def _on_wp(self, env):
+        """Duong bay tu FC ve. Rieng ket qua NAP thi phai ra log, khong ve ban do."""
+        w = env["data"].get("write")
+        if w is None:
+            self.map.set_wp(env["data"])
+            return
+        if w["ok"]:
+            # Nap xong thi bo ban nhap di: giu lai hai duong chong len nhau tren
+            # ban do, mot cai la ke hoach cu, khong ai phan biet duoc nua.
+            self.map.drop_draft(all_of_them=True)
+            self.log.emit(f"nap duong bay: FC nhan {w['n']} waypoint — dang doc lai de doi chieu")
+        else:
+            why = w.get("err") or f"FC tu choi (MAV_MISSION_RESULT={w['result']})"
+            self.log.emit(f"nap duong bay: THAT BAI — {why}. Ban nhap con nguyen, bam nap lai duoc")
+
     def _menu(self, point):
-        """Click phai tren map -> GUIDED + bay toi (chi khi cam quyen MANUAL).
+        """Click phai tren map: dat waypoint, nap len FC, hay bay toi mot diem.
 
         Bat/tat camera cung nam o day chu khong lam nut rieng: o PiP de click
         xuyen qua xuong map, nen no khong tu nhan duoc cu bam nao.
         """
         menu = QMenu(self)
+        live = self.mode in ("REAL", "SIM")
+        lat, lon = self.map.latlon_at(point)
+        n = len(self.map.draft)
 
-        act_goto = None
-        if self.mode in ("REAL", "SIM"):
-            lat, lon = self.map.latlon_at(point)
-            act_goto = menu.addAction(f"GUIDED + bay toi {lat:.5f}, {lon:.5f}")
-            if authority.AUTHORITY != authority.GCS:
-                act_goto.setEnabled(False)
-                menu.addAction("(quyen dang thuoc ve ROS2)").setEnabled(False)
+        act_add = menu.addAction(f"Dat waypoint {n + 1} tai day  ({self.map.wp_alt:.0f} m)")
+        act_add.setEnabled(n < WP_MAX)
+        alt_menu = menu.addMenu(f"Do cao waypoint: {self.map.wp_alt:.0f} m")
+        alt_acts = {alt_menu.addAction(f"{a} m"): a for a in ALTS}
+        act_undo = menu.addAction(f"Bo diem {n}") if n else None
+        act_clear = menu.addAction(f"Xoa het {n} diem dang dat") if n else None
+
+        act_send = act_wipe = None
+        if live:
             menu.addSeparator()
+            if n:
+                act_send = menu.addAction(f"NAP {n} waypoint len FC")
+                if self._auto_flying():
+                    act_send.setText(f"NAP {n} waypoint DE LEN nhiem vu dang bay")
+            if self.map.wp.get("items"):
+                act_wipe = menu.addAction("Xoa duong bay tren FC")
+            menu.addSeparator()
+            act_goto = menu.addAction(f"GUIDED + bay toi {lat:.5f}, {lon:.5f}")
+        else:
+            act_goto = None
 
         act_video = menu.addAction("An camera" if self.video.isVisible() else "Hien camera")
 
         chosen = menu.exec(QCursor.pos())
+        if chosen is None:
+            return
         if chosen is act_video:
             self.video.setVisible(not self.video.isVisible())
-        elif chosen is not None and chosen is act_goto:
+        elif chosen is act_add:
+            self.map.add_draft(lat, lon)
+        elif chosen in alt_acts:
+            self.map.wp_alt = float(alt_acts[chosen])
+            self.map.update()
+        elif chosen is act_undo:
+            self.map.drop_draft()
+        elif chosen is act_clear:
+            self.map.drop_draft(all_of_them=True)
+        elif chosen is act_send:
+            self._send_wp()
+        elif chosen is act_wipe:
+            self._report("xoa duong bay tren FC",
+                         authority.dispatch({"target": "sik", "action": "wp_clear"}))
+        elif chosen is act_goto:
             authority.dispatch({"target": "sik", "action": "mode", "args": {"name": "GUIDED"}})
             authority.dispatch(
                 {"target": "sik", "action": "goto", "args": {"lat": lat, "lon": lon}}
             )
+
+    def _auto_flying(self):
+        """Dang bay theo chinh nhiem vu sap bi ghi de? True/False."""
+        return (REGISTRY.value("heartbeat.mode") == "AUTO"
+                and REGISTRY.value("heartbeat.armed") is True)
+
+    # ---- nhich vi tri bang ban phim ----------------------------------
+
+    def _nudge_block(self):
+        """Ly do KHONG duoc nhich, hay None neu duoc. Bon chot, khong bot cai nao."""
+        if self.mode not in ("REAL", "SIM"):
+            return "che do nay khong gui lenh duoc"
+        if REGISTRY.value("heartbeat.armed") is not True:
+            return "drone chua armed"
+        if REGISTRY.value("heartbeat.landed") is True:
+            return "drone dang nam duoi dat"
+        fc = REGISTRY.value("heartbeat.mode")
+        if fc != "GUIDED":
+            # KHONG tu chuyen mode ho: dang bay AUTO ma mot phim lo tay keo sang
+            # GUIDED la bo ngang nhiem vu giua chung. Nguoi bay tu chuyen.
+            return f"dang o mode {fc}, phai chuyen sang GUIDED moi nhich duoc"
+        return None
+
+    def keyPressEvent(self, e):
+        if e.isAutoRepeat():
+            return  # Qt tu ban lien tuc khi giu phim — nhip do _nudge_timer giu
+        key = e.key()
+        if key in NUDGE:
+            why = self._nudge_block()
+            if why:
+                self.log.emit(f"nhich vi tri: KHONG duoc — {why}")
+                return
+            if not self._held:
+                self._nudge_since = time.time()
+                self._nudge_timer.start(int(1000 / NUDGE_HZ))
+            self._held.add(key)
+        elif key == Qt.Key_Space:
+            self._nudge_stop("treo tai cho")
+        elif key in (Qt.Key_Return, Qt.Key_Enter):
+            self._nudge_stop(None)
+            self._report("tiep tuc nhiem vu", authority.dispatch(
+                {"target": "sik", "action": "mode", "args": {"name": "AUTO"}}))
+        elif key == Qt.Key_L:
+            self._nudge_stop(None)
+            self._report("ha canh tai cho", authority.dispatch(
+                {"target": "sik", "action": "land"}))
+        else:
+            super().keyPressEvent(e)
+
+    def keyReleaseEvent(self, e):
+        if e.isAutoRepeat():
+            return
+        if e.key() not in self._held:
+            return super().keyReleaseEvent(e)
+        self._held.discard(e.key())
+        if not self._held:
+            self._nudge_stop("tha phim")
+
+    def focusOutEvent(self, e):
+        """Mat focus giua luc dang giu phim (alt-tab, bam sang tab khac).
+
+        Khong co cho nay thi keyReleaseEvent KHONG BAO GIO toi, va drone giu
+        nguyen van toc cuoi cho toi khi lenh GUIDED het han — bay mu ba giay.
+        """
+        self._nudge_stop("roi khoi man hinh bay")
+        super().focusOutEvent(e)
+
+    def _nudge_tick(self):
+        if not self._held:
+            return
+        if why := self._nudge_block():  # mode/armed doi giua chung thi dung ngay
+            self._nudge_stop(None)
+            self.log.emit(f"nhich vi tri: dung — {why}")
+            return
+        v = min(NUDGE_VMAX, NUDGE_V0 + NUDGE_RAMP * (time.time() - self._nudge_since))
+        n = sum(NUDGE[k][0] for k in self._held)
+        e = sum(NUDGE[k][1] for k in self._held)
+        d = sum(NUDGE[k][2] for k in self._held)
+        # Chuan hoa: giu hai phim cheo nhau khong duoc nhanh hon 1,41 lan mot phim.
+        mag = (n * n + e * e + d * d) ** 0.5 or 1.0
+        authority.dispatch({"target": "sik", "action": "nudge", "args": {
+            "vn": v * n / mag, "ve": v * e / mag, "vd": v * d / mag}})
+
+    def _nudge_stop(self, why):
+        """Van toc 0 = dung ngay tai cho drone dang o, khong can biet cho do o dau.
+
+        Moc "dang nhich hay khong" lay o timer chu KHONG o `self._held`: nguoi goi
+        (keyReleaseEvent) da xoa phim khoi `_held` truoc khi goi vao day, nen doc
+        `_held` o day luon thay rong va lenh dung khong bao gio duoc gui — drone
+        giu nguyen van toc cuoi cho toi khi lenh GUIDED het han ba giay sau.
+
+        Khong hoi lai `_nudge_block()`: dung la viec luon phai lam duoc. Mode vua
+        doi hay link vua chap chon deu khong phai ly do de nuot lenh dung, va mot
+        goi van toc 0 thua thi vo hai.
+        """
+        active = self._nudge_timer.isActive()
+        self._held.clear()
+        self._nudge_timer.stop()
+        if self.mode not in ("REAL", "SIM"):
+            return
+        if not active and why != "treo tai cho":
+            return  # khong nhich thi khong co gi de dung
+        authority.dispatch({"target": "sik", "action": "nudge",
+                            "args": {"vn": 0.0, "ve": 0.0, "vd": 0.0}})
+        if why:
+            self.log.emit(f"nhich vi tri: {why} -> treo tai cho")
+
+    def _send_wp(self):
+        if self._auto_flying() and time.time() - self._wp_confirm > CONFIRM_S:
+            self._wp_confirm = time.time()
+            self.log.emit(
+                f"nap duong bay: drone DANG BAY AUTO — ghi de la FC nhay sang WP1 cua "
+                f"duong moi ngay. Mo lai menu va bam lai trong {CONFIRM_S:.0f}s de xac nhan"
+            )
+            return
+        self._wp_confirm = 0.0
+        items = [list(p) for p in self.map.draft]
+        self._report(f"nap {len(items)} waypoint", authority.dispatch(
+            {"target": "sik", "action": "wp_write", "args": {"items": items}}))
+
+    def _report(self, what, result):
+        if "error" in result:
+            self.log.emit(f"{what}: TU CHOI — {result['error']}")
+        elif "stale" in result:
+            self.log.emit(f"{what}: da xep lenh nhung link im lang — CHUA CHAC TOI NOI")
+        else:
+            self.log.emit(f"{what}: da gui, cho FC tra loi")
 
     def resizeEvent(self, e):
         w, h = self.width(), self.height()

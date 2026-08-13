@@ -1,22 +1,32 @@
-"""Phan quyen giua laptop (qua SiK) va node offboard tren companion.
+"""Duong ra drone. Laptop cam TOAN QUYEN — khong nhuong cho ai.
 
 Doc ky nguyen tac 2.1 truoc khi sua file nay.
 
-Switch MANUAL/AUTO dieu phoi dung mot ranh gioi: giua BAN (lenh tu laptop qua
-SiK) va NODE OFFBOARD tren companion (stream setpoint tu hanh). No khong phai co
-che an toan cua toan he thong — RC di thang xuong FC, khong xin phep ai.
+Truoc day o day co mot switch MANUAL/AUTO: quyen lai chuyen qua chuyen lai giua
+laptop va node offboard tren companion. Bo han. Ly do: lai la mot viec, va no
+thuoc ve nguoi ngoi truoc man hinh nay. Mot ranh gioi di chuyen duoc la mot ranh
+gioi phai theo doi — giua chuyen bay, cau hoi "gio ai dang lai" khong duoc phep
+ton tai.
 
-Nut do di truoc moi kiem tra. Khong co nhanh nao lam no bi chan.
+Hau qua, noi thang ra de khong ai bat ngo:
+
+  - node offboard tren companion khong bao gio nhan duoc quyen nua. `/gcs/authority`
+    chot cung o "gcs" ngay luc bridge khoi dong (tools/ros2_bridge.py) va khong
+    co duong nao doi. Node co chay cung khong duoc stream setpoint.
+  - nua ROS2 chi con la NGUON TELEMETRY: vi tri, van toc, video, trang thai node.
+    Mat no la mat tam nhin, khong phai mat quyen dieu khien.
+  - moi lenh xuong FC — ke ca nap duong bay — di duong SiK tu chinh app nay.
+
+Nut do di truoc moi thu khac. Khong co nhanh nao lam no bi chan.
 """
 
-GCS, ROS2 = "gcs", "ros2"
+GCS = "gcs"
 
 # Nut do. Ba lenh nay du de dua drone ve nha.
 ESCAPE = {"rtl", "land", "disarm"}
 
-# target (ten adapter) -> ai phai dang cam quyen thi lenh do moi di duoc
-TARGET_OWNER = {"sik": GCS, "remote": ROS2}
-
+# Ai dang cam quyen. Con lai o day de cho nao con hoi thi doc duoc mot cau tra
+# loi that — nhung khong co ham nao doi duoc no nua.
 AUTHORITY = GCS
 ADAPTERS = {}
 
@@ -29,40 +39,22 @@ def unregister(name):
     ADAPTERS.pop(name, None)
 
 
-def set_authority(who):
-    global AUTHORITY
-    assert who in (GCS, ROS2), who
-    AUTHORITY = who
-    # Node offboard tren companion subscribe /gcs/authority de biet luc nao phai
-    # tu dung stream setpoint. Khong gui duoc thi khong sao: nut do van di duong
-    # SiK, va bam bat ky nut do nao cung la mot tin hieu nhuong quyen.
-    remote = ADAPTERS.get("remote")
-    if remote:
-        remote.send("authority", {"value": who})
-    return AUTHORITY
-
-
 def dispatch(msg):
-    """msg = {"target": "sik", "action": "rtl", "args": {}}"""
+    """msg = {"target": "sik", "action": "rtl", "args": {}}
+
+    Khong con kiem tra quyen: khong con quyen nao de kiem. Cai duy nhat con
+    dac biet o nhanh ESCAPE la no khong quan tam `target` — nut do luon xuong
+    thang SiK, khong bao gio di vong qua companion.
+    """
     action = msg["action"]
 
     if action in ESCAPE:
         sik = ADAPTERS.get("sik")
         if sik is None:
             return {"error": "chua co duong SiK"}
-        r = sik.send(action, msg.get("args", {}))  # KHONG kiem tra quyen
-        # Bam nut do LA mot tin hieu nhuong quyen (2.4). Khong lam buoc nay thi
-        # node offboard van stream setpoint va giang co voi lenh vua gui —
-        # dung kich ban hong #5. Lam SAU khi gui de khong gi chen duoc vao
-        # truoc nut do: set_authority() cham WebSocket, ma WebSocket thi treo duoc.
-        set_authority(GCS)
-        return r
+        return sik.send(action, msg.get("args", {}))
 
     target = msg.get("target", "sik")
-    owner = TARGET_OWNER.get(target, GCS)
-    if owner != AUTHORITY:
-        return {"error": f"quyen dang thuoc ve {AUTHORITY}"}
-
     adapter = ADAPTERS.get(target)
     if adapter is None:
         return {"error": f"chua co adapter {target}"}

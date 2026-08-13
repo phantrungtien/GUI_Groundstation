@@ -5,8 +5,13 @@
     python3 tools/ros2_bridge.py [--port 8765]
 
 Subscribe topic MAVROS roi day envelope JSON (docs/protocol.md) qua WebSocket
-cho `RemoteAdapter` cua laptop. Chieu nguoc lai: nhan {"action": ...} tu laptop,
-publish `/gcs/authority` de node offboard biet luc nao phai nhuong quyen (2.4).
+cho `RemoteAdapter` cua laptop.
+
+`/gcs/authority` publish DUNG MOT LAN luc khoi dong, gia tri "gcs", va khong co
+duong nao doi duoc no nua: laptop cam toan quyen (xem core/authority.py). Node
+offboard doc topic nay se thay minh khong bao gio duoc lai. Chot cung o day chu
+khong bo han topic la co y — bo han thi node roi vao mac dinh cua chinh no, ma
+mac dinh do khong nam trong repo nay.
 
 Vi sao can file nay: MAVROS phat topic ROS2, no khong mo WebSocket nao. Khong co
 mieng ghep nay thi laptop khong the noi chuyen voi nua ROS2 — va laptop thi
@@ -72,14 +77,18 @@ class Bridge(Node):
         self.sent = 0
 
         # TRANSIENT_LOCAL: quyen la TRANG THAI, khong phai luong. Nhiem vu khoi
-        # dong SAU khi ban da gat MANUAL van phai biet minh dang mat quyen —
-        # VOLATILE thi no khong nghe duoc gi va stream setpoint ngay. Phai khop
-        # voi `authority_qos()` ben guided_base.py, lech mot ben la DDS im het.
+        # dong SAU bridge van phai doc duoc — VOLATILE thi no khong nghe duoc gi
+        # va stream setpoint ngay. Phai khop voi `authority_qos()` ben
+        # guided_base.py, lech mot ben la DDS im het.
         self.authority_pub = self.create_publisher(
             String, "/gcs/authority",
             QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
                        history=QoSHistoryPolicy.KEEP_LAST, depth=1))
+        # Chot mot lan, khong bao gio doi. Latch giu gia tri nay cho moi node vao
+        # sau. Khong co ham nao ben duoi publish len topic nay nua — do la ca
+        # dieu khoan an toan lan ly do file nay khong con nhan lenh "authority".
+        self.authority_pub.publish(String(data="gcs"))
         # Moi lenh khac tu laptop di ra day nguyen dang JSON. Node nhiem vu tu doc
         # va tu quyet — laptop KHONG gui setpoint, khong tranh luong 30 Hz voi ai.
         # Doi nhiem vu la doi trang thai ben trong node dang so huu luong do; chen
@@ -158,11 +167,12 @@ class Bridge(Node):
         if not action:
             return
         if action == "authority":
-            # Giu topic rieng: node offboard chi can nghe mot chuoi de biet luc nao
-            # phai nhuong quyen, khong phai phan tich JSON (nguyen tac 2.4).
-            who = str(msg.get("args", {}).get("value", ""))
-            self.authority_pub.publish(String(data=who))
-            self.get_logger().info(f"/gcs/authority -> {who}")
+            # Quyen khong con chuyen qua chuyen lai. Ai do (ban web cu, mot script)
+            # van gui thi TU CHOI TO — im lang bo qua thi ben kia tuong da nhan
+            # duoc quyen va bat dau stream setpoint vao FC.
+            self.get_logger().error(
+                "tu choi doi /gcs/authority: laptop cam toan quyen, topic chot o 'gcs'")
+            return
         self.command_pub.publish(String(data=json.dumps(msg, separators=(",", ":"))))
         self.get_logger().info(f"/gcs/command -> {action} {msg.get('args', {})}")
         if action == "mission" and self.spawn:

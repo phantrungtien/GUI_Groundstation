@@ -32,8 +32,8 @@ Người vận hành hô to, người bay xác nhận:
    python3 tools/fetch_tiles.py --coverage      # muc zoom nao trong thi thay ngay
    ```
 2. **`python3 tools/selfcheck.py`** — phải PASS hết. Không cần SITL, ~90 giây.
-   Đây là hàng rào: nút đỏ đi trước kiểm quyền, REPLAY khoá nút, quét USB, chốt
-   TAKEOFF, trọng tài đa nguồn.
+   Đây là hàng rào: nút đỏ đi thẳng qua SiK, REPLAY khoá nút, quét USB, chốt
+   TAKEOFF, trọng tài đa nguồn, nạp/đọc đường bay.
 3. **Xoá `SIM_*` còn sót.** ArduPilot lưu tham số vào `eeprom.bin`, sống qua mọi
    lần khởi động lại. Tiêm lỗi hôm trước mà quên trả về là hôm nay drone hỏng
    "không rõ lý do". Gõ `SENSOR.` vào ô lọc tab Trạng thái — cảm biến nào `HONG`
@@ -125,9 +125,8 @@ mình đang bay không có nó.
 | Khoảng cách tới hàng rào | Sát | Kéo về, đừng để FC tự xử |
 | Tab Thông báo | STATUSTEXT đỏ | Đọc to lên, quyết định trong 5 giây |
 
-**Nút đỏ RTL / LAND / DISARM** đi thẳng qua SiK — không qua companion, không
-kiểm tra quyền, tự kéo quyền về GCS và gạt switch về MANUAL. Đây là cách giành
-lại quyền nhanh nhất. Chỉ bị khoá ở chế độ REPLAY.
+**Nút đỏ RTL / LAND / DISARM** đi thẳng qua SiK — không qua companion, không qua
+nhánh nào khác. Chỉ bị khoá ở chế độ REPLAY.
 
 **Nút đỏ DISARM chia theo đang-ở-dưới-đất, không theo cần ga:**
 
@@ -142,15 +141,27 @@ lại quyền nhanh nhất. Chỉ bị khoá ở chế độ REPLAY.
 
 ---
 
-## G. Bàn giao quyền cho nhiệm vụ ROS2
+## G. Nạp đường bay waypoint
 
-1. Người vận hành hô `"TÔI NHẢ QUYỀN"`, chờ người bay xác nhận.
-2. Gạt sang **AUTO**. Lệnh thường (ARM/mode/TAKEOFF) từ đây bị từ chối có báo —
-   đó là đúng, không phải lỗi.
-3. Chọn nhiệm vụ. Laptop **không gửi setpoint**, chỉ nhắn companion; luồng 30 Hz
-   nằm trên drone.
-4. **Trong lúc AUTO, nút đỏ vẫn ăn nguyên.** Không cần gạt về MANUAL trước.
-5. Hết nhiệm vụ: gạt về MANUAL, hô `"TÔI CẦM LẠI"`.
+Không còn mục bàn giao quyền: **laptop cầm toàn quyền, không nhả cho ai.** Node
+offboard trên companion không bao giờ được lái (`/gcs/authority` chốt ở `gcs`).
+Thay vào đó, bay theo tuyến thì tự nạp đường bay:
+
+1. Chuột phải trên bản đồ → **Độ cao waypoint** → chọn mức. Chọn trước khi đặt:
+   độ cao gắn vào từng điểm lúc đặt, đổi sau không sửa các điểm đã có.
+2. Chuột phải từng chỗ → **Đặt waypoint n tại đây**. Tối đa **50 điểm**. Đường
+   đứt nét tím nhạt = đang đặt, **chưa nạp**; dải chữ dưới đáy ghi rõ `CHUA NAP`.
+3. Đọc lại một lượt: có điểm nào ra ngoài hàng rào không, độ cao có đủ vượt vật
+   cản không. Bỏ điểm cuối / xoá hết cũng ở menu đó.
+4. **NẠP n waypoint lên FC** → tab Thông báo phải hiện `FC nhan n waypoint`, rồi
+   bản nháp biến mất và đường **liền nét** hiện ra — đó là cái FC đọc ngược về,
+   không phải cái vừa gửi. Không thấy đường liền là **FC chưa giữ gì cả**.
+5. Chuyển mode **AUTO** ở tab Điều khiển rồi ARM. Số `toi #k` ở dải chữ cho biết
+   drone đang bay tới điểm nào.
+6. Đổi ý giữa chừng: nút đỏ vẫn ăn nguyên, không cần làm gì trước đó.
+
+> ⚠️ Nạp đè trong lúc drone **đang bay AUTO** thì FC nhảy sang WP1 của đường mới
+> ngay lập tức. App bắt bấm hai lần cho trường hợp này — lần đầu chỉ ra cảnh báo.
 
 ---
 
@@ -160,12 +171,12 @@ Bốn kịch bản đầu tập trước bằng nút "Cắt link" ở panel Sim,
 
 | # | Thấy gì | Nghĩa là | Làm gì |
 |---|---|---|---|
-| 1 | Tab ROS2 xám, số liệu tụt về SiK, app cảnh báo | WiFi rớt, **companion còn sống — task tự hành VẪN ĐANG CHẠY trên drone** | Nút đỏ RTL. Đừng chờ WiFi lên lại |
+| 1 | Tab ROS2 xám, số liệu tụt về SiK, app cảnh báo | WiFi rớt. Mất video và nguồn vị trí thứ hai — **không mất quyền lái**, node offboard không lái được | Bay tiếp bằng nửa SiK. Mất tầm nhìn thì kéo về |
 | 2 | Tab ROS2 xám, FC giữ mode cuối | Companion chết hẳn | Bay tiếp bằng nửa SiK, hoặc RTL. Nút đỏ vẫn ăn |
 | 3 | **Cảnh báo nặng** | Mất SiK — **mất đường cứu sinh** | Hô cho người bay giành quyền RC **ngay**. Cắm lại SiK trong lúc đó |
 | 4 | Báo động rõ ràng, không giả vờ còn kết nối | Mất cả SiK lẫn WiFi | **RC là thứ duy nhất còn lại.** Người bay hạ cánh bằng mắt |
-| 5 | Bấm RTL trong lúc ROS2 stream setpoint | — | Drone về nhà, không giằng co. Không phải bấm gì thêm |
-| 6 | Bấm nút thường lúc đang AUTO | Bị từ chối, có thông báo | Gạt MANUAL hoặc bấm nút đỏ |
+| 5 | Node ROS2 đang chạy (dòng cam ở tab Điều khiển) | Nó **không cầm quyền**, chỉ ăn CPU và đường truyền | Bay bình thường. Drone hành xử lạ thì tắt node bên companion |
+| 6 | Nạp đường bay xong mà đường liền không hiện | FC **chưa giữ** nhiệm vụ đó | Đọc tab Thông báo, nạp lại. Đừng cất cánh AUTO |
 | 7 | App tắt ngóm | Crash | **Drone giữ nguyên mode, không rơi.** Người bay cầm RC. Mở lại app, nối lại |
 | 8 | Cảnh báo divergence | Hai nguồn lệch > 5 m | Tin SiK. Về, đừng bay nhiệm vụ tiếp |
 | 9 | Ra xa dần, ROS2 rụng trước | Đúng như thiết kế | SiK vẫn nắm được drone. Kéo về |

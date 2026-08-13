@@ -1,10 +1,16 @@
-"""Tab Control — ARM/mode/takeoff, switch phan quyen, va NHOM NUT DO.
+"""Tab Control — ARM/mode/takeoff va NHOM NUT DO.
 
 Doc nguyen tac 2.1 truoc khi sua file nay.
 
+Khong con switch MANUAL/AUTO: laptop cam toan quyen, khong nhuong cho ai (xem
+core/authority.py). Nhiem vu ROS2 vi the cung khong con nut bam — node offboard
+tren companion khong duoc lai nua, nen mot nut gui lenh cho no la nut noi doi.
+Cai con lai la MOT DONG TRANG THAI: companion bao node nao dang chay, de con
+biet ma tat neu no chay ngoai y muon.
+
 Nhom nut do (RTL/LAND/DISARM) tach rieng ve mat ma nguon: chung goi thang
 `authority.dispatch()` vao nhanh ESCAPE -> `SikAdapter.send()`, khong di qua
-kiem tra quyen, khong di qua companion, khong di qua WebSocket.
+companion, khong di qua WebSocket.
 
 Ngoai le duy nhat lam nut do bi khoa: che do REPLAY — luc do khong co gi o dau
 kia de ma gui lenh toi.
@@ -21,7 +27,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -45,10 +50,8 @@ ACK_TIMEOUT = 3.0  # giay cho FC tra loi truoc khi coi la khong co phan hoi
 # Doi radio hay doi khung thi doc lai hai tham so do va sua o day.
 THR_ARM_MAX = 1150
 
-# Nhiem vu ROS2 chay TREN COMPANION. Laptop khong gui setpoint — no chi bao node
-# ben kia doi trang thai. Doi nhiem vu bang cach chen lenh GUIDED tu day thi 33 ms
-# sau bi chinh luong setpoint 30 Hz de len (do that o kich ban #5).
-# Ten phai khop executable ben repo ROS2.
+# Ten node nhiem vu ben repo ROS2 -> ten doc duoc. Chi con dung de dich mot chuoi
+# trang thai companion bao len; laptop khong khoi dong nhiem vu nao nua.
 MISSIONS = [
     ("Bay vong tron", "mission_circle"),
     ("Qua vong gate", "mission_gates"),
@@ -78,20 +81,6 @@ class ControlTab(QWidget):
         super().__init__(parent)
         self.mode = None  # che do ket noi hien tai (REAL/SIM/REPLAY/None)
 
-        # --- phan quyen ---
-        self.manual = QRadioButton("MANUAL (GCS)")
-        self.auto = QRadioButton("AUTO (ROS2)")
-        self.manual.setChecked(True)
-        self.manual.toggled.connect(self._on_authority)
-        self.who = QLabel()
-
-        auth_box = QGroupBox("Ai dang cam quyen")
-        row = QHBoxLayout(auth_box)
-        row.addWidget(self.manual)
-        row.addWidget(self.auto)
-        row.addStretch(1)
-        row.addWidget(self.who)
-
         # --- lenh thuong ---
         self.btn_arm = QPushButton("ARM")
         self.btn_disarm = QPushButton("DISARM")
@@ -115,7 +104,7 @@ class ControlTab(QWidget):
         )
         self.btn_takeoff.clicked.connect(self._takeoff)
 
-        normal = QGroupBox("Lenh thuong (can quyen MANUAL)")
+        normal = QGroupBox("Lenh thuong")
         g = QGridLayout(normal)
         g.addWidget(self.btn_arm, 0, 0)
         g.addWidget(self.btn_disarm, 0, 1)
@@ -126,24 +115,15 @@ class ControlTab(QWidget):
         g.addWidget(self.alt, 2, 1)
         g.addWidget(self.btn_takeoff, 2, 2)
 
-        # --- nhiem vu ROS2 ---
-        self.mission_box = QGroupBox("Nhiem vu ROS2 — chay tren companion (can quyen AUTO)")
+        # --- nhiem vu ROS2: CHI DOC ---
+        # Khong con nut khoi dong. Nhung van phai nhin thay: node offboard khong
+        # duoc lai nua khong co nghia la khong the co node nao dang chay tren
+        # companion — biet no chay la biet co ai do dang tranh duong truyen.
+        self.mission_box = QGroupBox("Nhiem vu ROS2 tren companion (chi doc)")
         mg = QGridLayout(self.mission_box)
-        self.mission_btns = []
-        for i, (label, name) in enumerate(MISSIONS):
-            b = QPushButton(label)
-            b.clicked.connect(lambda _=False, n=name, lb=label: self._mission(n, lb))
-            mg.addWidget(b, i // 2, i % 2)
-            self.mission_btns.append(b)
-        self.btn_mission_stop = QPushButton("Dung nhiem vu")
-        self.btn_mission_stop.clicked.connect(lambda: self._mission("", "dung nhiem vu"))
-        mg.addWidget(self.btn_mission_stop, (len(MISSIONS) + 1) // 2, 0, 1, 2)
-        self.mission_btns.append(self.btn_mission_stop)
-
-        # Trang thai THAT do companion bao nguoc len, khong phai "da bam nut".
         self.mission_now = QLabel("nhiem vu: (chua co tin tu companion)")
         self.mission_now.setStyleSheet("color:#8a939b;")
-        mg.addWidget(self.mission_now, (len(MISSIONS) + 1) // 2 + 1, 0, 1, 2)
+        mg.addWidget(self.mission_now, 0, 0)
         bus.on("mission", self._on_mission_state)
 
         # --- NUT DO ---
@@ -191,7 +171,6 @@ class ControlTab(QWidget):
         self.note.setStyleSheet("color:#e59866;")
 
         lay = QVBoxLayout(self)
-        lay.addWidget(auth_box)
         lay.addWidget(normal)
         lay.addWidget(self.mission_box)
         lay.addStretch(1)
@@ -299,49 +278,22 @@ class ControlTab(QWidget):
             self.note.setText("REAL — moi lenh duoi day di xuong may bay that.")
         else:
             self.note.setText("")
-        self._on_authority()
 
     def _on_mission_state(self, env):
-        """Companion bao moi giay: node nao dang chay that."""
+        """Companion bao moi giay: node nao dang chay that.
+
+        Node chay ma khong cam quyen thi no khong lai duoc — nhung no van an CPU
+        va van chiem duong truyen. Thay ten no o day la co manh moi de lan ra khi
+        drone hanh xu la.
+        """
         running = env["data"].get("running") or ""
         if running:
             nice = next((lb for lb, n in MISSIONS if n == running), running)
-            self.mission_now.setText(f"nhiem vu dang chay: {nice}  ({running})")
-            self.mission_now.setStyleSheet("color:#27ae60;font-weight:bold;")
+            self.mission_now.setText(f"nhiem vu dang chay: {nice}  ({running})  — khong cam quyen")
+            self.mission_now.setStyleSheet("color:#e59866;font-weight:bold;")
         else:
-            spawn = env["data"].get("spawn")
-            self.mission_now.setText(
-                "khong co nhiem vu nao chay" if spawn
-                else "companion khong bat --spawn: nut chi gui lenh, khong khoi dong node"
-            )
+            self.mission_now.setText("khong co nhiem vu nao chay tren companion")
             self.mission_now.setStyleSheet("color:#8a939b;")
-
-    def _mission(self, name, label):
-        """Gui sang nua ROS2, KHONG gui xuong FC.
-
-        Di qua dispatch nen no tu chan khi quyen dang o MANUAL: dang cam lai ma
-        bam mot nhiem vu tu hanh la thu khong duoc phep xay ra im lang.
-        """
-        r = authority.dispatch({"target": "remote", "action": "mission", "args": {"name": name}})
-        if "error" in r:
-            self.log.emit(f"nhiem vu {label}: TU CHOI — {r['error']}")
-        else:
-            self.log.emit(f"nhiem vu: da gui '{label}' sang companion — "
-                          "cho node ben do xac nhan, laptop khong tu biet no da doi hay chua")
-
-    def _on_authority(self):
-        who = authority.GCS if self.manual.isChecked() else authority.ROS2
-        authority.set_authority(who)
-        # Nhiem vu tu hanh chi bam duoc khi da giao quyen — de nguoi bay thay ranh
-        # gioi, thay vi bam roi nhan mot dong tu choi.
-        live = self.mode in ("REAL", "SIM") and who == authority.ROS2
-        for b in self.mission_btns:
-            b.setEnabled(live)
-        self.who.setText(f"→ {who.upper()}")
-        self.who.setStyleSheet(
-            "color:#27ae60;font-weight:bold;" if who == authority.GCS
-            else "color:#e59866;font-weight:bold;"
-        )
 
     def _cmd(self, action, args=None):
         r = authority.dispatch({"target": "sik", "action": action, "args": args or {}})
@@ -350,11 +302,8 @@ class ControlTab(QWidget):
         self._report(action + (" FORCE" if args and args.get("force") else ""), r)
 
     def _escape(self, action, args=None):
-        """Nut do. Khong hoi lai, khong kiem tra quyen — bam la di."""
+        """Nut do. Khong hoi lai, khong qua kiem tra nao — bam la di."""
         r = authority.dispatch({"action": action, "args": args or {}})
-        # dispatch() da keo quyen ve GCS; switch phai theo, khong duoc de giao
-        # dien noi "AUTO" trong khi quyen thuc te da ve tay nguoi bay.
-        self.manual.setChecked(True)
         self._report(action.upper() + (" FORCE" if args and args.get("force") else ""), r)
 
     # --- DISARM hai bac ---
