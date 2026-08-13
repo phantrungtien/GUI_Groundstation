@@ -10,3 +10,8 @@ assets/tiles/
 
 # Trang thai phien lam viec, khong lien quan toi du an
 .remember/
+
+# Ghi chu lam viec rieng — giu tren may, khong day len git
+KE_HOACH_GUI_NATIVE_3_.md
+thumucros2_and_pymavlink.md
+doanchatcu.md

@@ -1,6 +1,6 @@
 # Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Phần mềm khảo sát:** `GUI_NATIVE` (PySide6), phiên bản `7319e8a` · **Thực nghiệm:** 13–14/08/2026 — mô phỏng ArduPilot SITL + Gazebo + MAVROS + ROS 2 Humble, và phần cứng thật qua radio SiK
+**Phần mềm khảo sát:** `GUI_NATIVE` (PySide6), phiên bản `7319e8a` · **Thực nghiệm:** 13–14/08/2026 — mô phỏng ArduPilot SITL + Gazebo + MAVROS + ROS 2 Humble, và phần cứng thật (mạch điều khiển bay Pixhawk 6C) qua radio SiK
 
 ---
 
@@ -10,7 +10,7 @@ Xây dựng trạm điều khiển mặt đất chạy trên Linux cho máy bay 
 
 Điều này sinh ra vấn đề mà các phần mềm phổ thông không xử lý: hai đường truyền hỏng theo hai cách khác nhau và kéo theo hai hậu quả khác nhau. Mất đường MAVLink là mất khả năng can thiệp khẩn cấp. Mất đường ROS 2 là mất tầm nhìn — video, vị trí đối chứng, trạng thái node — trong khi nhiệm vụ tự hành trên máy bay vẫn chạy. Gộp cả hai thành một thông báo "mất kết nối" là sai cả về mức độ nghiêm trọng lẫn về việc phải làm tiếp theo [1].
 
-Báo cáo giới hạn ở phần mềm phía mặt đất. Bộ số đo chi tiết lấy trên mô phỏng phần mềm trong vòng lặp (SITL); phần cứng bay thật nối qua radio SiK được dùng để kiểm chứng giao diện ở chế độ REAL (mục 5).
+Báo cáo giới hạn ở phần mềm phía mặt đất. Bộ số đo chi tiết lấy trên mô phỏng phần mềm trong vòng lặp (SITL); mạch điều khiển bay Pixhawk 6C nối qua radio SiK được dùng để kiểm chứng giao diện ở chế độ REAL (mục 5).
 
 ## 2. Kiến trúc và công nghệ
 
@@ -90,7 +90,7 @@ Giao diện chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt và
 ![Hình 4](anh/09_bay_auto_theo_duong_bay.png)
 *Hình 4 — Bay AUTO theo đường bay đã nạp, vệt bay 79 điểm, đang tới waypoint 4.*
 
-**Đường truyền vô tuyến SiK.** Ngoài phiên mô phỏng, giao diện còn được chạy trực tiếp trên cặp radio SiK 57600 baud nối với bộ điều khiển bay thật. Đây là đường cứu sinh của hệ thống: mọi lệnh — kể cả nhóm nút khẩn cấp và việc nạp đường bay — đều đi qua nó và hoàn toàn không phụ thuộc vào WiFi hay máy tính nhúng. Ứng dụng nhận diện cổng và tự đặt baud theo loại thiết bị (`ttyUSB*` → 57600 cho radio SiK, `ttyACM*` → 115200 cho bộ điều khiển bay cắm USB trực tiếp), nên cắm vào là dùng được, không phải sửa cấu hình.
+**Đường truyền vô tuyến SiK.** Ngoài phiên mô phỏng, giao diện còn được chạy trực tiếp trên cặp radio SiK 57600 baud nối với mạch điều khiển bay Pixhawk 6C. Đây là đường cứu sinh của hệ thống: mọi lệnh — kể cả nhóm nút khẩn cấp và việc nạp đường bay — đều đi qua nó và hoàn toàn không phụ thuộc vào WiFi hay máy tính nhúng. Ứng dụng nhận diện cổng và tự đặt baud theo loại thiết bị (`ttyUSB*` → 57600 cho radio SiK, `ttyACM*` → 115200 cho bộ điều khiển bay cắm USB trực tiếp), nên cắm vào là dùng được, không phải sửa cấu hình.
 
 Các số đo trên radio thật:
 
@@ -103,13 +103,13 @@ Các số đo trên radio thật:
 
 Cơ chế xin lại luồng ở hàng cuối đáng nói thêm: thay vì chờ người vận hành phát hiện màn hình đứng hình rồi kết nối lại, ứng dụng tự nhận ra mình đã 5 giây không nhận được dữ liệu nào ngoài nhịp tim, rồi gửi lại toàn bộ yêu cầu luồng — tốn 7 gói khoảng 140 byte trên chiều lên vốn đang trống. Người vận hành chỉ thấy dữ liệu tiếp tục chạy.
 
-Bốn hình dưới đây chụp phiên làm việc với mạch điều khiển bay thật lúc 00:25–00:35 ngày 14/08/2026. Băng thông đo được ổn định trong khoảng **2 000 – 2 150 B/s** với tỉ lệ mất gói **0,0 %** ở cả bốn thời điểm.
+Bốn hình dưới đây chụp phiên làm việc với mạch Pixhawk 6C lúc 00:25–00:35 ngày 14/08/2026. Băng thông đo được ổn định trong khoảng **2 000 – 2 150 B/s** với tỉ lệ mất gói **0,0 %** ở cả bốn thời điểm.
 
 ![Hình 5](anh/16_sik_flight.jpeg)
 *Hình 5 — Tab Flight ở chế độ REAL: banner đỏ được thay bằng thông báo suy giảm vì nửa ROS 2 chưa nối, bản đồ vệ tinh mức zoom 20, 21 vệ tinh, thanh trạng thái báo SiK 2 031 B/s · mất 0,0 %.*
 
 ![Hình 6](anh/13_sik_statusstatus.jpeg)
-*Hình 6 — Tab Status trên phần cứng thật: 311 trường, mọi hàng đều khai nguồn `sik`. Bảng tự dài ra theo những gì mạch gửi lên, không khai báo trước trường nào.*
+*Hình 6 — Tab Status trên mạch Pixhawk 6C: 311 trường, mọi hàng đều khai nguồn `sik`. Bảng tự dài ra theo những gì mạch gửi lên, không khai báo trước trường nào.*
 
 ![Hình 7](anh/14_sik_controlcontrol.jpeg)
 *Hình 7 — Tab Control ở chế độ REAL: dòng nhắc "moi lenh duoi day di xuong may bay that", nhóm ba nút khẩn cấp sẵn sàng, dòng trạng thái node ROS 2 báo chưa có tin từ máy tính nhúng.*
@@ -199,7 +199,7 @@ So với Mission Planner và QGroundControl, phần mềm này hẹp hơn nhiề
 | 3 | `anh/07_waypoint_tren_fc.png` | Đường bay đã nạp, đọc ngược từ FC |
 | 4 | `anh/09_bay_auto_theo_duong_bay.png` | Bay AUTO theo đường bay |
 | 5 | `anh/16_sik_flight.jpeg` | Tab Flight ở chế độ REAL qua radio SiK |
-| 6 | `anh/13_sik_statusstatus.jpeg` | Tab Status trên phần cứng thật, 311 trường |
+| 6 | `anh/13_sik_statusstatus.jpeg` | Tab Status trên mạch Pixhawk 6C, 311 trường |
 | 7 | `anh/14_sik_controlcontrol.jpeg` | Tab Control ở chế độ REAL |
 | 8 | `anh/15_sik_meseage.jpeg` | Tab Messages: lý do bộ điều khiển bay từ chối cất cánh |
 | 9 | `anh/05_camera_tu_pi.png` | Tab Camera, luồng MJPEG từ Pi 5 |
