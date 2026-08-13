@@ -103,10 +103,10 @@ Các số đo trên radio thật:
 
 Cơ chế xin lại luồng ở hàng cuối đáng nói thêm: thay vì chờ người vận hành phát hiện màn hình đứng hình rồi kết nối lại, ứng dụng tự nhận ra mình đã 5 giây không nhận được dữ liệu nào ngoài nhịp tim, rồi gửi lại toàn bộ yêu cầu luồng — tốn 7 gói khoảng 140 byte trên chiều lên vốn đang trống. Người vận hành chỉ thấy dữ liệu tiếp tục chạy.
 
-Bốn hình dưới đây chụp phiên làm việc với mạch Pixhawk 6C lúc 00:25–00:35 ngày 14/08/2026. Băng thông đo được ổn định trong khoảng **2 000 – 2 150 B/s** với tỉ lệ mất gói **0,0 %** ở cả bốn thời điểm.
+Bốn hình dưới đây chụp phiên làm việc với mạch Pixhawk 6C lúc 00:25–00:35 ngày 14/08/2026; ảnh đã cắt bỏ dải chọn nguồn bên phải cho gọn khung hình. Băng thông đọc trên widget trạng thái đường truyền ở cả bốn thời điểm nằm trong khoảng **2 000 – 2 150 B/s**, tỉ lệ mất gói **0,0 %**.
 
 ![Hình 5](anh/16_sik_flight.jpeg)
-*Hình 5 — Tab Flight ở chế độ REAL: banner đỏ được thay bằng thông báo suy giảm vì nửa ROS 2 chưa nối, bản đồ vệ tinh mức zoom 20, 21 vệ tinh, thanh trạng thái báo SiK 2 031 B/s · mất 0,0 %.*
+*Hình 5 — Tab Flight ở chế độ REAL: tiêu đề cửa sổ mang nhãn `[REAL]`, banner báo suy giảm vì nửa ROS 2 chưa nối, bản đồ vệ tinh mức zoom 20, thanh telemetry báo 21 vệ tinh và mode STABILIZE.*
 
 ![Hình 6](anh/13_sik_statusstatus.jpeg)
 *Hình 6 — Tab Status trên mạch Pixhawk 6C: 311 trường, mọi hàng đều khai nguồn `sik`. Bảng tự dài ra theo những gì mạch gửi lên, không khai báo trước trường nào.*
