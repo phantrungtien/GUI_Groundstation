@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""May chu MJPEG cho camera companion. CHAY TREN PI, khong phai tren laptop.
+"""May chu MJPEG cho camera companion. CHAY TREN PI, hoac tren may chay mo phong.
 
-    python3 mjpeg_server.py                       # /dev/video0, cong 8080
-    python3 mjpeg_server.py --device /dev/video2 --fps 5
+    python3 mjpeg_server.py                          # /dev/video0, cong 8080
+    python3 mjpeg_server.py --device /dev/video2 --every 2
+    python3 mjpeg_server.py --ros-topic /rgb/image   # NGUON ROS2 (mo phong)
+    python3 mjpeg_server.py --ros-topic /rgb/image \
+        --detect ~/firedrop_sim/tracking/best_nano_111_640.onnx   # + bam vet lua
 
 Trong Docker phai cho container thay camera va mo cong:
 
@@ -17,9 +20,38 @@ MOT luong doc camera duy nhat, N client cung xem khung moi nhat. Khong xep hang
 khung cu: GUI cham hon camera thi do tre troi dan thanh vai giay: tha khung con
 hon tra khung qua date.
 
-Doi sang RealSense sau nay: `cv_bridge` vao dung o ham `grab()` (imgmsg -> numpy),
-tu do tro xuong khong doi gi, va GUI khong sua mot ky tu nao. Do la ly do ranh
-gioi dat o HTTP chu khong dat o DDS.
+--------------------------------------------------------------------------
+HAI NGUON, MOT DUONG RA
+--------------------------------------------------------------------------
+`grab()`     doc /dev/videoN bang OpenCV        — camera that tren Pi
+`grab_ros()` doc mot topic sensor_msgs/Image    — camera trong Gazebo
+
+Ca hai chi lam DUNG mot viec: dat JPEG moi nhat vao `_latest` va tang `_seq`.
+Tu do tro xuong (Handler, cong 8080, dinh dang multipart) KHONG doi mot dong,
+va GUI khong sua mot ky tu nao — no van chi biet `http://<host>:8080/stream`.
+Do la ly do ranh gioi dat o HTTP chu khong dat o DDS: doi nguon la doi mot ham,
+khong phai doi giao thuc.
+
+Dung voi ~/firedrop_sim (mo phong tha bong chua chay):
+
+    source /opt/ros/humble/setup.bash
+    python3 ~/GUI_NATIVE/tools/mjpeg_server.py --ros-topic /rgb/image
+
+`/rgb/image` la camera RGB nadir cua drone, dung khung hinh ma `fire_detector`
+doc — nen cai thay tren GUI CHINH LA cai thuat toan dang nhin, khong phai mot
+goc camera khac cho dep.
+
+`--detect` cam them YOLO ONNX vao dung cho nay va ve hop bam vet len khung hinh
+TRUOC khi nen JPEG (xem fire_tracker.py). GUI khong sua mot dong: no van chi
+biet `http://<host>:8080/stream`, chi la trong khung hinh nay co san hop.
+⚠ Hop nay la de NGUOI XEM. Quyet dinh tha bong van do `fire_detector` ben
+firedrop_sim quyet, va no dung nguong HSV do duoc chu khong dung model nay —
+xem "Nguyen tac bat di bat dich" trong README cua firedrop_sim.
+
+⚠ KHONG dung cv_bridge o day. No keo theo ca ROS perception stack va tren nhieu
+may cai dat ROS2 binary thi `import cv_bridge` gay ABI mismatch voi OpenCV cua
+pip. Doi imgmsg -> numpy chi la mot phep reshape; viet tay 15 dong con hon them
+mot phu thuoc nang co the hong theo cach kho chan doan.
 """
 
 import argparse
@@ -28,6 +60,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
+import numpy as np
 
 BOUNDARY = "frame"
 
@@ -36,7 +69,22 @@ _latest = None  # JPEG byte moi nhat
 _seq = 0  # tang moi khung — de client biet co khung moi chua
 
 
-def grab(device, width, height, every, quality):
+def _ve_hop(tracker, img):
+    """Ve hop bam vet len anh TRUOC khi nen JPEG. Khong co tracker thi tra nguyen.
+
+    `ascontiguousarray` khong phai cho nhanh: anh tu ROS la view cua
+    `np.frombuffer` nen CHI DOC, va rgb8 con la lat buoc `[:, :, ::-1]`. Ve
+    thang len do thi cv2 nem "Layout of the output array is incompatible" -
+    ngay khung dau tien, va chi khi doc ROS chu khong khi doc USB.
+    """
+    if tracker is None:
+        return img
+    img = np.ascontiguousarray(img)
+    tracker.draw(img)
+    return img
+
+
+def grab(device, width, height, every, quality, tracker=None):
     """Doc camera mai mai. Camera rut ra hay loi thi cho roi mo lai, khong chet."""
     global _latest, _seq
     params = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
@@ -84,11 +132,85 @@ def grab(device, width, height, every, quality):
         if idx % every:
             continue
 
-        ok, jpg = cv2.imencode(".jpg", frame, params)
+        ok, jpg = cv2.imencode(".jpg", _ve_hop(tracker, frame), params)
         if ok:
             with _lock:
                 _latest = jpg.tobytes()
                 _seq += 1
+
+
+def _imgmsg_to_bgr(msg):
+    """sensor_msgs/Image -> anh BGR cho cv2.imencode. None neu khong hieu encoding.
+
+    Chi nhan bon encoding thuc su gap: rgb8/bgr8 (camera mau), mono8 (hong
+    ngoai), 32FC1 (depth, met). Gap thu khac thi TRA VE None chu khong doan —
+    doan sai encoding cho ra mot khung hinh xanh le nhin nhu camera hong, va
+    ban se di tim loi o day camera thay vi o dong nay.
+    """
+    buf = np.frombuffer(msg.data, dtype=np.uint8)
+    enc = msg.encoding.lower()
+    if enc in ("rgb8", "bgr8"):
+        img = buf.reshape(msg.height, msg.step)[:, : msg.width * 3].reshape(msg.height, msg.width, 3)
+        return img[:, :, ::-1] if enc == "rgb8" else img
+    if enc == "mono8":
+        img = buf.reshape(msg.height, msg.step)[:, : msg.width]
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if enc in ("32fc1", "32fc"):
+        # Depth tinh bang MET. Trai ra 0..10 m thanh thang xam de nhin duoc;
+        # day la anh DE NGUOI XEM, khong ai do khoang cach tu no.
+        d = buf.view(np.float32).reshape(msg.height, msg.step // 4)[:, : msg.width]
+        d = np.nan_to_num(d, nan=0.0, posinf=0.0, neginf=0.0)
+        g = np.clip(d / 10.0 * 255.0, 0, 255).astype(np.uint8)
+        return cv2.applyColorMap(g, cv2.COLORMAP_TURBO)
+    return None
+
+
+def grab_ros(topic, every, quality, tracker=None):
+    """Doc mot topic sensor_msgs/Image mai mai. Cung dau ra voi `grab()`.
+
+    Chay trong thread rieng nhu `grab()`, nhung rclpy.spin() phai o dung thread
+    da tao node — nen node duoc tao NGAY TRONG day chu khong o main().
+
+    QoS: BEST_EFFORT + depth 1. Anh camera trong ROS2 gan nhu luon publish o
+    BEST_EFFORT; subscriber de RELIABLE (mac dinh) thi KHONG BAO GIO KHOP va
+    khong co mot dong loi nao — chi la khong bao gio co khung hinh. Day la cai
+    bay pho bien nhat khi doc camera bang rclpy.
+    """
+    import rclpy
+    from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
+    from sensor_msgs.msg import Image
+
+    params = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+    state = {"idx": 0, "warned": False}
+
+    def on_image(msg):
+        state["idx"] += 1
+        if state["idx"] % every:
+            return
+        img = _imgmsg_to_bgr(msg)
+        if img is None:
+            if not state["warned"]:
+                print(f"[mjpeg] khong hieu encoding '{msg.encoding}' - bo qua", flush=True)
+                state["warned"] = True
+            return
+        ok, jpg = cv2.imencode(".jpg", _ve_hop(tracker, img), params)
+        if ok:
+            global _latest, _seq
+            with _lock:
+                _latest = jpg.tobytes()
+                _seq += 1
+
+    rclpy.init(args=None)
+    node = rclpy.create_node("mjpeg_server")
+    qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                     history=QoSHistoryPolicy.KEEP_LAST)
+    node.create_subscription(Image, topic, on_image, qos)
+    print(f"[mjpeg] doc ROS2 topic {topic}, gui 1/{every} khung", flush=True)
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -136,13 +258,34 @@ def main():
                    help="gui 1 trong N khung (1 = moi khung). Rapoo/Pi5 native 16 fps, "
                         "nen --every 2 ra 8 fps. Thua nhip theo dem, khong theo dong ho.")
     p.add_argument("--quality", type=int, default=70, help="chat luong JPEG 1-100")
+    p.add_argument("--ros-topic", default=None,
+                   help="doc sensor_msgs/Image tu topic nay thay vi /dev/videoN. "
+                        "Vd: --ros-topic /rgb/image cho ~/firedrop_sim. "
+                        "Phai `source /opt/ros/humble/setup.bash` truoc.")
+    p.add_argument("--detect", default=None, metavar="MODEL.onnx",
+                   help="bam vet lua/khoi bang YOLO ONNX va ve hop len khung hinh. "
+                        "Vd: --detect ~/firedrop_sim/tracking/best_nano_111_640.onnx")
+    p.add_argument("--conf", type=float, default=0.35,
+                   help="nguong diem cua --detect (mac dinh 0.35)")
     a = p.parse_args()
 
-    threading.Thread(
-        target=grab,
-        args=(a.device, a.width, a.height, max(1, a.every), a.quality),
-        daemon=True,
-    ).start()
+    # Nap model TRUOC khi mo cong: file hong hay thieu onnxruntime thi phai chet
+    # ngay o day. Nap trong thread doc camera thi cong 8080 van mo, GUI van thay
+    # video - chi la khong bao gio co hop nao, va khong co gi noi vi sao.
+    tracker = None
+    if a.detect:
+        from fire_tracker import FireTracker
+
+        tracker = FireTracker(a.detect, conf=a.conf)
+        print(f"[mjpeg] bam vet bang {a.detect} - lop {list(tracker.names.values())}",
+              flush=True)
+
+    if a.ros_topic:
+        target, args = grab_ros, (a.ros_topic, max(1, a.every), a.quality, tracker)
+    else:
+        target, args = grab, (a.device, a.width, a.height, max(1, a.every), a.quality,
+                              tracker)
+    threading.Thread(target=target, args=args, daemon=True).start()
 
     srv = ThreadingHTTPServer(("0.0.0.0", a.port), Handler)
     print(f"[mjpeg] http://0.0.0.0:{a.port}/stream", flush=True)
