@@ -273,8 +273,10 @@ STR = {
     "st.freeze": ("Tạm dừng", "Freeze"),
     "st.read_pid": ("Đọc {n} tham số PID", "Read {n} PID parameters"),
     "st.reading": ("Đang đọc... còn {n}", "Reading... {n} left"),
-    "st.pid_tip": ("FC không tự gửi tham số — bấm để hỏi. Kết quả vào hàng PARAM.*",
-                   "The FC does not push parameters — press to ask. Results land in PARAM.*"),
+    "st.pid_tip": ("FC không tự gửi tham số — bấm để hỏi. Kết quả vào hàng PARAM.*; "
+                   "rê chuột lên một hàng để xem tham số đó là gì.",
+                   "The FC does not push parameters — press to ask. Results land in PARAM.* "
+                   "rows; hover a row to see what that parameter does."),
     "st.pid_missing": ("{n} tham số không có trên firmware này: {names}",
                        "{n} parameter(s) absent from this firmware: {names}"),
     "st.count": ("{n} field", "{n} field(s)"),

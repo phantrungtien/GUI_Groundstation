@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from core import bus
 from core.adapters.sik import STALE
-from core import i18n
+from core import i18n, param_doc
 from core.i18n import t
 
 SRC_COLOR = {"sik": "#27ae60", "remote": "#3498db"}
@@ -128,6 +128,8 @@ class StatusTab(QWidget):
         self.count.setText(t("st.count", n=len(self._rows)))
         self.model.setHorizontalHeaderLabels(
             [t("st.col_field"), t("st.col_value"), t("st.col_src"), t("st.col_age")])
+        for key, row in self._rows.items():
+            self._tip([self.model.item(row, c) for c in range(4)], key)
         if self._pid_timer.isActive():
             return  # dang doc: nhan tiep theo (200 ms nua) tu viet lai nut
         self.btn_pid.setText(t("st.read_pid", n=len(PID_PARAMS)))
@@ -192,9 +194,20 @@ class StatusTab(QWidget):
         items = [QStandardItem(key), QStandardItem(fmt(value)),
                  QStandardItem(f"● {src}"), QStandardItem("")]
         items[2].setForeground(QColor(SRC_COLOR.get(src, "#bdc3c7")))
+        self._tip(items, key)
         self.model.appendRow(items)
         self._rows[key] = items[0].row()
         self.count.setText(t("st.count", n=len(self._rows)))
+
+    def _tip(self, items, key):
+        """Tham so nay la gi — gan vao ca bon o de re chuot cho nao cung ra.
+
+        Cot rieng thi ~350 hang con lai bo trong, ma bang nay von da phai cuon
+        ngang. Tooltip khong ton mot pixel nao cua bang.
+        """
+        text = param_doc.doc(key.split(".", 1)[-1]) if key.startswith("PARAM.") else ""
+        for it in items:
+            it.setToolTip(text)
 
     def _age(self):
         """Field ngung cap nhat phai xam di — dung hinh ma van den la noi doi."""

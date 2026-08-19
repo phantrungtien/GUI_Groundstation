@@ -122,6 +122,21 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 | **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay) |
 | **Cài đặt** | Ngôn ngữ giao diện |
 
+### Tham số PID — rê chuột là biết nó là gì
+
+Nút **Đọc 63 tham số PID** ở tab **Trạng thái** hỏi FC từng nhóm rồi đổ vào các
+hàng `PARAM.*`. **Rê chuột lên một hàng** là ra một dòng giải thích tham số đó
+làm gì — không phải mở tài liệu ArduPilot ở tab khác.
+
+Chữ nằm ở [`core/param_doc.py`](core/param_doc.py), theo cả hai ngôn ngữ. Họ
+`ATC_RAT_{RLL,PIT,YAW}_{P,I,D,IMAX,FLTT,FLTE,FLTD,SMAX}` và `PSC_*` **ghép** từ
+hai bảng mảnh (trục nào × hệ số nào) chứ không viết tay từng cái: 24 dòng na ná
+nhau là 24 cơ hội gõ nhầm, và thêm một hệ số mới thì không phải thêm dòng nào.
+Cái không theo khuôn (`MOT_*`, `WPNAV_*`, `ANGLE_MAX`…) ghi thẳng ở `EXPLICIT`.
+
+Không làm cột riêng: bảng có ~350 hàng mà chỉ 63 hàng có mô tả, cột đó sẽ trống
+85%. Field thường (`ATTITUDE.roll`…) **không** bịa mô tả — thiếu thì im lặng.
+
 ### Ngôn ngữ — tiếng Việt / English
 
 Tab **Cài đặt** đổi toàn bộ chữ trên giao diện giữa tiếng Việt có dấu và tiếng
@@ -205,7 +220,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 30 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 31 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -375,6 +390,7 @@ RC override: ArduPilot sẽ từ chối arm với `"Throttle (RC3) is not neutra
 core/            # DUNG CHUNG voi ban web
   bus.py         # envelope {src, topic, data, ts}
   i18n.py        # bang chu vi/en + doi ngon ngu ngay tai cho
+  param_doc.py   # tham so ArduCopter la gi, hai thu tieng (tooltip tab Trang thai)
   field.py       # trong tai da nguon: best() tra ca gia tri lan nguon
   authority.py   # duong ra drone + nhanh ESCAPE cho nut do
   adapters/
@@ -389,7 +405,7 @@ laptop/
   widgets/       # map, compass, attitude, telemetry_bar
 
 tools/
-  selfcheck.py     # 30 check, khong can SITL
+  selfcheck.py     # 31 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that

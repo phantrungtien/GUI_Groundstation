@@ -1738,6 +1738,47 @@ def check_i18n(app):
           "widget viet lai chu ngay, lua chon duoc nho")
 
 
+def check_param_doc(app):
+    """Tham so la gi: moi cai trong danh sach doc PID phai co mot dong giai thich,
+    va dong do phai bam vao dung hang PARAM.* duoi dang tooltip.
+
+    Ho ATC_*/PSC_* duoc GHEP tu hai bang manh chu khong viet tay tung cai, nen cho
+    hong khong phai la go nham chu ma la mot ten khong lot vao khuon nao va im
+    lang khong co mo ta. Doi chieu ca 63 cai o day thi khong the im lang duoc.
+    """
+    from core import i18n, param_doc
+    from laptop.tabs.status import PID_PARAMS, StatusTab
+
+    thieu = [p for p in PID_PARAMS if not param_doc.doc(p)]
+    assert not thieu, f"tham so khong co giai thich: {thieu}"
+    # Field thuong KHONG duoc bia ra mo ta — thieu thi im lang, dung doan bua.
+    assert param_doc.doc("ATTITUDE.roll") == "" and param_doc.doc("FOO_BAR") == ""
+
+    was = i18n.lang()
+    try:
+        i18n.set_lang("vi")
+        st = StatusTab()
+        bus.emit("sik", "status", {"PARAM.ATC_RAT_RLL_P": 0.135, "ATTITUDE.roll": -0.01})
+        st._flush()
+        row = {st.model.item(r, 0).text(): r for r in range(st.model.rowCount())}
+        tip = st.model.item(row["PARAM.ATC_RAT_RLL_P"], 0).toolTip()
+        assert "trục lăn" in tip and "hệ số P" in tip, tip
+        # Ca bon o cua hang deu phai co: re chuot cho nao trong hang cung ra.
+        assert all(st.model.item(row["PARAM.ATC_RAT_RLL_P"], c).toolTip() == tip
+                   for c in range(4))
+        assert st.model.item(row["ATTITUDE.roll"], 0).toolTip() == "", "bia mo ta cho field thuong"
+
+        # Doi ngon ngu: hang DA NAM trong bang phai doi tooltip theo, khong chi
+        # hang moi them sau do.
+        i18n.set_lang("en")
+        tip_en = st.model.item(row["PARAM.ATC_RAT_RLL_P"], 0).toolTip()
+        assert "roll axis" in tip_en and "P gain" in tip_en, tip_en
+    finally:
+        i18n.set_lang(was)
+    print(f"  ok  giai thich tham so: {len(PID_PARAMS)}/{len(PID_PARAMS)} co mo ta, "
+          "vao tooltip cua hang PARAM.*, doi theo ngon ngu")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -1772,4 +1813,5 @@ if __name__ == "__main__":
     check_adapter_live(app)
     check_video(app)
     check_i18n(app)
+    check_param_doc(app)
     print("selfcheck: PASS")
