@@ -142,12 +142,21 @@ def check_sensor_decode():
         "onboard_control_sensors_health": gps | log,    # tu ke hong
     }
     out = decode_sensors(d)
-    assert out["SENSOR.gps"] == "TOT", out
-    assert out["SENSOR.3d_mag"] == "HONG", "cam bien hong phai doc ra chu HONG"
-    assert out["SENSOR.logging"] == "TOT (tat)", out
+    # Adapter phat MA MAY, khong phat chu cho nguoi doc: no chay trong QThread va
+    # co y khong biet ngon ngu nao dang chon. Tab Trang thai dich luc ve.
+    assert out["SENSOR.gps"] == "ok", out
+    assert out["SENSOR.3d_mag"] == "fail", "cam bien hong phai ra ma `fail`"
+    assert out["SENSOR.logging"] == "ok_off", out
     # Cam bien khong lap tren may bay nay thi khong duoc bay ra lam nhieu bang
     assert not any(k.endswith(".rc_receiver") for k in out), out
-    print(f"  ok  giai ma {len(SENSOR_BITS)} bit cam bien cua SYS_STATUS")
+
+    # Va moi ma phat ra deu phai co chu o CA HAI thu tieng — thieu mot cai thi
+    # bang Trang thai hien tro ra chinh cai key ("sensor.fail_off").
+    from core import i18n
+
+    for ma in ("ok", "fail", "ok_off", "fail_off"):
+        assert f"sensor.{ma}" in i18n.STR, f"chua co chu cho ma cam bien `{ma}`"
+    print(f"  ok  giai ma {len(SENSOR_BITS)} bit cam bien cua SYS_STATUS (ra ma may)")
 
 
 def check_usb_detect(app):
@@ -265,6 +274,29 @@ def check_tabs(app):
     st._flush()
     assert st.model.item(0, 1).text() == "0.123457", "tam dung ma bang van nhay"
     st.freeze.setChecked(False)
+
+    # SENSOR.* la hang duy nhat trong bang mang CHU chu khong mang so, nen no la
+    # hang duy nhat phai dich lai khi doi ngon ngu. Ma may tu adapter ("ok",
+    # "fail_off") khong bao gio duoc lot thang ra man hinh.
+    from core import i18n
+
+    bus.emit("sik", "status", {"SENSOR.gps": "ok", "SENSOR.3d_mag": "fail_off"})
+    st._flush()
+    hang = {st.model.item(r, 0).text(): r for r in range(st.model.rowCount())}
+
+    def gia_tri(k):
+        return st.model.item(hang[k], 1).text()
+
+    assert gia_tri("SENSOR.gps") == "TỐT", gia_tri("SENSOR.gps")
+    assert gia_tri("SENSOR.3d_mag") == "HỎNG (tắt)", gia_tri("SENSOR.3d_mag")
+
+    # Doi ngon ngu: hang DA nam trong bang phai doi theo, ke ca khi khong con goi
+    # SYS_STATUS nao ve nua (mat ket noi, hay REPLAY dang tam dung).
+    i18n.set_lang("en")
+    assert gia_tri("SENSOR.gps") == "OK", gia_tri("SENSOR.gps")
+    assert gia_tri("SENSOR.3d_mag") == "FAULT (off)", gia_tri("SENSOR.3d_mag")
+    i18n.set_lang("vi")
+    assert gia_tri("ATTITUDE.roll") == "0.123457", "hang so khong dinh dang gi den ngon ngu"
 
     # Field ngung cap nhat phai XAM DI, khong de den nhu dang song. Da bo cot
     # "Tuoi" (so giay) va cot "Nguon"; chot an toan chuyen han sang mau cua chinh

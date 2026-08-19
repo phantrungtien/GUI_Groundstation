@@ -225,6 +225,18 @@ Dải chữ dưới bản đồ có thêm **`về nhà 142 m`** khi đã biết 
 drone. Nó đi liền với dấu X trên bản đồ chứ không tách ra ô riêng: thấy số mà
 không thấy dấu X thì không biết nó tính từ đâu.
 
+### `SENSOR.*` — adapter phát mã máy, giao diện mới dịch
+
+`decode_sensors()` bóc ba bitmask 32 bit của `SYS_STATUS` thành 31 hàng
+`SENSOR.3d_gyro`, `SENSOR.gps`, `SENSOR.logging`… Giá trị nó phát ra là **mã
+máy** — `ok`, `fail`, `ok_off`, `fail_off` — chứ không phải chữ cho người đọc.
+
+Adapter chạy trong `QThread` và cố ý không biết ngôn ngữ nào đang chọn. Để nó
+sinh chữ thì bản tiếng Anh có `TOT`/`HONG` lọt vào giữa, và ai muốn dịch lại sẽ
+phải **so chuỗi** — đúng kiểu lỗi đã gặp khi `app.py` đoán mức độ nghiêm trọng
+bằng cách bắt chữ `"TU CHOI"` trong dòng log. Tab Trạng thái dịch lúc vẽ, kể cả
+những hàng đã nằm sẵn trong bảng khi mất kết nối.
+
 ### Tham số PID — rê chuột là biết nó là gì
 
 Nút **Đọc 63 tham số PID** ở tab **Trạng thái** hỏi FC từng nhóm rồi đổ vào các

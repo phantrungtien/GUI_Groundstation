@@ -110,11 +110,18 @@ SENSOR_BITS = {
 
 
 def decode_sensors(d):
-    """SYS_STATUS -> mot hang cho moi cam bien, doc duoc bang mat.
+    """SYS_STATUS -> mot hang cho moi cam bien.
 
     Ba truong `onboard_control_sensors_*` la ba bitmask 32 bit. De nguyen thi tab
     Status hien "1467007" — dung ky thuat, vo dung voi nguoi bay. Cam bien nao
-    HONG la thu phai doc duoc trong mot giay truoc khi cat canh.
+    hong la thu phai doc duoc trong mot giay truoc khi cat canh.
+
+    Gia tri tra ve la MA MAY ("ok", "fail", "ok_off", "fail_off"), khong phai chu
+    cho nguoi doc. Adapter chay trong QThread va co y khong biet gi ve ngon ngu
+    dang chon; de no sinh chu thi giao dien tieng Anh se co "TOT"/"HONG" lot vao
+    giua — va ai muon dich lai se phai doi chuoi mot cach nguy hiem, dung kieu
+    loi da gap o app.py khi no doan muc do nghiem trong bang cach bat chu trong
+    dong log. Tab Trang thai dich luc ve (`laptop/tabs/status.py`).
     """
     present = d.get("onboard_control_sensors_present", 0)
     enabled = d.get("onboard_control_sensors_enabled", 0)
@@ -123,9 +130,9 @@ def decode_sensors(d):
     for name, bit in SENSOR_BITS.items():
         if not present & bit:
             continue  # khong lap tren may bay nay
-        state = "TOT" if health & bit else "HONG"
+        state = "ok" if health & bit else "fail"
         if not enabled & bit:
-            state += " (tat)"
+            state += "_off"
         out[f"SENSOR.{name}"] = state
     return out
 

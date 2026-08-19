@@ -288,6 +288,11 @@ STR = {
     "st.pid_missing": ("{n} tham số không có trên firmware này: {names}",
                        "{n} parameter(s) absent from this firmware: {names}"),
     "st.count": ("{n} field", "{n} field(s)"),
+    # Trang thai cam bien, giai ma tu ba bitmask cua SYS_STATUS.
+    "sensor.ok": ("TỐT", "OK"),
+    "sensor.fail": ("HỎNG", "FAULT"),
+    "sensor.ok_off": ("TỐT (tắt)", "OK (off)"),
+    "sensor.fail_off": ("HỎNG (tắt)", "FAULT (off)"),
     "st.col_field": ("Field", "Field"),
     "st.col_value": ("Giá trị", "Value"),
 

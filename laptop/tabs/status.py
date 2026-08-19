@@ -54,7 +54,15 @@ def _pid_names():
 PID_PARAMS = _pid_names()
 
 
-def fmt(v):
+def fmt(key, v):
+    """Chuoi hien trong cot Gia tri.
+
+    Rieng hang SENSOR.* mang ma may tu adapter ("ok", "fail_off"...) chu khong
+    mang chu doc duoc — xem `decode_sensors` trong core/adapters/sik.py. Doi sang
+    chu o day, tuc la o dung noi biet ngon ngu nao dang chon.
+    """
+    if key.startswith("SENSOR."):
+        return t(f"sensor.{v}")
     if isinstance(v, float):
         return f"{v:.6g}"
     return str(v)
@@ -107,6 +115,7 @@ class StatusTab(QWidget):
         self._rows = {}  # ten field -> so hang trong model goc
         self._seen = {}  # ten field -> ts cap nhat cuoi
         self._pending = {}  # ten field -> (gia tri, ts)
+        self._sensor = {}  # SENSOR.* -> ma may, de dich lai khi doi ngon ngu
 
         bus.on("status", self._on_status)
 
@@ -128,6 +137,10 @@ class StatusTab(QWidget):
         self.model.setHorizontalHeaderLabels([t("st.col_field"), t("st.col_value")])
         for key, row in self._rows.items():
             self._tip([self.model.item(row, c) for c in range(2)], key)
+        # Hang SENSOR.* mang chu chu khong mang so, nen phai dich lai tai cho —
+        # doi voi hang so thi doi ngon ngu khong lam gi ca.
+        for key, ma in self._sensor.items():
+            self.model.item(self._rows[key], 1).setText(fmt(key, ma))
         if self._pid_timer.isActive():
             return  # dang doc: nhan tiep theo (200 ms nua) tu viet lai nut
         self.btn_pid.setText(t("st.read_pid", n=len(PID_PARAMS)))
@@ -180,16 +193,18 @@ class StatusTab(QWidget):
     def _flush(self):
         for key, (value, ts) in self._pending.items():
             self._seen[key] = ts
+            if key.startswith("SENSOR."):
+                self._sensor[key] = value  # giu ma may de ve lai khi doi ngon ngu
             row = self._rows.get(key)
             if row is None:
                 self._add_row(key, value)
             else:
-                self.model.item(row, 1).setText(fmt(value))
+                self.model.item(row, 1).setText(fmt(key, value))
         self._pending.clear()
         self._age()
 
     def _add_row(self, key, value):
-        items = [QStandardItem(key), QStandardItem(fmt(value))]
+        items = [QStandardItem(key), QStandardItem(fmt(key, value))]
         self._tip(items, key)
         self.model.appendRow(items)
         self._rows[key] = items[0].row()
