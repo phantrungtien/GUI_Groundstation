@@ -282,8 +282,6 @@ STR = {
     "st.count": ("{n} field", "{n} field(s)"),
     "st.col_field": ("Field", "Field"),
     "st.col_value": ("Giá trị", "Value"),
-    "st.col_src": ("Nguồn", "Source"),
-    "st.col_age": ("Tuổi", "Age"),
 
     # --- tab Messages -----------------------------------------------------
     "msg.level": ("Mức độ:", "Level:"),

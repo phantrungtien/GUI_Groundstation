@@ -266,10 +266,17 @@ def check_tabs(app):
     assert st.model.item(0, 1).text() == "0.123457", "tam dung ma bang van nhay"
     st.freeze.setChecked(False)
 
-    # field ngung cap nhat -> danh dau tuoi, khong de den nhu dang song
+    # Field ngung cap nhat phai XAM DI, khong de den nhu dang song. Da bo cot
+    # "Tuoi" (so giay) va cot "Nguon"; chot an toan chuyen han sang mau cua chinh
+    # cot Gia tri, nen kiem dung o do — mat mau la mat canh bao, mat co that.
+    from laptop.tabs.status import STALE_COLOR
+
+    assert st.model.columnCount() == 2, st.model.columnCount()
+    song = st.model.item(0, 1).foreground().color().name()
     st._seen["ATTITUDE.roll"] = time.time() - 10
     st._age()
-    assert st.model.item(0, 3).text() == "10s", st.model.item(0, 3).text()
+    xam = st.model.item(0, 1).foreground().color().name()
+    assert xam == STALE_COLOR and xam != song, (song, xam)
 
     for sev, txt in ((6, b"EKF3 IMU0 is using GPS"), (4, b"PreArm: Compass"), (2, b"battery low")):
         bus.emit("sik", "text", {"severity": sev, "text": txt})
@@ -277,7 +284,7 @@ def check_tabs(app):
     ms.filter.setCurrentIndex(2)  # canh bao tro len
     hidden = [i for i in range(3) if ms.list.item(i).isHidden()]
     assert hidden == [0], hidden
-    print("  ok  tab Status (loc/tam dung/tuoi) + Messages (loc severity)")
+    print("  ok  tab Status (loc/tam dung/het tuoi thi xam) + Messages (loc severity)")
 
 
 def check_field(app):
@@ -1763,9 +1770,9 @@ def check_param_doc(app):
         row = {st.model.item(r, 0).text(): r for r in range(st.model.rowCount())}
         tip = st.model.item(row["PARAM.ATC_RAT_RLL_P"], 0).toolTip()
         assert "trục lăn" in tip and "hệ số P" in tip, tip
-        # Ca bon o cua hang deu phai co: re chuot cho nao trong hang cung ra.
+        # Ca hai o cua hang deu phai co: re chuot cho nao trong hang cung ra.
         assert all(st.model.item(row["PARAM.ATC_RAT_RLL_P"], c).toolTip() == tip
-                   for c in range(4))
+                   for c in range(st.model.columnCount()))
         assert st.model.item(row["ATTITUDE.roll"], 0).toolTip() == "", "bia mo ta cho field thuong"
 
         # Doi ngon ngu: hang DA NAM trong bang phai doi tooltip theo, khong chi

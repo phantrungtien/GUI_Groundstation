@@ -26,7 +26,6 @@ from core.adapters.sik import STALE
 from core import i18n, param_doc
 from core.i18n import t
 
-SRC_COLOR = {"sik": "#27ae60", "remote": "#3498db"}
 STALE_COLOR = "#7f8c8d"
 
 # Tham so tinh chinh (PID). FC KHONG tu gui tham so — phai hoi tung cai. Hoi ca
@@ -77,8 +76,8 @@ class StatusTab(QWidget):
         self.count.setStyleSheet("color:#8a9199;")
         self.adapter = None
 
-        self.model = QStandardItemModel(0, 4, self)
-        self.model.setHorizontalHeaderLabels(["", "", "", ""])
+        self.model = QStandardItemModel(0, 2, self)
+        self.model.setHorizontalHeaderLabels(["", ""])
         self.proxy = QSortFilterProxyModel(self)
         self.proxy.setSourceModel(self.model)
         self.proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
@@ -93,8 +92,8 @@ class StatusTab(QWidget):
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.view.verticalHeader().setVisible(False)
         self.view.setAlternatingRowColors(True)
-        self.view.setColumnWidth(0, 260)
-        self.view.setColumnWidth(1, 140)
+        self.view.setColumnWidth(0, 320)  # con hai cot thi rong ra, bot phai cuon ngang
+        self.view.setColumnWidth(1, 200)
 
         top = QHBoxLayout()
         top.addWidget(self.search, 1)
@@ -107,7 +106,7 @@ class StatusTab(QWidget):
 
         self._rows = {}  # ten field -> so hang trong model goc
         self._seen = {}  # ten field -> ts cap nhat cuoi
-        self._pending = {}  # ten field -> (gia tri, src, ts)
+        self._pending = {}  # ten field -> (gia tri, ts)
 
         bus.on("status", self._on_status)
 
@@ -126,10 +125,9 @@ class StatusTab(QWidget):
         self.freeze.setText(t("st.freeze"))
         self.btn_pid.setToolTip(t("st.pid_tip"))
         self.count.setText(t("st.count", n=len(self._rows)))
-        self.model.setHorizontalHeaderLabels(
-            [t("st.col_field"), t("st.col_value"), t("st.col_src"), t("st.col_age")])
+        self.model.setHorizontalHeaderLabels([t("st.col_field"), t("st.col_value")])
         for key, row in self._rows.items():
-            self._tip([self.model.item(row, c) for c in range(4)], key)
+            self._tip([self.model.item(row, c) for c in range(2)], key)
         if self._pid_timer.isActive():
             return  # dang doc: nhan tiep theo (200 ms nua) tu viet lai nut
         self.btn_pid.setText(t("st.read_pid", n=len(PID_PARAMS)))
@@ -177,30 +175,28 @@ class StatusTab(QWidget):
         if self.freeze.isChecked():
             return  # dang doc thi dung cho bang nhay
         for k, v in env["data"].items():
-            self._pending[k] = (v, env["src"], env["ts"])
+            self._pending[k] = (v, env["ts"])
 
     def _flush(self):
-        for key, (value, src, ts) in self._pending.items():
+        for key, (value, ts) in self._pending.items():
             self._seen[key] = ts
             row = self._rows.get(key)
             if row is None:
-                self._add_row(key, value, src)
+                self._add_row(key, value)
             else:
                 self.model.item(row, 1).setText(fmt(value))
         self._pending.clear()
         self._age()
 
-    def _add_row(self, key, value, src):
-        items = [QStandardItem(key), QStandardItem(fmt(value)),
-                 QStandardItem(f"● {src}"), QStandardItem("")]
-        items[2].setForeground(QColor(SRC_COLOR.get(src, "#bdc3c7")))
+    def _add_row(self, key, value):
+        items = [QStandardItem(key), QStandardItem(fmt(value))]
         self._tip(items, key)
         self.model.appendRow(items)
         self._rows[key] = items[0].row()
         self.count.setText(t("st.count", n=len(self._rows)))
 
     def _tip(self, items, key):
-        """Tham so nay la gi — gan vao ca bon o de re chuot cho nao cung ra.
+        """Tham so nay la gi — gan vao ca hai o de re chuot cho nao cung ra.
 
         Cot rieng thi ~350 hang con lai bo trong, ma bang nay von da phai cuon
         ngang. Tooltip khong ton mot pixel nao cua bang.
@@ -210,12 +206,15 @@ class StatusTab(QWidget):
             it.setToolTip(text)
 
     def _age(self):
-        """Field ngung cap nhat phai xam di — dung hinh ma van den la noi doi."""
+        """Field ngung cap nhat phai xam di — dung hinh ma van den la noi doi.
+
+        Da bo cot "Tuoi" (so giay ke tu goi cuoi) va cot "Nguon". Chot an toan
+        van con nguyen va nam o chinh cot Gia tri: qua STALE giay khong co goi moi
+        thi so xam di. Cai mat la CON SO bao nhieu giay, khong phai canh bao.
+        """
         now = time.time()
         for key, row in self._rows.items():
-            age = now - self._seen.get(key, 0)
-            stale = age > STALE
-            self.model.item(row, 3).setText(f"{age:.0f}s" if stale else "")
+            stale = now - self._seen.get(key, 0) > STALE
             self.model.item(row, 1).setForeground(
                 QColor(STALE_COLOR) if stale else QColor("#dcdcdc")
             )
