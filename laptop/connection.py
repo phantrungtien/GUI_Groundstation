@@ -26,6 +26,11 @@ from PySide6.QtWidgets import (
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "connections.yaml"
 
+# VID cua chip cau USB-serial: FTDI, Silicon Labs, CH340, Prolific. Radio SiK di
+# qua mot trong so nay -> 57600. Ten cong KHONG dung de doan duoc tren Windows
+# (COM3 khong noi gi ve loai chip), VID thi giong nhau moi he dieu hanh.
+BRIDGE_VIDS = {0x0403, 0x10c4, 0x1a86, 0x067b}
+
 MODE_COLOR = {
     "REAL": "#b03a2e",
     "SIM": "#1f618d",
@@ -70,16 +75,19 @@ def detect_serial(template=None):
         usb = p.vid is not None or "ttyUSB" in p.device or "ttyACM" in p.device
         if not usb:
             continue
+        bridge = p.vid in BRIDGE_VIDS or "ttyUSB" in p.device
         prof = {k: v for k, v in template.items() if k not in ("name", "conn")}
         prof.update({
             "name": (p.product or p.description or "USB serial").strip(),
             "mode": "REAL",
             "conn": p.device,
-            "baud": template.get("baud", 115200 if "ttyACM" in p.device else 57600),
+            "baud": template.get("baud", 57600 if bridge else 115200),
             "detected": True,
             # Bay 2 cua ke hoach: khong o nhom `dialout` thi mo cong that bai voi
             # mot dong loi kho hieu. Bat o day de con noi thang phai lam gi.
-            "writable": os.access(p.device, os.R_OK | os.W_OK),
+            # Windows khong co khai niem nay va os.access("COM3") luon False, nen
+            # bo qua — moi cong se hien ra "khong co quyen" mot cach vo co.
+            "writable": os.name != "posix" or os.access(p.device, os.R_OK | os.W_OK),
         })
         out.append(prof)
     return out

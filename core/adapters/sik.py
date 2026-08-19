@@ -772,7 +772,7 @@ class SikAdapter(QThread):
             return mavutil.mavlink_connection(p["path"])
         if p.get("baud"):
             kw["baud"] = p["baud"]
-        elif p["conn"].startswith("/dev/"):
+        elif ":" not in p["conn"]:   # cong serial: /dev/ttyUSB0, COM3 — mang thi co "tcp:"/"udp:"
             # mavlink_connection() mac dinh 115200. Doc radio SiK 57600 bang so do
             # thi KHONG im lang — no ra mot luong UNKNOWN_* deu dan, app bao "da
             # ket noi" va ve status tu rac (do that: 1156/1156 khung la UNKNOWN).

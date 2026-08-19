@@ -31,6 +31,23 @@ sudo usermod -aG dialout $USER      # quyen doc cong serial — DANG XUAT/DANG N
 Không dùng virtualenv: giữ thói quen `pip --user` để sau này đổi sang `rclpy`
 trực tiếp thì `import rclpy` không hỏng.
 
+### Trên Windows
+
+```cmd
+py -m pip install PySide6 pymavlink pyyaml websockets pyserial
+py -m laptop.app
+```
+
+Không có nhóm `dialout`; thay vào đó phải có **driver USB-serial**: FTDI VCP hoặc
+Silicon Labs CP210x cho radio SiK, Pixhawk cắm thẳng thì Windows 10/11 tự nhận
+(CDC). Cắm xong bấm **"Quet lai cong USB"** — cổng hiện ra là `COM3`, `COM4`…
+thay vì `/dev/ttyUSB0`. Baud tự chọn theo VID của chip, không theo tên cổng.
+
+Chạy được trên Windows: **toàn bộ giao diện** — SiK, SITL qua TCP, replay `.tlog`,
+bản đồ, video MJPEG. **Không** chạy được: mọi thứ trong `tools/` cần ROS2 hoặc
+`bash`/`pkill` (`ros2_bridge.py`, `e2e_ros2.py`, `hitl.py`, `compare_gcs.py`) —
+những cái đó thuộc về máy Linux chạy SITL/companion, không phải máy chạy GUI.
+
 ---
 
 ## Ba nguồn kết nối
