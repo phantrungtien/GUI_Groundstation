@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
 
 from core import bus
 from core.adapters.sik import STALE
+from core import i18n
+from core.i18n import t
 
 SRC_COLOR = {"sik": "#27ae60", "remote": "#3498db"}
 STALE_COLOR = "#7f8c8d"
@@ -66,19 +68,17 @@ class StatusTab(QWidget):
         super().__init__(parent)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("loc theo ten field, vd: ATTITUDE hoac volt")
         self.search.setClearButtonEnabled(True)
-        self.freeze = QCheckBox("Tam dung")
-        self.btn_pid = QPushButton(f"Doc {len(PID_PARAMS)} tham so PID")
-        self.btn_pid.setToolTip("FC khong tu gui tham so — bam de hoi. Ket qua vao hang PARAM.*")
+        self.freeze = QCheckBox()
+        self.btn_pid = QPushButton()
         self.btn_pid.clicked.connect(self.read_pid)
         self.btn_pid.setEnabled(False)
-        self.count = QLabel("0 field")
+        self.count = QLabel()
         self.count.setStyleSheet("color:#8a9199;")
         self.adapter = None
 
         self.model = QStandardItemModel(0, 4, self)
-        self.model.setHorizontalHeaderLabels(["Field", "Gia tri", "Nguon", "Tuoi"])
+        self.model.setHorizontalHeaderLabels(["", "", "", ""])
         self.proxy = QSortFilterProxyModel(self)
         self.proxy.setSourceModel(self.model)
         self.proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
@@ -118,6 +118,26 @@ class StatusTab(QWidget):
         self._pid_ticks = 0
         self._pid_timer = QTimer(self)
         self._pid_timer.timeout.connect(self._pid_tick)
+        self._missing = []  # tham so firmware nay khong co, de dat lai tooltip
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        self.search.setPlaceholderText(t("st.search"))
+        self.freeze.setText(t("st.freeze"))
+        self.btn_pid.setToolTip(t("st.pid_tip"))
+        self.count.setText(t("st.count", n=len(self._rows)))
+        self.model.setHorizontalHeaderLabels(
+            [t("st.col_field"), t("st.col_value"), t("st.col_src"), t("st.col_age")])
+        if self._pid_timer.isActive():
+            return  # dang doc: nhan tiep theo (200 ms nua) tu viet lai nut
+        self.btn_pid.setText(t("st.read_pid", n=len(PID_PARAMS)))
+        if self._missing:
+            self.btn_pid.setToolTip(t("st.pid_missing", n=len(self._missing),
+                                      names=self._fmt_missing()))
+
+    def _fmt_missing(self):
+        m = self._missing
+        return ", ".join(m[:6]) + ("..." if len(m) > 6 else "")
 
     def attach(self, adapter):
         """app.py goi khi ket noi/ngat. REPLAY khong hoi duoc gi — nut phai xam."""
@@ -144,14 +164,10 @@ class StatusTab(QWidget):
         # tra loi, xin mai la treo vong lap.
         if not missing or self._pid_ticks > 20 or not self.adapter:
             self._pid_timer.stop()
-            self.btn_pid.setText(f"Doc {len(PID_PARAMS)} tham so PID")
-            if missing:
-                self.btn_pid.setToolTip(
-                    f"{len(missing)} tham so khong co tren firmware nay: "
-                    + ", ".join(missing[:6]) + ("..." if len(missing) > 6 else "")
-                )
+            self._missing = missing
+            self._retext()
             return
-        self.btn_pid.setText(f"Dang doc... con {len(missing)}")
+        self.btn_pid.setText(t("st.reading", n=len(missing)))
         self.adapter.send("param_read", {"names": missing[:8]})
 
     def _on_status(self, env):
@@ -178,7 +194,7 @@ class StatusTab(QWidget):
         items[2].setForeground(QColor(SRC_COLOR.get(src, "#bdc3c7")))
         self.model.appendRow(items)
         self._rows[key] = items[0].row()
-        self.count.setText(f"{len(self._rows)} field")
+        self.count.setText(t("st.count", n=len(self._rows)))
 
     def _age(self):
         """Field ngung cap nhat phai xam di — dung hinh ma van den la noi doi."""

@@ -31,17 +31,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import authority, bus
+from core import authority, bus, i18n
 from core.field import REGISTRY, STALE
+from core.i18n import t
 
 MODES = ["STABILIZE", "ALT_HOLD", "LOITER", "GUIDED", "AUTO", "POSHOLD", "BRAKE"]
 
-# MAV_RESULT
-ACK_RESULT = {
-    0: "CHAP NHAN", 1: "TAM THOI TU CHOI", 2: "TU CHOI", 3: "KHONG HO TRO",
-    4: "THAT BAI", 5: "DANG CHAY", 6: "HUY",
-}
-ACK_CMD = {400: "ARM/DISARM", 22: "TAKEOFF", 20: "RTL", 21: "LAND", 176: "doi mode",
+# MAV_RESULT — chu nam trong bang chu (core/i18n.py), key "ack.<so>"
+ACK_CMD = {400: "ARM/DISARM", 22: "TAKEOFF", 20: "RTL", 21: "LAND", 176: "cmd.mode",
            16: "goto"}
 ACK_TIMEOUT = 3.0  # giay cho FC tra loi truoc khi coi la khong co phan hoi
 
@@ -53,10 +50,10 @@ THR_ARM_MAX = 1150
 # Ten node nhiem vu ben repo ROS2 -> ten doc duoc. Chi con dung de dich mot chuoi
 # trang thai companion bao len; laptop khong khoi dong nhiem vu nao nua.
 MISSIONS = [
-    ("Bay vong tron", "mission_circle"),
-    ("Qua vong gate", "mission_gates"),
-    ("Bam theo nguoi", "trackinghuman"),
-    ("Bay don gian", "mission_simple"),
+    ("mission.circle", "mission_circle"),
+    ("mission.gates", "mission_gates"),
+    ("mission.human", "trackinghuman"),
+    ("mission.simple", "mission_simple"),
 ]
 CLIMB_CHECK_S = 6.0  # giay sau TAKEOFF moi doi chieu do cao that
 CONFIRM_S = 3.0  # cua so bam lai de xac nhan TAKEOFF o che do REAL
@@ -75,7 +72,13 @@ QPushButton:disabled { background:#4a2a25; color:#8a7a76; }
 
 
 class ControlTab(QWidget):
-    log = Signal(str)
+    # (chu da dich, muc do MAV_SEVERITY). Muc do di kem chu KHONG duoc suy tu chu:
+    # truoc day app.py bat chuoi "TU CHOI"/"KHONG" trong text de to mau, va cach do
+    # chet ngay khi giao dien noi tieng Anh.
+    log = Signal(str, int)
+
+    def _say(self, key, sev=5, **kw):
+        self.log.emit(t(key, **kw), sev)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -86,7 +89,7 @@ class ControlTab(QWidget):
         self.btn_disarm = QPushButton("DISARM")
         self.mode_box = QComboBox()
         self.mode_box.addItems(MODES)
-        self.btn_mode = QPushButton("Doi mode")
+        self.btn_mode = QPushButton()
         self.alt = QDoubleSpinBox()
         self.alt.setRange(1, 120)
         self.alt.setValue(5)
@@ -104,14 +107,17 @@ class ControlTab(QWidget):
         )
         self.btn_takeoff.clicked.connect(self._takeoff)
 
-        normal = QGroupBox("Lenh thuong")
+        self.normal_box = QGroupBox()
+        normal = self.normal_box
         g = QGridLayout(normal)
         g.addWidget(self.btn_arm, 0, 0)
         g.addWidget(self.btn_disarm, 0, 1)
-        g.addWidget(QLabel("Mode:"), 1, 0)
+        self.lbl_mode = QLabel()
+        self.lbl_alt = QLabel()
+        g.addWidget(self.lbl_mode, 1, 0)
         g.addWidget(self.mode_box, 1, 1)
         g.addWidget(self.btn_mode, 1, 2)
-        g.addWidget(QLabel("Do cao:"), 2, 0)
+        g.addWidget(self.lbl_alt, 2, 0)
         g.addWidget(self.alt, 2, 1)
         g.addWidget(self.btn_takeoff, 2, 2)
 
@@ -119,9 +125,10 @@ class ControlTab(QWidget):
         # Khong con nut khoi dong. Nhung van phai nhin thay: node offboard khong
         # duoc lai nua khong co nghia la khong the co node nao dang chay tren
         # companion — biet no chay la biet co ai do dang tranh duong truyen.
-        self.mission_box = QGroupBox("Nhiem vu ROS2 tren companion (chi doc)")
+        self.mission_box = QGroupBox()
         mg = QGridLayout(self.mission_box)
-        self.mission_now = QLabel("nhiem vu: (chua co tin tu companion)")
+        self._mission_running = None  # node dang chay, de dich lai khi doi ngon ngu
+        self.mission_now = QLabel()
         self.mission_now.setStyleSheet("color:#8a939b;")
         mg.addWidget(self.mission_now, 0, 0)
         bus.on("mission", self._on_mission_state)
@@ -161,7 +168,8 @@ class ControlTab(QWidget):
         self.btn_kill.released.connect(self._kill_released)
         self.btn_kill.clicked.connect(self._kill_clicked)
 
-        red_box = QGroupBox("Nut do — di thang qua SiK, khong xin quyen")
+        self.red_box = QGroupBox()
+        red_box = self.red_box
         r = QHBoxLayout(red_box)
         for b in self.reds:
             r.addWidget(b)
@@ -200,6 +208,21 @@ class ControlTab(QWidget):
 
         bus.on("ack", self._on_ack)
         self.set_mode(None)
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        self.normal_box.setTitle(t("ctl.normal_box"))
+        self.lbl_mode.setText(t("ctl.mode_label"))
+        self.lbl_alt.setText(t("ctl.alt_label"))
+        self.btn_mode.setText(t("ctl.change_mode"))
+        self.mission_box.setTitle(t("ctl.mission_box"))
+        self.red_box.setTitle(t("ctl.red_box"))
+        # ARM/DISARM/RTL/LAND/TAKEOFF khong dich: do la ten lenh MAVLink, doi
+        # chieu voi tai lieu ArduPilot va voi GCS khac deu phai dung mot chu.
+        self.btn_kill.setText("DISARM")
+        self.btn_takeoff.setText("TAKEOFF")
+        self._show_mission(self._mission_running)
+        self.set_mode(self.mode)
 
     def _on_status(self, env):
         pwm = env["data"].get("RC_CHANNELS.chan3_raw")
@@ -222,15 +245,11 @@ class ControlTab(QWidget):
         """
         thr = self._thr
         if thr is None:
-            self.log.emit("ARM: chua thay RC_CHANNELS nen khong biet can ga o dau — van gui")
+            self._say("log.arm_no_rc", 4)
         elif time.time() - thr[1] > STALE:
-            self.log.emit(f"ARM: vi tri ga qua cu ({time.time() - thr[1]:.0f}s) — van gui")
+            self._say("log.arm_rc_old", 4, age=time.time() - thr[1])
         elif thr[0] > THR_ARM_MAX:
-            self.log.emit(
-                f"ARM: CHAN — ha ga ve min truoc (dang {thr[0]:.0f} PWM, can duoi "
-                f"{THR_ARM_MAX}). FC khong tu chan: bam ARM luc nay la dong co quay "
-                "ngay len dung muc ga do."
-            )
+            self._say("log.arm_blocked", 3, pwm=thr[0], max=THR_ARM_MAX)
             return
         self._cmd("arm")
 
@@ -239,7 +258,7 @@ class ControlTab(QWidget):
         for action, deadline in list(self._pending.items()):
             if now > deadline:
                 del self._pending[action]
-                self.log.emit(f"{action}: KHONG CO PHAN HOI tu FC sau {ACK_TIMEOUT:.0f}s")
+                self._say("log.no_ack", 4, action=action, sec=ACK_TIMEOUT)
 
     # ------------------------------------------------------------------
 
@@ -252,12 +271,12 @@ class ControlTab(QWidget):
             # hay mot GCS khac tren cung duong truyen). Xoa `_pending` theo no la
             # nuot mat canh bao "khong co phan hoi" cua lenh nguoi dung vua bam.
             return
-        name = ACK_CMD[cmd]
+        name = t(ACK_CMD[cmd])  # ten khong co trong bang chu thi t() tra lai chinh no
         self._pending.clear()  # FC da tra loi -> khong con cho gi nua
         if res != 0:
-            self.log.emit(f"{name}: FC TU CHOI — {ACK_RESULT.get(res, res)}")
+            self._say("log.fc_denied", 3, name=name, why=t(f"ack.{res}"))
         else:
-            self.log.emit(f"{name}: FC chap nhan")
+            self._say("log.fc_ok", 5, name=name)
 
     def set_mode(self, mode):
         """mode = REAL / SIM / REPLAY / None(chua ket noi)."""
@@ -271,11 +290,11 @@ class ControlTab(QWidget):
             b.setEnabled(live)
 
         if mode is None:
-            self.note.setText("Chua ket noi nguon nao.")
+            self.note.setText(t("ctl.note_none"))
         elif mode == "REPLAY":
-            self.note.setText("REPLAY — khong co gi o dau kia de gui lenh toi. Moi nut bi khoa.")
+            self.note.setText(t("ctl.note_replay"))
         elif mode == "REAL":
-            self.note.setText("REAL — moi lenh duoi day di xuong may bay that.")
+            self.note.setText(t("ctl.note_real"))
         else:
             self.note.setText("")
 
@@ -286,13 +305,18 @@ class ControlTab(QWidget):
         va van chiem duong truyen. Thay ten no o day la co manh moi de lan ra khi
         drone hanh xu la.
         """
-        running = env["data"].get("running") or ""
+        self._show_mission(env["data"].get("running") or "")
+
+    def _show_mission(self, running):
+        self._mission_running = running
         if running:
-            nice = next((lb for lb, n in MISSIONS if n == running), running)
-            self.mission_now.setText(f"nhiem vu dang chay: {nice}  ({running})  — khong cam quyen")
+            key = next((k for k, n in MISSIONS if n == running), None)
+            self.mission_now.setText(
+                t("ctl.mission_run", nice=t(key) if key else running, node=running))
             self.mission_now.setStyleSheet("color:#e59866;font-weight:bold;")
         else:
-            self.mission_now.setText("khong co nhiem vu nao chay tren companion")
+            self.mission_now.setText(
+                t("ctl.mission_idle") if running == "" else t("ctl.mission_none"))
             self.mission_now.setStyleSheet("color:#8a939b;")
 
     def _cmd(self, action, args=None):
@@ -309,7 +333,7 @@ class ControlTab(QWidget):
     # --- DISARM hai bac ---
     def _kill_pressed(self):
         self._forced = False
-        self.btn_kill.setText("GIU 2s = CAT DONG CO")
+        self.btn_kill.setText(t("ctl.hold_kill"))
         self._kill_hold.start()
 
     def _kill_released(self):
@@ -368,7 +392,7 @@ class ControlTab(QWidget):
 
     def _force_disarm(self):
         self._forced = True
-        self.btn_kill.setText("DA CAT DONG CO")
+        self.btn_kill.setText(t("ctl.killed"))
         self._escape("disarm", {"force": True})
 
     def _takeoff_cancel(self):
@@ -384,7 +408,7 @@ class ControlTab(QWidget):
         # Noi thang ly do o day con hon de nguoi bay doan qua chu "THAT BAI".
         fc = REGISTRY.value("heartbeat.mode")
         if fc and fc != "GUIDED":
-            self.log.emit(f"takeoff: can mode GUIDED truoc, dang o {fc} — doi mode roi bam lai")
+            self._say("log.takeoff_need_guided", 4, mode=fc)
             return
         # Xac nhan o REAL bang cach BAM LAI, khong bang hop thoai. Do that: trong
         # luc mot QMessageBox dang mo, `activeModalWidget()` khac None nen cua so
@@ -393,10 +417,9 @@ class ControlTab(QWidget):
         # doi thang muc 2.1 lay mot lop hoi lai.
         if self.mode == "REAL" and not self._takeoff_armed:
             self._takeoff_armed = True
-            self.btn_takeoff.setText(f"BAM LAI DE CAT CANH {self.alt.value():.0f}m")
+            self.btn_takeoff.setText(t("ctl.takeoff_confirm", alt=self.alt.value()))
             self._takeoff_confirm.start()
-            self.log.emit(f"takeoff: bam lai trong {CONFIRM_S:.0f}s de cat canh THAT "
-                          f"len {self.alt.value():.0f} m")
+            self._say("log.takeoff_confirm", 4, sec=CONFIRM_S, alt=self.alt.value())
             return
         self._takeoff_cancel()
         self._cmd("takeoff", {"alt": self.alt.value()})
@@ -412,19 +435,17 @@ class ControlTab(QWidget):
         alt = REGISTRY.value("position.alt_rel")
         if alt is None or alt - alt0 >= 1.0:
             return
-        self.log.emit(
-            f"takeoff: FC da nhan nhung do cao khong doi sau {CLIMB_CHECK_S:.0f}s "
-            "— nghi co node dang stream setpoint vao GUIDED, kiem tra ben companion"
-        )
+        self._say("log.takeoff_no_climb", 3, sec=CLIMB_CHECK_S)
 
     def _report(self, action, result):
         if "error" in result:
-            self.log.emit(f"{action}: TU CHOI — {result['error']}")
+            self._say("log.refused", 3, what=action, why=result["error"])
             return
         self._pending[action] = time.time() + ACK_TIMEOUT
         if "stale" in result:
             silent = result["stale"]
-            how_long = "chua nhan goi nao" if silent is None else f"im lang {silent:.0f}s"
-            self.log.emit(f"{action}: da xep lenh nhung link {how_long} — CHUA CHAC TOI NOI")
+            how = (t("log.silent_never") if silent is None
+                   else t("log.silent_for", sec=silent))
+            self._say("log.queued_stale", 4, what=action, how=how)
         else:
-            self.log.emit(f"{action}: da gui")
+            self._say("log.sent", 5, what=action)

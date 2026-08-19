@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from core import bus
+from core import i18n
+from core.i18n import t
 
 # MAV_SEVERITY
 SEVERITY = {
@@ -32,7 +34,7 @@ SEV_COLOR = {
 # Bay dai vo han se an het RAM trong chuyen bay dai — chuyen do soak test do duoc.
 MAX_ROWS = 2000
 
-FILTERS = [("Tat ca", 7), ("Notice tro len", 5), ("Canh bao tro len", 4), ("Loi tro len", 3)]
+FILTERS = [("msg.f_all", 7), ("msg.f_notice", 5), ("msg.f_warn", 4), ("msg.f_err", 3)]
 
 
 class MessagesTab(QWidget):
@@ -40,11 +42,10 @@ class MessagesTab(QWidget):
         super().__init__(parent)
 
         self.filter = QComboBox()
-        for label, _ in FILTERS:
-            self.filter.addItem(label)
+        self.filter.addItems([""] * len(FILTERS))
         self.filter.currentIndexChanged.connect(self._apply_filter)
 
-        self.clear_btn = QPushButton("Xoa")
+        self.clear_btn = QPushButton()
         self.clear_btn.clicked.connect(self._clear)
         self.count = QLabel("0")
         self.count.setStyleSheet("color:#8a9199;")
@@ -52,8 +53,9 @@ class MessagesTab(QWidget):
         self.list = QListWidget()
         self.list.setWordWrap(True)
 
+        self.lbl_level = QLabel()
         top = QHBoxLayout()
-        top.addWidget(QLabel("Muc do:"))
+        top.addWidget(self.lbl_level)
         top.addWidget(self.filter)
         top.addStretch(1)
         top.addWidget(self.count)
@@ -63,6 +65,15 @@ class MessagesTab(QWidget):
         lay.addWidget(self.list)
 
         bus.on("text", self._on_text)
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        self.lbl_level.setText(t("msg.level"))
+        self.clear_btn.setText(t("msg.clear"))
+        # Dong da nam trong danh sach KHONG dich lai: chung la ban ghi cua mot thoi
+        # diem da qua (FC noi gi, app bao gi), viet lai la sua lich su.
+        for i, (key, _) in enumerate(FILTERS):
+            self.filter.setItemText(i, t(key))
 
     def _threshold(self):
         return FILTERS[self.filter.currentIndex()][1]

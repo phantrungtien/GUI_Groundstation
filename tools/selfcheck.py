@@ -17,6 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # chay duoc khong can man
 
 from core import bus
 from core.adapters.sik import SikAdapter, flatten_status, normalize
+from core.i18n import t
 
 PORT = 14559  # cong rieng cho self-check, khong dung vao SITL that
 VIDEO_PORT = 14560  # may chu MJPEG gia cua check_video
@@ -213,11 +214,11 @@ def check_link_status(app):
     ls.on_envelope({"src": "sik", "topic": "link", "data": {"bps": 800}, "ts": time.time()})
     ls._tick()
     # envelope "link" do adapter tu sinh, khong phai bang chung drone con song
-    assert ls._info["sik"].text() == "chua ket noi", ls._info["sik"].text()
+    assert ls._info["sik"].text() == t("link.never"), ls._info["sik"].text()
 
     ls.on_envelope({"src": "sik", "topic": "position", "data": {}, "ts": time.time()})
     ls._tick()
-    assert ls._info["sik"].text() == "800 B/s · mat 0.0%", ls._info["sik"].text()
+    assert ls._info["sik"].text() == t("link.alive", bps=800, loss=0.0), ls._info["sik"].text()
 
     # Mat goi la thu thay cho RSSI (radio SiK nay khong chen RADIO_STATUS). Duoi
     # nguong thi chi hien so; qua nguong phai DOI MAU — con so tu no khong keo
@@ -233,12 +234,12 @@ def check_link_status(app):
     ls.on_envelope({"src": "sik", "topic": "link",
                     "data": {"bps": 700, "loss": 12.5}, "ts": time.time()})
     ls._tick()
-    assert ls._info["sik"].text() == "700 B/s · mat 12.5%", ls._info["sik"].text()
+    assert ls._info["sik"].text() == t("link.alive", bps=700, loss=12.5), ls._info["sik"].text()
     assert WARN in ls._info["sik"].styleSheet(), "mat 12,5% goi ma van hien binh thuong"
 
     ls.last_seen["sik"] = time.time() - 5
     ls._tick()
-    assert ls._info["sik"].text().startswith("MAT"), ls._info["sik"].text()
+    assert ls._info["sik"].text().startswith("MẤT"), ls._info["sik"].text()
     print(f"  ok  Link status: xam khi mat goi, doi mau khi mat >{WARN_LOSS:g}% goi")
 
 
@@ -366,18 +367,18 @@ def check_arm_throttle_guard(app):
     ct = ControlTab()
     ct.set_mode("SIM")
     logs = []
-    ct.log.connect(logs.append)
+    ct.log.connect(lambda text, _sev: logs.append(text))
     try:
         # Chua thay RC bao gio: van phai gui duoc
         ct.btn_arm.click()
         assert sent == ["arm"], sent
-        assert "chua thay RC_CHANNELS" in logs[0], logs
+        assert "chưa thấy RC_CHANNELS" in logs[0], logs
 
         bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
         sent.clear(); logs.clear()
         ct.btn_arm.click()
         assert not sent, "ga 1496 ma van gui ARM"
-        assert "CHAN" in logs[0] and "1496" in logs[0], logs
+        assert "CHẶN" in logs[0] and "1496" in logs[0], logs
 
         bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": THR_ARM_MAX + 1})
         sent.clear()
@@ -393,7 +394,7 @@ def check_arm_throttle_guard(app):
         ct._thr = (1496, time.time() - 30)
         sent.clear(); logs.clear()
         ct.btn_arm.click()
-        assert sent == ["arm"] and "qua cu" in logs[0], (sent, logs)
+        assert sent == ["arm"] and "quá cũ" in logs[0], (sent, logs)
 
         # DISARM khong bao gio bi chot nay dung toi
         bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
@@ -495,7 +496,7 @@ def check_disarm_hold(app):
         sent.clear()
         ct.btn_kill.pressed.emit()
         assert ct._kill_hold.isActive(), "giu nut ma dong ho khong chay"
-        assert "GIU" in ct.btn_kill.text(), ct.btn_kill.text()
+        assert "GIỮ" in ct.btn_kill.text(), ct.btn_kill.text()
         ct._kill_hold.timeout.emit()  # = 2 giay da troi qua
         assert sent == [("disarm", {"force": True})], sent
         ct.btn_kill.released.emit()
@@ -625,7 +626,7 @@ def check_takeoff_guard(app):
     ct = ControlTab()
     ct.set_mode("SIM")
     logs = []
-    ct.log.connect(logs.append)
+    ct.log.connect(lambda text, _sev: logs.append(text))
     sent = []
     authority_mod = __import__("core.authority", fromlist=["x"])
 
@@ -652,7 +653,7 @@ def check_takeoff_guard(app):
         # Do cao khong nhuc nhich -> phai keu, du FC da tra CHAP NHAN
         logs.clear()
         ct._check_climb(0.0)
-        assert "do cao khong doi" in logs[-1], logs
+        assert "độ cao không đổi" in logs[-1], logs
         # Con leo len that thi im lang
         logs.clear()
         REGISTRY.feed({"src": "sik", "topic": "position", "data": {"alt_rel": 4.0},
@@ -671,7 +672,7 @@ def check_takeoff_guard(app):
         ct.btn_takeoff.click()
         assert QApplication.activeModalWidget() is None, "hop thoai chan mo ra -> nut do chet"
         assert not sent, "lan bam dau o REAL phai la hoi lai, khong duoc cat canh"
-        assert "BAM LAI" in ct.btn_takeoff.text(), ct.btn_takeoff.text()
+        assert "BẤM LẠI" in ct.btn_takeoff.text(), ct.btn_takeoff.text()
         ct.btn_takeoff.click()
         assert sent == ["takeoff"], sent
         assert ct.btn_takeoff.text() == "TAKEOFF", ct.btn_takeoff.text()
@@ -729,7 +730,7 @@ def check_mission_readonly(app):
         bus.emit("remote", "mission", {"running": "mission_circle"})
         assert "mission_circle" in ct.mission_now.text(), ct.mission_now.text()
         bus.emit("remote", "mission", {"running": ""})
-        assert "khong co nhiem vu" in ct.mission_now.text(), ct.mission_now.text()
+        assert "không có nhiệm vụ" in ct.mission_now.text(), ct.mission_now.text()
 
         # Bridge phai tu choi doi quyen, khong duoc im lang bo qua.
         src = (Path(__file__).resolve().parent / "ros2_bridge.py").read_text()
@@ -896,7 +897,7 @@ def check_fence(app):
                               "FENCE_RADIUS": 150.0, "FENCE_ALT_MAX": 100.0})
     bus.emit("sik", "fence", {"items": items})
     assert ft.map.home == home and ft.map.fence["FENCE_RADIUS"] == 150.0, ft.map.fence
-    assert "r150m" in ft.map._fence_note() and "tran 100m" in ft.map._fence_note()
+    assert "r150m" in ft.map._fence_note() and "trần 100m" in ft.map._fence_note()
 
     # Vanh vong tron phai roi dung cho: 150 m o z16, vi do 10.8 = 63 px tinh tu
     # tam. Sai cong thuc doi met -> pixel thi rao ve sai cho ma van "nhin duoc",
@@ -913,7 +914,7 @@ def check_fence(app):
     # FENCE_ENABLE = 0: van ve (de biet rao nam dau) nhung phai khac han ve mau,
     # va dai chu phai noi thang la TAT.
     bus.emit("sik", "fence", {"FENCE_ENABLE": 0.0})
-    assert ft.map._fence_note() == "rao TAT", ft.map._fence_note()
+    assert ft.map._fence_note() == t("map.fence_off"), ft.map._fence_note()
     img = ft.map.grab().toImage()
     assert img.pixel(cx + r_px, cy) == FENCE_OFF.rgb(), "rao TAT phai doi mau, khong duoc bien mat"
 
@@ -930,12 +931,12 @@ def check_fence(app):
     ct = ControlTab()
     ct.set_mode("SIM")
     logs = []
-    ct.log.connect(logs.append)
+    ct.log.connect(lambda text, _sev: logs.append(text))
     ct._pending = {"arm": time.time() + 3}
     bus.emit("sik", "ack", {"command": 512, "result": 0})
     assert ct._pending and not logs, (ct._pending, logs)
     bus.emit("sik", "ack", {"command": 400, "result": 0})  # ARM: cai nay moi la cua nut
-    assert not ct._pending and "chap nhan" in logs[-1], logs
+    assert not ct._pending and "chấp nhận" in logs[-1], logs
     ct.close()
     print("  ok  geofence: vong tron quanh home + da giac, TAT thi ve dut net")
 
@@ -1024,12 +1025,12 @@ def check_waypoints(app):
 
     # MISSION_CURRENT ve rieng, sau: no phai gop vao chu khong xoa danh sach diem.
     bus.emit("sik", "wp", {"seq": 1})
-    assert len(ft.map.wp["items"]) == 2 and "toi #1" in ft.map._wp_note(), ft.map._wp_note()
+    assert len(ft.map.wp["items"]) == 2 and "tới #1" in ft.map._wp_note(), ft.map._wp_note()
 
     # Cat bot ma im lang thi nguoi bay tuong da nhin thay ca duong bay.
     bus.emit("sik", "wp", {"items": [(i, 16, lat, lon + i * 1e-4, 20.0)
                                      for i in range(WP_ITEMS_MAX)], "total": 80})
-    assert f"FC co 80, chi tai {WP_ITEMS_MAX}" in ft.map._wp_note(), ft.map._wp_note()
+    assert f"FC có 80, chỉ tải {WP_ITEMS_MAX}" in ft.map._wp_note(), ft.map._wp_note()
 
     # Ngat ket noi: duong bay cua drone cu phai bien mat cung home va rao.
     ft.set_mode(None)
@@ -1156,7 +1157,7 @@ def check_wp_write(app):
     authority.register("sik", Fake())
     ft = FlightTab()
     logs = []
-    ft.log.connect(logs.append)
+    ft.log.connect(lambda text, _sev: logs.append(text))
     try:
         ft.resize(600, 400)
         ft.set_mode("SIM")
@@ -1164,7 +1165,7 @@ def check_wp_write(app):
         assert ft.map.add_draft(lat + 1e-4, lon) is True
         assert ft.map.add_draft(lat + 2e-4, lon + 1e-4) is True
         assert ft.map.draft[0][2] == ft.map.wp_alt, ft.map.draft
-        assert "dang dat 2 diem" in ft.map._draft_note(), ft.map._draft_note()
+        assert "đang đặt 2 điểm" in ft.map._draft_note(), ft.map._draft_note()
 
         ft._send_wp()
         assert sent == [("wp_write", {"items": [list(p) for p in ft.map.draft]})], sent
@@ -1172,13 +1173,13 @@ def check_wp_write(app):
         # FC xac nhan -> ban nhap phai bien mat, neu khong hai duong chong len nhau
         bus.emit("sik", "wp", {"write": {"ok": True, "result": 0, "n": 2}})
         assert ft.map.draft == [], ft.map.draft
-        assert "FC nhan 2 waypoint" in logs[-1], logs[-1]
+        assert "FC nhận 2 waypoint" in logs[-1], logs[-1]
 
         # FC tu choi -> ban nhap phai CON NGUYEN de bam nap lai
         ft.map.add_draft(lat, lon)
         bus.emit("sik", "wp", {"write": {"ok": False, "result": 5, "n": 1}})
         assert len(ft.map.draft) == 1, "tu choi ma van xoa mat ban nhap"
-        assert "THAT BAI" in logs[-1], logs[-1]
+        assert "THẤT BẠI" in logs[-1], logs[-1]
 
         # Dang bay AUTO: cu bam dau tien chi canh bao, khong gui gi ca
         sent.clear()
@@ -1186,7 +1187,7 @@ def check_wp_write(app):
                        "data": {"mode": "AUTO", "armed": True}, "ts": time.time()})
         ft._send_wp()
         assert not sent, "ghi de nhiem vu dang bay ma khong hoi lai"
-        assert "DANG BAY AUTO" in logs[-1], logs[-1]
+        assert "ĐANG BAY AUTO" in logs[-1], logs[-1]
         ft._send_wp()  # bam lai trong CONFIRM_S -> di
         assert sent and sent[0][0] == "wp_write", sent
 
@@ -1231,7 +1232,7 @@ def check_nudge_keys(app):
     authority.register("sik", Fake())
     ft = FlightTab()
     logs = []
-    ft.log.connect(logs.append)
+    ft.log.connect(lambda text, _sev: logs.append(text))
     try:
         ft.set_mode("REAL")
 
@@ -1245,7 +1246,7 @@ def check_nudge_keys(app):
             sent.clear()
             press(ft, Qt.Key_Up)
             assert not sent, f"{label}: van gui lenh nhich"
-            assert "KHONG duoc" in logs[-1], (label, logs[-1])
+            assert "KHÔNG được" in logs[-1], (label, logs[-1])
         REGISTRY.fields.clear()
 
         # REPLAY khong gui gi ke ca khi trang thai dep
@@ -1541,9 +1542,9 @@ def check_banner_health(app):
     win.disconnect()
     win.close()
 
-    assert "dang cho du lieu" in states[0], states[0]
-    assert "mo phong SITL" in states[1], states[1]
-    assert "MAT KET NOI" in states[2], states[2]
+    assert "đang chờ dữ liệu" in states[0], states[0]
+    assert "mô phỏng SITL" in states[1], states[1]
+    assert "MẤT KẾT NỐI" in states[2], states[2]
     print("  ok  banner: cho du lieu -> dang chay -> mat ket noi")
 
 
@@ -1684,6 +1685,59 @@ def check_video(app):
     print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu")
 
 
+def check_i18n(app):
+    """Doi ngon ngu: bang chu day du, va widget PHAI viet lai chu ngay tai cho.
+
+    Cho vo y nhat khong phai la thieu ban dich (t() tra ve chinh cai key, nhin
+    la thay ngay) ma la LECH CHO TRONG giua hai ban: "{n} field" ma ban tieng
+    Anh viet "{count} field(s)" thi t() nem KeyError — chi o mot ngon ngu, va
+    chi khi dong chu do that su duoc ve ra. Doi chieu tung cap o day thi khong
+    the lot.
+    """
+    import string
+
+    from PySide6.QtCore import QSettings
+
+    from core import i18n
+    from laptop.tabs.control import ControlTab
+    from laptop.tabs.settings import SettingsTab
+
+    def holes(fmt):
+        return {name for _, name, _, _ in string.Formatter().parse(fmt) if name}
+
+    for key, row in i18n.STR.items():
+        assert len(row) == 2 and all(row), f"{key}: thieu mot ban dich"
+        assert holes(row[0]) == holes(row[1]), (
+            f"{key}: cho trong lech nhau {holes(row[0])} vs {holes(row[1])}")
+
+    was = i18n.lang()
+    try:
+        i18n.set_lang("vi")
+        ct = ControlTab()
+        st = SettingsTab()
+        vi = ct.normal_box.title()
+        assert vi == "Lệnh thường", vi
+
+        i18n.set_lang("en")
+        assert ct.normal_box.title() == "Normal commands", ct.normal_box.title()
+        # Nut do va ten lenh MAVLink KHONG duoc dich theo: doi chieu voi tai lieu
+        # ArduPilot hay voi mot GCS khac deu phai dung mot chu.
+        assert ct.btn_arm.text() == "ARM" and ct.btn_kill.text() == "DISARM"
+        assert st.buttons["en"].isChecked() and not st.buttons["vi"].isChecked()
+
+        # Bam nut o tab Settings la duong doi ngon ngu that su cua nguoi dung.
+        st.buttons["vi"].setChecked(True)
+        assert i18n.lang() == "vi", i18n.lang()
+        assert ct.normal_box.title() == vi, ct.normal_box.title()
+
+        # Ngon ngu phai song sot qua lan mo app sau.
+        assert QSettings("GCS", "native").value("lang") == "vi"
+    finally:
+        i18n.set_lang(was)
+    print(f"  ok  doi ngon ngu: {len(i18n.STR)} muc x {len(i18n.LANGS)} thu tieng, "
+          "widget viet lai chu ngay, lua chon duoc nho")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -1717,4 +1771,5 @@ if __name__ == "__main__":
     check_banner_health(app)
     check_adapter_live(app)
     check_video(app)
+    check_i18n(app)
     print("selfcheck: PASS")

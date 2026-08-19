@@ -21,6 +21,9 @@ lieu lai tuc thi, khac han tat WiFi that (phai cho ket noi lai).
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QVBoxLayout, QWidget
 
+from core import i18n
+from core.i18n import t
+
 
 def _hint(text, color="#8a939b"):
     lbl = QLabel(text)
@@ -30,38 +33,45 @@ def _hint(text, color="#8a939b"):
 
 
 class LinkFaults(QWidget):
-    log = Signal(str)
+    log = Signal(str, int)   # (chu da dich, muc do) — xem ControlTab.log
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.adapter = None
         self.remote = None
 
-        self.cut_remote = QCheckBox("Ngat ket noi ROS2")
+        self.cut_remote = QCheckBox()
         self.cut_remote.toggled.connect(self._apply)
-        ros2 = QGroupBox("Nua ROS2 — WebSocket toi companion")
-        r = QVBoxLayout(ros2)
+        self.ros2_box = QGroupBox()
+        r = QVBoxLayout(self.ros2_box)
         r.addWidget(self.cut_remote)
-        r.addWidget(_hint(
-            "Kich ban #1. Mat vision/SLAM/task, tab lien quan xam. Nhung task tu hanh "
-            "VAN CHAY tren drone — banner phai noi ro dieu do.", "#e59866"))
+        self.ros2_hint = _hint("", "#e59866")
+        r.addWidget(self.ros2_hint)
 
-        self.cut_sik = QCheckBox("Ngat telemetry")
+        self.cut_sik = QCheckBox()
         self.cut_sik.toggled.connect(self._apply)
-        sik = QGroupBox("Nua telemetry — MAVLink qua SiK")
-        s = QVBoxLayout(sik)
+        self.sik_box = QGroupBox()
+        s = QVBoxLayout(self.sik_box)
         s.addWidget(self.cut_sik)
-        s.addWidget(_hint(
-            "Kich ban #3. Mat duong cuu sinh: khong con HUD, va nut do khong toi noi. "
-            "Day la loi nang nhat, bat ke nua ROS2 con song hay khong.", "#e74c3c"))
+        self.sik_hint = _hint("", "#e74c3c")
+        s.addWidget(self.sik_hint)
 
+        self.both_hint = _hint("")
         lay = QVBoxLayout(self)
-        lay.addWidget(ros2)
-        lay.addWidget(sik)
-        lay.addWidget(_hint(
-            "Tick ca hai = kich ban #4: khong con duong nao xuong drone, chi con RC.\n"
-            "Bo tick la co du lieu lai ngay — khong phai cho ket noi lai nhu rut day that."))
+        lay.addWidget(self.ros2_box)
+        lay.addWidget(self.sik_box)
+        lay.addWidget(self.both_hint)
         lay.addStretch(1)
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        self.ros2_box.setTitle(t("flt.ros2_box"))
+        self.cut_remote.setText(t("flt.cut_ros2"))
+        self.ros2_hint.setText(t("flt.ros2_hint"))
+        self.sik_box.setTitle(t("flt.sik_box"))
+        self.cut_sik.setText(t("flt.cut_sik"))
+        self.sik_hint.setText(t("flt.sik_hint"))
+        self.both_hint.setText(t("flt.both_hint"))
 
     def attach(self, adapter, remote):
         """app.py goi khi ket noi/ngat. adapter=None nghia la da ngat."""
@@ -84,5 +94,5 @@ class LinkFaults(QWidget):
             self.remote.muted = self.cut_remote.isChecked()
         cut = [n for n, c in (("telemetry", self.cut_sik), ("ROS2", self.cut_remote))
                if c.isChecked()]
-        self.log.emit(f"MO PHONG: dang ngat {', '.join(cut)}" if cut
-                      else "MO PHONG: da noi lai ca hai nua")
+        self.log.emit(t("flt.cutting", what=", ".join(cut)) if cut
+                      else t("flt.restored"), 4 if cut else 5)

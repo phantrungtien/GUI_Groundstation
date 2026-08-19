@@ -28,6 +28,8 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QWidget
 
+from core.i18n import t
+
 # Cong rieng cho video, khong dung chung 8765 cua duong lenh (nguyen tac 2.1).
 VIDEO_PORT = 8080
 READ_TIMEOUT_S = 4.0  # khong co byte nao trong ngan nay -> coi nhu dut, noi lai
@@ -85,7 +87,7 @@ class VideoSource(QObject):
         self.url = None
         self.pixmap = None
         self.alive = False
-        self.note = "chua ket noi"
+        self.note = ("vid.not_connected", {})
         self._gen = 0  # doi doi thi thread cu tu biet minh het viec
         self._last = 0.0
 
@@ -99,7 +101,7 @@ class VideoSource(QObject):
     def start(self, url):
         self.stop()
         self.url = url
-        self.note = "dang noi..."
+        self.note = ("vid.connecting", {})
         self._gen += 1
         threading.Thread(target=self._run, args=(url, self._gen), daemon=True).start()
 
@@ -108,7 +110,7 @@ class VideoSource(QObject):
         self.url = None
         self.pixmap = None
         self.alive = False
-        self.note = "chua ket noi"
+        self.note = ("vid.not_connected", {})
         self.updated.emit()
 
     # ------------------------------------------------------------------ main thread
@@ -126,7 +128,7 @@ class VideoSource(QObject):
             # Het khung moi. Bo khung cu di chu khong giu lai cho dep man hinh.
             self.alive = False
             self.pixmap = None
-            self.note = "mat video"
+            self.note = ("vid.lost", {})
             self.updated.emit()
 
     # ------------------------------------------------------------------ thread phu
@@ -144,7 +146,7 @@ class VideoSource(QObject):
                 # Rot WiFi, Pi chua bat server, camera rut ra — deu la chuyen
                 # binh thuong ngoai bai bay. Cho roi thu lai, khong keu ca.
                 if gen == self._gen:
-                    self.note = f"khong co video ({type(e).__name__})"
+                    self.note = ("vid.error", {"err": type(e).__name__})
                     time.sleep(RETRY_S)
 
 
@@ -174,7 +176,9 @@ class VideoView(QWidget):
         if src is None or not src.alive or src.pixmap is None:
             p.fillRect(0, 0, w, h, QColor("#25292c"))
             p.setPen(QColor("#8a939b"))
-            text = src.note if src is not None else "chua co nguon"
+            # `note` la (key, kwargs), dich luc VE chu khong luc dat: khung ve lai
+            # deu dan nen doi ngon ngu la dong chu tu doi theo, khoi dang ky hook.
+            text = t(src.note[0], **src.note[1]) if src is not None else t("vid.no_source")
             if src is not None and src.url:
                 text += f"\n{src.url}"
             p.drawText(0, 0, w, h, Qt.AlignCenter | Qt.TextWordWrap, text)

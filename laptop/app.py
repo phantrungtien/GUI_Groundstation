@@ -17,10 +17,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from core import authority, bus
+from core import authority, bus, i18n
 from core.adapters.remote import RemoteAdapter
 from core.adapters.sik import STALE, SikAdapter
 from core.field import REGISTRY
+from core.i18n import t
 from laptop.connection import ROOT, ConnectionPanel, ModeBanner, load_profiles
 from laptop.link_faults import LinkFaults
 from laptop.link_status import LinkStatus
@@ -28,6 +29,7 @@ from laptop.replay_bar import ReplayBar
 from laptop.tabs.control import ControlTab
 from laptop.tabs.flight import FlightTab
 from laptop.tabs.messages import MessagesTab
+from laptop.tabs.settings import SettingsTab
 from laptop.tabs.status import StatusTab
 from laptop.widgets.video import VideoSource, VideoView, url_for
 from laptop.ui.main_window_ui import Ui_MainWindow
@@ -101,8 +103,11 @@ class MainWindow(QMainWindow):
         # ponytail: addTab bang code, khoi phai sua .ui roi chay lai build_ui.sh.
         self.video = VideoSource(self)
         self.camera_tab = VideoView(self.video)
-        self.ui.tabWidget.addTab(self.camera_tab, "Camera")
+        self.ui.tabWidget.addTab(self.camera_tab, "")
         self.flight_tab.set_video_source(self.video)
+
+        self.settings_tab = SettingsTab()
+        self.ui.tabWidget.addTab(self.settings_tab, "")
 
         # Trong tai da nguon an theo bus, tab Flight doc lai tu no.
         bus.on("*", REGISTRY.feed)
@@ -114,7 +119,7 @@ class MainWindow(QMainWindow):
         self.panel = ConnectionPanel(profiles)
         self.panel.connect_requested.connect(self.connect_to)
         self.panel.disconnect_requested.connect(self.disconnect)
-        dock = QDockWidget("Ket noi", self)
+        self.conn_dock = dock = QDockWidget(self)
         dock.setWidget(self.panel)
         dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
@@ -122,8 +127,8 @@ class MainWindow(QMainWindow):
         # Mo phong dut duong truyen: CHI o SIM. O REAL, mot o tick lam cam telemetry
         # ngay canh nut do la thu khong duoc phep ton tai.
         self.link_faults = LinkFaults()
-        self.link_faults.log.connect(lambda s: self.ui.statusbar.showMessage(s, 6000))
-        self.faults_dock = QDockWidget("Mo phong dut duong truyen", self)
+        self.link_faults.log.connect(lambda s, _sev: self.ui.statusbar.showMessage(s, 6000))
+        self.faults_dock = QDockWidget(self)
         self.faults_dock.setWidget(self.link_faults)
         self.faults_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.faults_dock)
@@ -138,7 +143,18 @@ class MainWindow(QMainWindow):
         self._health.timeout.connect(self._refresh_banner)
         self._health.start(500)
 
-    def _on_cmd_log(self, text):
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        tabs = self.ui.tabWidget
+        for w, key in ((self.ui.Flight, "tab.flight"), (self.ui.Status, "tab.status"),
+                       (self.ui.Control, "tab.control"), (self.ui.Messages, "tab.messages"),
+                       (self.camera_tab, "tab.camera"), (self.settings_tab, "tab.settings")):
+            tabs.setTabText(tabs.indexOf(w), t(key))
+        self.conn_dock.setWindowTitle(t("dock.conn"))
+        self.faults_dock.setWindowTitle(t("dock.faults"))
+
+    def _on_cmd_log(self, text, sev=5):
         """Ket qua moi lan bam nut: thanh trang thai + tab Thong bao + file.
 
         Ba cho vi ba muc dich khac nhau. Thanh trang thai de thay ngay; tab Thong
@@ -147,7 +163,7 @@ class MainWindow(QMainWindow):
         con cach doan.
         """
         self.ui.statusbar.showMessage(text, 6000)
-        self.messages_tab.add_local(text, sev=4 if "TU CHOI" in text or "KHONG" in text else 5)
+        self.messages_tab.add_local(text, sev=sev)
         try:
             line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  [{self.mode or '-'}]  {text}\n"
             (ROOT / "logs" / "commands.log").open("a", encoding="utf-8").write(line)
@@ -190,7 +206,8 @@ class MainWindow(QMainWindow):
         self.link_faults.attach(self.adapter if self.mode == "SIM" else None,
                                 self.remote if self.mode == "SIM" else None)
         self.faults_dock.setVisible(self.mode == "SIM")
-        self.ui.statusbar.showMessage(f"Dang noi {profile.get('conn') or profile.get('path')}", 5000)
+        self.ui.statusbar.showMessage(
+            t("conn.opening_msg", target=profile.get("conn") or profile.get("path")), 5000)
 
     def _refresh_banner(self):
         """Hai nua hong theo hai kieu khac nhau — banner phai noi ro nua nao.
@@ -217,16 +234,13 @@ class MainWindow(QMainWindow):
             self.banner.show_waiting(self.profile)
         elif sik > STALE:
             # Mat duong cuu sinh. Nang nhat, bat ke nua ROS2 con song hay khong.
-            self.banner.show_lost(self.profile, f"SiK im lang {int(sik)}s")
+            self.banner.show_lost(self.profile, t("conn.sik_silent", n=int(sik)))
         elif has_remote and (remote is None or remote > STALE):
             # Kieu hong A: WiFi rot nhung companion con song. Tu khi laptop cam
             # toan quyen thi day khong con la mat quyen dieu khien — node offboard
             # khong lai duoc dau ma so. Mat la mat TAM NHIN: video, vi tri nguon
             # thu hai, trang thai node. Van phai bao, chi la bao dung muc do.
-            self.banner.show_degraded(
-                self.profile,
-                "MAT ROS2 — mat video va nguon vi tri thu hai. SiK con, lai va nut do con.",
-            )
+            self.banner.show_degraded(self.profile, t("conn.degraded"))
         else:
             self.banner.show_profile(self.profile)
 
@@ -263,14 +277,14 @@ class MainWindow(QMainWindow):
         # man hinh (che map, che nut do). Bao bang banner do + status bar.
         was_flying = self.link_status.last_seen.get(SikAdapter.SRC) is not None
         profile = self.profile
-        self.ui.statusbar.showMessage(f"Mat ket noi SiK: {why}")
+        self.ui.statusbar.showMessage(t("conn.sik_lost", why=why))
         # Chi ha nua SiK. Nua ROS2 con song thi de no chay tiep — no van cho biet
         # drone dang lam gi, va van co the noi lai.
         self._stop_sik()
         if was_flying:
             self.banner.show_lost(profile, why)
         else:
-            QMessageBox.critical(self, "Khong ket noi duoc", why)
+            QMessageBox.critical(self, t("conn.fail_title"), why)
 
     def _stop_sik(self):
         if self.adapter:
@@ -288,6 +302,7 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(DARK)
+    i18n.load()  # phai truoc MainWindow: widget lay chu ngay trong __init__
     win = MainWindow(load_profiles())
     win.show()
     return app.exec()

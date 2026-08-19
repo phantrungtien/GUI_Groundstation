@@ -111,7 +111,7 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 
 ---
 
-## Bốn tab
+## Sáu tab
 
 | Tab | Nội dung |
 |---|---|
@@ -119,6 +119,26 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*` |
 | **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`) |
+| **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay) |
+| **Cài đặt** | Ngôn ngữ giao diện |
+
+### Ngôn ngữ — tiếng Việt / English
+
+Tab **Cài đặt** đổi toàn bộ chữ trên giao diện giữa tiếng Việt có dấu và tiếng
+Anh. Đổi là **hiện ngay**, không khởi động lại — đổi giữa chuyến bay không được
+phép làm mất kết nối. Lựa chọn nhớ bằng `QSettings` (Linux: `~/.config/GCS/`,
+Windows: registry).
+
+**Không dịch**, cố ý: tên mode của FC (`GUIDED`, `AUTO`, `LOITER`…), tên field
+MAVLink, mã lệnh, và chữ trên nút `ARM`/`DISARM`/`TAKEOFF`/`RTL`/`LAND`. Đó là
+từ vựng của ArduPilot — dịch ra thì không đối chiếu được với tài liệu hay với
+GCS khác.
+
+Bảng chữ nằm ở [`core/i18n.py`](core/i18n.py), một `dict` Python `key: (vi, en)`.
+Thêm chữ mới thì thêm một dòng ở đó rồi gọi `t("key")`; key chưa có trong bảng
+sẽ **hiện ra chính cái key** trên màn hình, không im lặng rơi về tiếng Việt.
+`tools/selfcheck.py` đối chiếu từng cặp: thiếu một bản dịch, hay lệch chỗ trống
+`{...}` giữa hai bản, là fail.
 
 ### Nút đỏ — RTL / LAND / DISARM
 
@@ -185,7 +205,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 24 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 30 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -354,6 +374,7 @@ RC override: ArduPilot sẽ từ chối arm với `"Throttle (RC3) is not neutra
 ```
 core/            # DUNG CHUNG voi ban web
   bus.py         # envelope {src, topic, data, ts}
+  i18n.py        # bang chu vi/en + doi ngon ngu ngay tai cho
   field.py       # trong tai da nguon: best() tra ca gia tri lan nguon
   authority.py   # duong ra drone + nhanh ESCAPE cho nut do
   adapters/
@@ -364,11 +385,11 @@ laptop/
   app.py         # QMainWindow
   connection.py  # quet cong USB + banner che do
   link_faults.py # mo phong dut duong truyen (chi SIM)
-  tabs/          # flight, status, control, messages
+  tabs/          # flight, status, control, messages, settings
   widgets/       # map, compass, attitude, telemetry_bar
 
 tools/
-  selfcheck.py     # 24 check, khong can SITL
+  selfcheck.py     # 30 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that
@@ -377,4 +398,5 @@ tools/
   soak.py          # bai chay lien tuc
 ```
 
-Khoảng 4 760 dòng Python.
+Khoảng 4 970 dòng Python trong `core/` + `laptop/`, 4 490 nữa trong `tools/`.
+(`find core laptop -name '*.py' | xargs wc -l`)

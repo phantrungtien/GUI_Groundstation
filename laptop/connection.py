@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core import i18n
+from core.i18n import t
+
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "connections.yaml"
 
@@ -40,11 +43,7 @@ MODE_COLOR = {
     "DEGRADED": "#8e44ad",  # mat nua ROS2, SiK con — suy giam chuc nang
     "LOST": "#e74c3c",  # mat SiK — mat duong cuu sinh, nang nhat
 }
-MODE_NOTE = {
-    "REAL": "DRONE THAT — moi lenh deu di xuong may bay",
-    "SIM": "mo phong SITL",
-    "REPLAY": "phat lai — moi nut dieu khien bi khoa",
-}
+# Chu thich mode nam trong bang chu (core/i18n.py) duoi key "mode.<MODE>".
 
 
 def load_profiles(path=CONFIG):
@@ -100,7 +99,15 @@ class ModeBanner(QLabel):
         super().__init__(parent)
         self.setAlignment(Qt.AlignCenter)
         self._shown = None
-        self.show_disconnected()
+        # Lan ve cuoi, giu nguyen dang "goi lai duoc": doi ngon ngu giua chuyen bay
+        # phai ve lai dung trang thai dang hien, khong duoc rot ve "CHUA KET NOI".
+        self._last = (self.show_disconnected, (), {})
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        fn, a, kw = self._last
+        self._shown = None  # buoc ve lai du text cu va moi trung mode
+        fn(*a, **kw)
 
     def _paint(self, mode, text):
         if self._shown == (mode, text):
@@ -113,7 +120,8 @@ class ModeBanner(QLabel):
         )
 
     def show_disconnected(self):
-        self._paint(None, "CHUA KET NOI  ·  chon nguon o panel ben phai")
+        self._last = (self.show_disconnected, (), {})
+        self._paint(None, t("banner.none"))
 
     def show_waiting(self, profile):
         """Da mo nguon nhung chua nhan duoc byte nao.
@@ -122,15 +130,18 @@ class ModeBanner(QLabel):
         ai ca, nen "mo duoc nguon" KHONG co nghia la co drone dau kia. Neu ve mau
         cua mode luon thi banner dang noi doi.
         """
-        self._paint("WAIT", f"{profile['mode']}  ·  {profile['name']}  ·  dang cho du lieu…")
+        self._last = (self.show_waiting, (profile,), {})
+        self._paint("WAIT", t("banner.waiting", mode=profile["mode"], name=profile["name"]))
 
     def show_profile(self, profile):
+        self._last = (self.show_profile, (profile,), {})
         mode = profile["mode"]
-        self._paint(mode, f"{mode}  ·  {profile['name']}  ·  {MODE_NOTE.get(mode, '')}")
+        self._paint(mode, f"{mode}  ·  {profile['name']}  ·  {t('mode.' + mode)}")
 
     def show_lost(self, profile, why=""):
         """Mat duong SiK — mat duong cuu sinh. Nang nhat."""
-        self._paint("LOST", f"⚠  MAT KET NOI  ·  {profile['name']}  ·  {why}")
+        self._last = (self.show_lost, (profile, why), {})
+        self._paint("LOST", t("banner.lost", name=profile["name"], why=why))
 
     def show_degraded(self, profile, why=""):
         """Mat nua ROS2 nhung SiK con — suy giam chuc nang, chua mat an toan.
@@ -138,6 +149,7 @@ class ModeBanner(QLabel):
         Mau khac han LOST: nham hai cai nay la nham giua "van bay ve duoc" va
         "khong con duong nao lai drone".
         """
+        self._last = (self.show_degraded, (profile, why), {})
         self._paint("DEGRADED", f"⚠  {profile['mode']}  ·  {why}")
 
 
@@ -150,7 +162,8 @@ class ConnectionPanel(QWidget):
     def __init__(self, profiles, parent=None):
         super().__init__(parent)
         self.connected = False
-        self._scan_hint = "Chua chon nguon nao."
+        self._opening = None  # ten profile dang mo, de dat lai hint khi doi ngon ngu
+        self._scan_hint = ("conn.none_picked", {})  # (key, kwargs) — dich lai khi doi ngon ngu
         # Muc REAL khong co `conn` la KHUON cho cong tu quet (baud, sysid, remote),
         # khong phai mot nguon chon duoc.
         self.template = next(
@@ -164,14 +177,14 @@ class ConnectionPanel(QWidget):
         self.list.currentRowChanged.connect(self._sync_buttons)
         self.list.itemDoubleClicked.connect(self._connect)
 
-        self.btn_connect = QPushButton("Ket noi")
-        self.btn_disconnect = QPushButton("Ngat")
-        self.btn_scan = QPushButton("Quet lai cong USB")
+        self.btn_connect = QPushButton()
+        self.btn_disconnect = QPushButton()
+        self.btn_scan = QPushButton()
         self.btn_connect.clicked.connect(self._connect)
         self.btn_disconnect.clicked.connect(self.disconnect_requested)
         self.btn_scan.clicked.connect(self.rescan)
 
-        self.hint = QLabel("Chua chon nguon nao.")
+        self.hint = QLabel()
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet("color:#8a9199;")
 
@@ -179,8 +192,9 @@ class ConnectionPanel(QWidget):
         row.addWidget(self.btn_connect)
         row.addWidget(self.btn_disconnect)
 
+        self.title = QLabel()
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("Nguon ket noi"))
+        lay.addWidget(self.title)
         lay.addWidget(self.list, 1)
         lay.addWidget(self.btn_scan)
         lay.addLayout(row)
@@ -188,6 +202,21 @@ class ConnectionPanel(QWidget):
 
         self.rescan()
         self.set_connected(False)
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        self.title.setText(t("conn.title"))
+        self.btn_connect.setText(t("conn.connect"))
+        self.btn_disconnect.setText(t("conn.disconnect"))
+        self.btn_scan.setText(t("conn.scan"))
+        # Danh sach mang chu "khong co quyen", va hint mang ket qua quet: ca hai
+        # phai dung lai. rescan() giu dong dang chon theo TEXT, ma text vua doi
+        # ngon ngu — nen tu giu lay chi so, danh sach cong khong doi luc nay.
+        row = self.list.currentRow()
+        self.rescan()
+        self.list.setCurrentRow(row)
+        if self._opening is not None:
+            self.hint.setText(t("conn.opening", name=self._opening))
 
     def select(self, name):
         """Chon dong theo TEN profile. Tra ve True neu tim thay.
@@ -212,7 +241,7 @@ class ConnectionPanel(QWidget):
             target = p.get("conn") or p.get("path", "")
             mark = ""
             if p.get("detected"):
-                mark = "  ⟲" if p.get("writable") else "  ⚠ khong co quyen"
+                mark = "  ⟲" if p.get("writable") else t("conn.no_perm")
             self.list.addItem(
                 QListWidgetItem(f"[{p['mode']}]  {p['name']}{mark}\n        {target}")
             )
@@ -226,14 +255,13 @@ class ConnectionPanel(QWidget):
         n = len(detected)
         if any(p.get("detected") and not p.get("writable") for p in self.profiles):
             # Bay 2 cua ke hoach — noi thang cach sua, dung de nguoi dung tu doan.
-            self._scan_hint = ("Co cong USB nhung KHONG CO QUYEN mo. Chay:\n"
-                               "sudo usermod -aG dialout $USER\nroi DANG XUAT / DANG NHAP lai.")
+            self._scan_hint = ("conn.perm_fix", {})
         elif n:
-            self._scan_hint = f"Tim thay {n} cong USB."
+            self._scan_hint = ("conn.found", {"n": n})
         else:
-            self._scan_hint = "Khong thay cong USB nao — cam radio roi bam Quet lai."
+            self._scan_hint = ("conn.not_found", {})
         if not self.connected:
-            self.hint.setText(self._scan_hint)
+            self.hint.setText(t(self._scan_hint[0], **self._scan_hint[1]))
 
     def set_connected(self, connected, profile=None):
         self.connected = connected
@@ -242,11 +270,14 @@ class ConnectionPanel(QWidget):
         self._sync_buttons()
         if connected:
             # "da mo nguon", khong phai "da co drone" — xem ModeBanner.show_waiting
-            self.hint.setText(f"Dang mo: {profile['name']}")
+            self._opening = profile["name"]
+            self.hint.setText(t("conn.opening", name=profile["name"]))
         else:
             # Ket qua quet co gia tri hon cau chung chung: no noi vi sao danh sach
             # trong, hoac vi sao cam radio roi ma van khong ket noi duoc.
-            self.hint.setText(self._scan_hint if self.list.currentRow() < 0 else "")
+            self._opening = None
+            self.hint.setText(t(self._scan_hint[0], **self._scan_hint[1])
+                              if self.list.currentRow() < 0 else "")
 
     def _sync_buttons(self):
         self.btn_connect.setEnabled(not self.connected and self.list.currentRow() >= 0)
@@ -275,7 +306,8 @@ class ConnectionPanel(QWidget):
         pattern = str(ROOT / pattern) if not Path(pattern).is_absolute() else pattern
         matches = sorted(glob.glob(pattern))
         start = str(Path(matches[-1]).parent) if matches else str(ROOT)
-        path, _ = QFileDialog.getOpenFileName(self, "Chon file .tlog", start, "Telemetry log (*.tlog)")
+        path, _ = QFileDialog.getOpenFileName(self, t("conn.pick_tlog"), start,
+                                              t("conn.tlog_filter"))
         if not path:
-            QMessageBox.information(self, "REPLAY", "Chua chon file .tlog nao.")
+            QMessageBox.information(self, "REPLAY", t("conn.no_tlog"))
         return path

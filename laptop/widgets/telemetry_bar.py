@@ -7,8 +7,14 @@ so xam di — dung hinh ma van sang la noi doi.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel
 
+from core import i18n
+from core.i18n import t
+
 SRC_COLOR = {"sik": "#27ae60", "remote": "#3498db", None: "#7f8c8d"}
 
+# (khoa tra cuu, don vi). Khoa la thu set_cell() goi toi, KHONG doi theo ngon
+# ngu; chu hien ra lay o bang chu duoi key "tlm.<khoa>" — "PIN" doc sang tieng
+# Anh la mot tu khac han, de nguyen la sai nghia chu khong phai giu nguyen goc.
 CELLS = [
     ("ALT", "m"), ("SPD", "m/s"), ("PIN", "V"), ("SAT", ""), ("MODE", ""),
 ]
@@ -22,10 +28,11 @@ class TelemetryBar(QFrame):
         grid.setContentsMargins(10, 6, 10, 6)
         grid.setHorizontalSpacing(18)
 
-        self._val, self._dot = {}, {}
+        self._val, self._dot, self._name = {}, {}, {}
         for col, (key, unit) in enumerate(CELLS):
-            name = QLabel(f"{key}" + (f" ({unit})" if unit else ""))
+            name = QLabel()
             name.setStyleSheet("color:#8a9199;font-size:10px;")
+            self._name[key] = name
             dot = QLabel("●")
             val = QLabel("--")
             val.setStyleSheet("font-size:16px;font-weight:bold;")
@@ -36,6 +43,11 @@ class TelemetryBar(QFrame):
             grid.addWidget(val, 1, col * 2 + 1)
             self._val[key], self._dot[key] = val, dot
         self.set_cell("ALT", None, None)
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        for key, unit in CELLS:
+            self._name[key].setText(t(f"tlm.{key}") + (f" ({unit})" if unit else ""))
 
     def set_cell(self, key, value, src, fmt="{:.1f}"):
         val, dot = self._val[key], self._dot[key]

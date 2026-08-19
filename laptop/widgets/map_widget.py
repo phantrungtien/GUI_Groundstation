@@ -25,6 +25,8 @@ from PySide6.QtWidgets import QWidget
 from core.adapters.sik import WP_MAX
 
 TILE = 256
+from core.i18n import t
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 TILE_DIR = ROOT / "assets" / "tiles"
 
@@ -548,18 +550,18 @@ class MapWidget(QWidget):
         if not f:
             return ""
         if f.get("err"):
-            return f"rao: {f['err']}"
+            return t("map.fence_err", err=f["err"])
         if not f.get("FENCE_ENABLE", 0):
-            return "rao TAT"
+            return t("map.fence_off")
         bits = []
         if int(f.get("FENCE_TYPE", 0) or 0) & FENCE_TYPE_CIRCLE and f.get("FENCE_RADIUS"):
             bits.append(f"r{f['FENCE_RADIUS']:.0f}m")
         if f.get("FENCE_ALT_MAX"):
-            bits.append(f"tran {f['FENCE_ALT_MAX']:.0f}m")
+            bits.append(t("map.fence_ceil", alt=f["FENCE_ALT_MAX"]))
         n = sum(1 for s in fence_shapes(f.get("items") or []) if s[0] == "poly")
         if n:
-            bits.append(f"{n} da giac")
-        return f"rao: {' '.join(bits)}" if bits else "rao BAT"
+            bits.append(t("map.fence_poly", n=n))
+        return t("map.fence", bits=" ".join(bits)) if bits else t("map.fence_on")
 
     def _draw_wp(self, p, cx, cy):
         """Duong bay: noi cac diem theo thu tu seq, danh so, to dam diem dang toi.
@@ -622,19 +624,19 @@ class MapWidget(QWidget):
             return ""
         n, total = len(wp_points(items)), w.get("total")
         if not n:
-            return "khong co duong bay"
-        note = f"duong bay {n} diem"
+            return t("map.wp_none")
+        note = t("map.wp", n=n)
         if total and total > len(items):
             # Cat bot ma im lang thi nguoi bay tuong da nhin thay ca duong bay.
-            note += f" (FC co {total}, chi tai {len(items)})"
+            note += t("map.wp_cut", total=total, got=len(items))
         if w.get("seq") is not None:
-            note += f" · toi #{w['seq']}"
+            note += t("map.wp_now", seq=w["seq"])
         return note
 
     def _draft_note(self):
         if not self.draft:
             return ""
-        return f"dang dat {len(self.draft)} diem @{self.wp_alt:.0f}m — CHUA NAP"
+        return t("map.draft", n=len(self.draft), alt=self.wp_alt)
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -678,17 +680,13 @@ class MapWidget(QWidget):
         if drawn == 0:
             p.setPen(TEXT)
             p.setFont(QFont("", 9))
-            p.drawText(
-                self.rect().adjusted(0, 8, 0, 0), Qt.AlignHCenter | Qt.AlignTop,
-                f"khong co tile offline cho z{self.zoom} — luoi toa do thay the\n"
-                f"(dat tile vao assets/tiles/{{z}}/{{x}}/{{y}}.png)",
-            )
+            p.drawText(self.rect().adjusted(0, 8, 0, 0), Qt.AlignHCenter | Qt.AlignTop,
+                       t("map.no_tiles", z=self.zoom))
         elif self.zoom - tz > 3:
             # Phong to qua 3 bac la mang mau nhoe. Van ve — co con hon den — nhung
             # phai noi ro, khong de nguoi bay tuong vung nay dung la mot bai co trong.
             p.setFont(QFont("", 9))
-            warn = (f"anh tho z{tz} phong to {2 ** (self.zoom - tz)} lan — "
-                    f"chua tai chi tiet cho vung nay")
+            warn = t("map.upscaled", tz=tz, k=2 ** (self.zoom - tz))
             box = QRect(0, 4, w, 18)
             p.fillRect(box, QColor(0, 0, 0, 150))
             p.setPen(QColor(230, 176, 100))
@@ -728,7 +726,7 @@ class MapWidget(QWidget):
             if extra:
                 note += f"  ·  {extra}"
         if not self.follow:
-            note += "  ·  nhay doi de bam lai theo drone"
+            note += f"  ·  {t('map.unfollow')}"
         if self.credit:
             note += f"  ·  {self.credit}"
         strip = QRect(0, self.height() - 16, self.width(), 16)

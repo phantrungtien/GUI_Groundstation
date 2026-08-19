@@ -7,14 +7,18 @@ Chi hien khi mode == REPLAY. Cho phep debug giao dien tren chuyen bay da xay ra
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
 
+from core import i18n
+from core.i18n import t
+
 
 class ReplayBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.adapter = None
 
-        self.btn = QPushButton("⏸ Tam dung")
+        self.btn = QPushButton()
         self.btn.setFixedWidth(120)
+        self._paused = False
         self.btn.clicked.connect(self._toggle)
 
         self.slider = QSlider(Qt.Horizontal)
@@ -34,18 +38,25 @@ class ReplayBar(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(300)
+        i18n.on_change(self._retext)
+
+    def _retext(self):
+        self.btn.setText(t("rep.resume") if self._paused else t("rep.pause"))
 
     def attach(self, adapter):
         self.adapter = adapter
-        self.btn.setText("⏸ Tam dung")
+        self._paused = False
+        self._retext()
         self.setVisible(adapter is not None)
 
     def _toggle(self):
         if not self.adapter:
             return
-        paused = self.btn.text().startswith("⏸")
-        self.adapter.pause(paused)
-        self.btn.setText("▶ Chay tiep" if paused else "⏸ Tam dung")
+        # Trang thai lay o co rieng, KHONG doc lai chu tren nut: chu doi theo ngon
+        # ngu, doc no la nut dung lam sau lan doi ngon ngu dau tien.
+        self._paused = not self._paused
+        self.adapter.pause(self._paused)
+        self._retext()
 
     def _seek(self):
         if self.adapter:

@@ -10,6 +10,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 
 from core.adapters.sik import STALE
+from core.i18n import t
 
 ALIVE, DEAD = "#27ae60", "#7f8c8d"
 WARN = "#e67e22"
@@ -68,14 +69,14 @@ class LinkStatus(QWidget):
             loss = self.loss.get(src, 0.0)
             self._dots[src].setStyleSheet(f"color:{ALIVE if alive else DEAD};font-size:14px;")
             if seen is None:
-                text = "chua ket noi"
+                text = t("link.never")
             elif alive:
                 # Mat goi hien LUON, ke ca 0,0%: con so dung yen o 0 la bang chung
                 # duong truyen sach, con o trong thi khong phan biet duoc "sach"
                 # voi "chua do duoc" (nguyen tac 2.2).
-                text = f"{self.bps.get(src, 0)} B/s · mat {loss:.1f}%"
+                text = t("link.alive", bps=self.bps.get(src, 0), loss=loss)
             else:
-                text = f"MAT — {now - seen:.0f}s"
+                text = t("link.dead", sec=now - seen)
             self._info[src].setText(text)
             color = DEAD if not alive else (WARN if loss >= WARN_LOSS else "#ddd")
             self._info[src].setStyleSheet(f"color:{color};")

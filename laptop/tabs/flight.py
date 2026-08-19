@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QLabel, QMenu, QWidget
 from core import authority, bus
 from core.adapters.sik import WP_MAX
 from core.field import REGISTRY
+from core.i18n import t
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
 from laptop.widgets.map_widget import MapWidget
@@ -58,7 +59,7 @@ NUDGE_HZ = 5
 class FlightTab(QWidget):
     # Nap duong bay la mot LENH. No phai de lai vet o tab Messages va o
     # logs/commands.log y nhu ARM/TAKEOFF, khong duoc chi hien thoang tren ban do.
-    log = Signal(str)
+    log = Signal(str, int)   # (chu da dich, muc do) — xem ControlTab.log
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -157,7 +158,7 @@ class FlightTab(QWidget):
         # Kich ban #8: hai nguon lech vi tri qua nguong
         div = REGISTRY.position_divergence_m()
         if div is not None and div > 5.0:
-            self.warn.setText(f"⚠ HAI NGUON LECH VI TRI {div:.0f} m")
+            self.warn.setText(t("fly.diverge", m=div))
             self.warn.show()
         else:
             self.warn.hide()
@@ -172,10 +173,10 @@ class FlightTab(QWidget):
             # Nap xong thi bo ban nhap di: giu lai hai duong chong len nhau tren
             # ban do, mot cai la ke hoach cu, khong ai phan biet duoc nua.
             self.map.drop_draft(all_of_them=True)
-            self.log.emit(f"nap duong bay: FC nhan {w['n']} waypoint — dang doc lai de doi chieu")
+            self._say("fly.wp_ok", 5, n=w["n"])
         else:
-            why = w.get("err") or f"FC tu choi (MAV_MISSION_RESULT={w['result']})"
-            self.log.emit(f"nap duong bay: THAT BAI — {why}. Ban nhap con nguyen, bam nap lai duoc")
+            why = w.get("err") or t("fly.wp_fc_denied", code=w["result"])
+            self._say("fly.wp_fail", 3, why=why)
 
     def _menu(self, point):
         """Click phai tren map: dat waypoint, nap len FC, hay bay toi mot diem.
@@ -188,28 +189,29 @@ class FlightTab(QWidget):
         lat, lon = self.map.latlon_at(point)
         n = len(self.map.draft)
 
-        act_add = menu.addAction(f"Dat waypoint {n + 1} tai day  ({self.map.wp_alt:.0f} m)")
+        act_add = menu.addAction(t("menu.wp_add", n=n + 1, alt=self.map.wp_alt))
         act_add.setEnabled(n < WP_MAX)
-        alt_menu = menu.addMenu(f"Do cao waypoint: {self.map.wp_alt:.0f} m")
+        alt_menu = menu.addMenu(t("menu.wp_alt", alt=self.map.wp_alt))
         alt_acts = {alt_menu.addAction(f"{a} m"): a for a in ALTS}
-        act_undo = menu.addAction(f"Bo diem {n}") if n else None
-        act_clear = menu.addAction(f"Xoa het {n} diem dang dat") if n else None
+        act_undo = menu.addAction(t("menu.wp_undo", n=n)) if n else None
+        act_clear = menu.addAction(t("menu.wp_clear", n=n)) if n else None
 
         act_send = act_wipe = None
         if live:
             menu.addSeparator()
             if n:
-                act_send = menu.addAction(f"NAP {n} waypoint len FC")
+                act_send = menu.addAction(t("menu.wp_send", n=n))
                 if self._auto_flying():
-                    act_send.setText(f"NAP {n} waypoint DE LEN nhiem vu dang bay")
+                    act_send.setText(t("menu.wp_send_over", n=n))
             if self.map.wp.get("items"):
-                act_wipe = menu.addAction("Xoa duong bay tren FC")
+                act_wipe = menu.addAction(t("menu.wp_wipe"))
             menu.addSeparator()
-            act_goto = menu.addAction(f"GUIDED + bay toi {lat:.5f}, {lon:.5f}")
+            act_goto = menu.addAction(t("menu.goto", lat=lat, lon=lon))
         else:
             act_goto = None
 
-        act_video = menu.addAction("An camera" if self.video.isVisible() else "Hien camera")
+        act_video = menu.addAction(t("menu.cam_hide") if self.video.isVisible()
+                                   else t("menu.cam_show"))
 
         chosen = menu.exec(QCursor.pos())
         if chosen is None:
@@ -228,7 +230,7 @@ class FlightTab(QWidget):
         elif chosen is act_send:
             self._send_wp()
         elif chosen is act_wipe:
-            self._report("xoa duong bay tren FC",
+            self._report(t("act.wp_wipe"),
                          authority.dispatch({"target": "sik", "action": "wp_clear"}))
         elif chosen is act_goto:
             authority.dispatch({"target": "sik", "action": "mode", "args": {"name": "GUIDED"}})
@@ -246,16 +248,16 @@ class FlightTab(QWidget):
     def _nudge_block(self):
         """Ly do KHONG duoc nhich, hay None neu duoc. Bon chot, khong bot cai nao."""
         if self.mode not in ("REAL", "SIM"):
-            return "che do nay khong gui lenh duoc"
+            return t("nudge.no_mode")
         if REGISTRY.value("heartbeat.armed") is not True:
-            return "drone chua armed"
+            return t("nudge.not_armed")
         if REGISTRY.value("heartbeat.landed") is True:
-            return "drone dang nam duoi dat"
+            return t("nudge.on_ground")
         fc = REGISTRY.value("heartbeat.mode")
         if fc != "GUIDED":
             # KHONG tu chuyen mode ho: dang bay AUTO ma mot phim lo tay keo sang
             # GUIDED la bo ngang nhiem vu giua chung. Nguoi bay tu chuyen.
-            return f"dang o mode {fc}, phai chuyen sang GUIDED moi nhich duoc"
+            return t("nudge.wrong_mode", mode=fc)
         return None
 
     def keyPressEvent(self, e):
@@ -265,21 +267,21 @@ class FlightTab(QWidget):
         if key in NUDGE:
             why = self._nudge_block()
             if why:
-                self.log.emit(f"nhich vi tri: KHONG duoc — {why}")
+                self._say("nudge.blocked", 4, why=why)
                 return
             if not self._held:
                 self._nudge_since = time.time()
                 self._nudge_timer.start(int(1000 / NUDGE_HZ))
             self._held.add(key)
         elif key == Qt.Key_Space:
-            self._nudge_stop("treo tai cho")
+            self._nudge_stop(t("nudge.why_space"))
         elif key in (Qt.Key_Return, Qt.Key_Enter):
             self._nudge_stop(None)
-            self._report("tiep tuc nhiem vu", authority.dispatch(
+            self._report(t("act.resume"), authority.dispatch(
                 {"target": "sik", "action": "mode", "args": {"name": "AUTO"}}))
         elif key == Qt.Key_L:
             self._nudge_stop(None)
-            self._report("ha canh tai cho", authority.dispatch(
+            self._report(t("act.land_here"), authority.dispatch(
                 {"target": "sik", "action": "land"}))
         else:
             super().keyPressEvent(e)
@@ -291,7 +293,7 @@ class FlightTab(QWidget):
             return super().keyReleaseEvent(e)
         self._held.discard(e.key())
         if not self._held:
-            self._nudge_stop("tha phim")
+            self._nudge_stop(t("nudge.why_release"))
 
     def focusOutEvent(self, e):
         """Mat focus giua luc dang giu phim (alt-tab, bam sang tab khac).
@@ -299,7 +301,7 @@ class FlightTab(QWidget):
         Khong co cho nay thi keyReleaseEvent KHONG BAO GIO toi, va drone giu
         nguyen van toc cuoi cho toi khi lenh GUIDED het han — bay mu ba giay.
         """
-        self._nudge_stop("roi khoi man hinh bay")
+        self._nudge_stop(t("nudge.why_focus"))
         super().focusOutEvent(e)
 
     def _nudge_tick(self):
@@ -307,7 +309,7 @@ class FlightTab(QWidget):
             return
         if why := self._nudge_block():  # mode/armed doi giua chung thi dung ngay
             self._nudge_stop(None)
-            self.log.emit(f"nhich vi tri: dung — {why}")
+            self._say("nudge.stopped", 4, why=why)
             return
         v = min(NUDGE_VMAX, NUDGE_V0 + NUDGE_RAMP * (time.time() - self._nudge_since))
         n = sum(NUDGE[k][0] for k in self._held)
@@ -335,33 +337,33 @@ class FlightTab(QWidget):
         self._nudge_timer.stop()
         if self.mode not in ("REAL", "SIM"):
             return
-        if not active and why != "treo tai cho":
+        if not active and why != t("nudge.why_space"):
             return  # khong nhich thi khong co gi de dung
         authority.dispatch({"target": "sik", "action": "nudge",
                             "args": {"vn": 0.0, "ve": 0.0, "vd": 0.0}})
         if why:
-            self.log.emit(f"nhich vi tri: {why} -> treo tai cho")
+            self._say("nudge.hold", 5, why=why)
 
     def _send_wp(self):
         if self._auto_flying() and time.time() - self._wp_confirm > CONFIRM_S:
             self._wp_confirm = time.time()
-            self.log.emit(
-                f"nap duong bay: drone DANG BAY AUTO — ghi de la FC nhay sang WP1 cua "
-                f"duong moi ngay. Mo lai menu va bam lai trong {CONFIRM_S:.0f}s de xac nhan"
-            )
+            self._say("fly.wp_overwrite", 4, sec=CONFIRM_S)
             return
         self._wp_confirm = 0.0
         items = [list(p) for p in self.map.draft]
-        self._report(f"nap {len(items)} waypoint", authority.dispatch(
+        self._report(t("act.wp_send", n=len(items)), authority.dispatch(
             {"target": "sik", "action": "wp_write", "args": {"items": items}}))
+
+    def _say(self, key, sev=5, **kw):
+        self.log.emit(t(key, **kw), sev)
 
     def _report(self, what, result):
         if "error" in result:
-            self.log.emit(f"{what}: TU CHOI — {result['error']}")
+            self._say("log.refused", 3, what=what, why=result["error"])
         elif "stale" in result:
-            self.log.emit(f"{what}: da xep lenh nhung link im lang — CHUA CHAC TOI NOI")
+            self._say("log.queued_stale", 4, what=what, how=t("log.silent_never"))
         else:
-            self.log.emit(f"{what}: da gui, cho FC tra loi")
+            self._say("log.sent_wait", 5, what=what)
 
     def resizeEvent(self, e):
         w, h = self.width(), self.height()
