@@ -185,10 +185,29 @@ D.6 bắt kiểm (*"Home đã đặt, **đúng chỗ đứng**"*).
 Dải chữ giờ nói thẳng: `⚠ HOME TẠM (điểm định vị đầu) — chưa nhận HOME_POSITION
 từ FC, RTL KHÔNG về đây`. Có `HOME_POSITION` rồi thì đổi thành `về nhà 56 m`.
 
-**Số mét tới rào** (mục F: *"sát thì kéo về"*) chỉ hiện khi home là home **thật**:
-tâm vòng rào của ArduCopter là home của FC, đo từ một home đoán ra thì con số đó
-là bịa. Chỉ tính cho rào **tròn**; rào đa giác thì khoảng cách tới cạnh gần nhất
-là việc khác, chưa làm.
+### Rào: FC quyết định, không phải app
+
+`FENCE_TYPE` của FC là **nguồn sự thật duy nhất** cho việc rào nào đang chặn —
+không phải sự có mặt của tham số. `FENCE_RADIUS` vẫn giữ nguyên giá trị cũ sau
+khi tắt rào tròn, danh sách đỉnh đa giác vẫn còn trong nhiệm vụ sau khi tắt rào
+đa giác. Vẽ hay đo một rào FC không chặn là đẩy người bay tránh một bức tường
+không tồn tại, và làm thế một lần thì lần sau họ không tin con số đó nữa.
+
+| Bit | Rào | Vẽ trên map | Số mét |
+|---|---|---|---|
+| 1 | Trần độ cao `FENCE_ALT_MAX` | (không vẽ được) | `còn 80m tới trần` |
+| 2 | Vòng tròn `FENCE_RADIUS` quanh home | ✓ | `còn 94m tới rào` |
+| 4 | Mọi hình tải từ nhiệm vụ FENCE — đa giác **và** vòng tròn rời | ✓ | `còn 144m tới rào` |
+
+`FENCE_ENABLE = 1` mà `FENCE_TYPE = 0` thì FC **không chặn gì cả** — dải chữ nói
+thẳng `⚠ rào BẬT nhưng FENCE_TYPE=0`, chứ không hiện "rào BẬT" như trước.
+
+Chỉ hiện **một** số: cái **gần nhất**. Liệt kê cả ba thì dải chữ dài ra mà người
+bay vẫn phải tự so xem cái nào sắp chạm — đúng cái việc đang muốn làm hộ. Vùng
+**cấm vào** nói ngược lại: `cách vùng cấm 22m`.
+
+Số mét tới vòng tròn chỉ hiện khi home là home **thật** (xem mục trên): tâm vòng
+rào của ArduCopter là home của FC, đo từ một home đoán ra thì con số đó là bịa.
 
 ### Tab Thông báo mang số cảnh báo chưa đọc
 
@@ -304,7 +323,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 36 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 37 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -489,7 +508,7 @@ laptop/
   widgets/       # map, compass, attitude, telemetry_bar
 
 tools/
-  selfcheck.py     # 36 check, khong can SITL
+  selfcheck.py     # 37 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that

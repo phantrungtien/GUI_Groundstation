@@ -86,7 +86,14 @@ DRAFT_ALT = 20.0  # met so voi home, cho waypoint dat bang chuot. Doi o menu ban
 
 # MAV_CMD_NAV_FENCE_* — dinh da giac va tam vong tron
 VERTEX_IN, VERTEX_OUT, CIRCLE_IN, CIRCLE_OUT = 5001, 5002, 5003, 5004
-FENCE_TYPE_CIRCLE = 2  # bit trong FENCE_TYPE (1 tran do cao, 2 vong tron, 4 da giac)
+# Bit cua FENCE_TYPE. FC la nguon su that DUY NHAT quyet dinh rao nao dang chan:
+# co FENCE_RADIUS trong tham so KHONG co nghia la rao tron dang bat. Ve hay do mot
+# rao ma FC khong chan la noi doi ve phia nguy hiem — nguoi bay tuong minh duoc
+# chan lai o do.
+FENCE_TYPE_ALT_MAX = 1   # tran do cao
+FENCE_TYPE_CIRCLE = 2    # vong tron quanh home, ban kinh FENCE_RADIUS
+FENCE_TYPE_POLYGON = 4   # moi hinh tai tu nhiem vu FENCE (da giac VA vong tron roi)
+FENCE_TYPE_ALT_MIN = 8   # san do cao (firmware moi)
 
 
 def deg2num(lat, lon, z):
@@ -121,6 +128,25 @@ def pick_tile_zoom(view_zoom, available, up=8, down=2):
 def meters_per_px(lat, zoom):
     """Do phan giai Web Mercator o vi do nay. Doi ban kinh rao (met) sang pixel."""
     return 156543.03392804097 * math.cos(math.radians(lat)) / 2.0**zoom
+
+
+def _seg_dist_m(p, a, b):
+    """Khoang cach tu diem p (lat, lon) toi doan thang a-b, don vi met.
+
+    Chieu sang mat phang met quanh CHINH p roi tinh 2D: o vai tram met thi sai so
+    cua phep chieu nho hon nhieu so voi sai so cua GPS, va cong thuc phang thi doc
+    duoc. Haversine khong dung thang duoc vi diem gan nhat nam GIUA doan, khong
+    phai o mot trong hai dinh.
+    """
+    mlon = 111320.0 * math.cos(math.radians(p[0]))
+    ax, ay = (a[1] - p[1]) * mlon, (a[0] - p[0]) * 110540.0
+    bx, by = (b[1] - p[1]) * mlon, (b[0] - p[0]) * 110540.0
+    dx, dy = bx - ax, by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(ax, ay)
+    # t = vi tri hinh chieu tren doan, kep ve [0, 1] de khong ra ngoai hai dinh
+    t = max(0.0, min(1.0, -(ax * dx + ay * dy) / (dx * dx + dy * dy)))
+    return math.hypot(ax + t * dx, ay + t * dy)
 
 
 def fence_shapes(items):
@@ -310,6 +336,7 @@ class MapWidget(QWidget):
         self.heading = None  # do, 0 = bac. None = chua biet -> ve hinh tron
         self.home = None
         self.home_from_fc = False  # True = HOME_POSITION that tu FC, khong phai doan
+        self.alt_rel = None  # do cao so voi home, de do khoang cach toi tran rao
         self.fence = {}  # tham so FENCE_* + "items" (cac dinh da giac), xem set_fence
         self.wp = {}  # "items" (duong bay) + "seq"/"total", xem set_wp
         self.draft = []  # [(lat, lon, alt)] dang dat bang chuot, chua nap len FC
@@ -551,7 +578,10 @@ class MapWidget(QWidget):
             p.setPen(pen(False))
             p.drawEllipse(self._to_px(*self.home, cx, cy), r, r)
 
-        for shape in fence_shapes(f.get("items") or []):
+        # Hinh tai tu nhiem vu FENCE nam duoi bit POLYGON. Truoc day ve vo dieu
+        # kien: FC tat rao da giac ma ban do van ke duong lien, nhin ra la "co rao".
+        for shape in (fence_shapes(f.get("items") or [])
+                      if ftype & FENCE_TYPE_POLYGON else []):
             p.setPen(pen(shape[1]))
             if shape[0] == "poly":
                 p.drawPolygon([self._to_px(a, b, cx, cy) for a, b in shape[2]])
@@ -570,28 +600,69 @@ class MapWidget(QWidget):
             return t("map.fence_err", err=f["err"])
         if not f.get("FENCE_ENABLE", 0):
             return t("map.fence_off")
+        ftype = int(f.get("FENCE_TYPE", 0) or 0)
+        if not ftype:
+            # FENCE_ENABLE = 1 nhung khong bat loai rao nao: FC KHONG chan gi ca.
+            # Hien "rao BAT" o day la sai ve phia nguy hiem, va day la mot cau hinh
+            # sai co that tren FC chu khong phai truong hop bia ra.
+            return t("map.fence_notype")
         bits = []
-        if int(f.get("FENCE_TYPE", 0) or 0) & FENCE_TYPE_CIRCLE and f.get("FENCE_RADIUS"):
+        if ftype & FENCE_TYPE_CIRCLE and f.get("FENCE_RADIUS"):
             bits.append(f"r{f['FENCE_RADIUS']:.0f}m")
-        if f.get("FENCE_ALT_MAX"):
+        if ftype & FENCE_TYPE_ALT_MAX and f.get("FENCE_ALT_MAX"):
             bits.append(t("map.fence_ceil", alt=f["FENCE_ALT_MAX"]))
-        n = sum(1 for s in fence_shapes(f.get("items") or []) if s[0] == "poly")
-        if n:
-            bits.append(t("map.fence_poly", n=n))
-        # Muc F: "Khoang cach toi hang rao — sat thi keo ve". Ban do VE duoc vong
-        # rao nhung truoc day khong DO no, nen cai nguong duy nhat trong quy trinh
-        # chi uoc luong duoc bang mat.
-        #
-        # Chi tinh cho rao TRON: tam la home, ban kinh la FENCE_RADIUS, mot phep
-        # tru. Rao da giac thi khoang cach toi canh gan nhat la viec khac, chua
-        # lam — va noi ro o day chu khong lang le bo qua.
-        # `home_from_fc` la dieu kien bat buoc: tam vong rao cua ArduCopter la home
-        # THAT cua FC. Do tu mot home doan ra thi con so met kia la bia.
-        r = f.get("FENCE_RADIUS")
-        if r and self.pos and self.home and self.home_from_fc:
-            con = r - haversine_m(*self.pos, *self.home)
-            bits.append(t("map.fence_left", m=con))
+        if ftype & FENCE_TYPE_POLYGON:
+            n = sum(1 for s in fence_shapes(f.get("items") or []) if s[0] == "poly")
+            if n:
+                bits.append(t("map.fence_poly", n=n))
+
+        # Muc F: "Khoang cach toi hang rao — sat thi keo ve". Chi hien MOT so: cai
+        # gan nhat. Liet ke ca ba thi dai chu dai ra ma nguoi bay van phai tu so
+        # xem cai nao sap cham — day chinh la viec dang muon lam ho.
+        gan = self._fence_limits()
+        if gan:
+            m, key = min(gan)
+            bits.append(t(key, m=m))
         return t("map.fence", bits=" ".join(bits)) if bits else t("map.fence_on")
+
+    def _fence_limits(self):
+        """[(so met con lai, key chu)] cho moi rao FC DANG BAT — va chi cai do.
+
+        Nguon su that la FENCE_TYPE cua FC, khong phai su co mat cua tham so:
+        FENCE_RADIUS van con gia tri cu khi rao tron da tat, va do mot rao FC
+        khong chan la day nguoi bay tranh mot buc tuong khong ton tai — lan sau
+        ho se khong tin con so nay nua.
+        """
+        f, out = self.fence, []
+        if not (f and self.pos and f.get("FENCE_ENABLE", 0)):
+            return out
+        ftype = int(f.get("FENCE_TYPE", 0) or 0)
+
+        # Tran do cao: ban do khong ve duoc, nen day la cho duy nhat no hien ra.
+        alt_max = f.get("FENCE_ALT_MAX")
+        if ftype & FENCE_TYPE_ALT_MAX and alt_max and self.alt_rel is not None:
+            out.append((alt_max - self.alt_rel, "map.left_ceil"))
+
+        # Vong tron quanh home. `home_from_fc` bat buoc: tam la home THAT cua FC,
+        # do tu mot home doan ra thi con so kia la bia.
+        r = f.get("FENCE_RADIUS")
+        if ftype & FENCE_TYPE_CIRCLE and r and self.home and self.home_from_fc:
+            out.append((r - haversine_m(*self.pos, *self.home), "map.left_fence"))
+
+        if ftype & FENCE_TYPE_POLYGON:
+            for shape in fence_shapes(f.get("items") or []):
+                cam_vao = shape[1]
+                if shape[0] == "poly":
+                    dinh = shape[2]
+                    d = min(_seg_dist_m(self.pos, a, b)
+                            for a, b in zip(dinh, dinh[1:] + dinh[:1]))
+                else:
+                    _, _, tam, r_m = shape
+                    d = abs(haversine_m(*self.pos, *tam) - r_m)
+                # Cung mot khoang cach, hai cau nguoc nghia: rao BAY TRONG thi do
+                # la cho con lai, vung CAM VAO thi do la cho dang het.
+                out.append((d, "map.left_keepout" if cam_vao else "map.left_fence"))
+        return out
 
     def _draw_wp(self, p, cx, cy):
         """Duong bay: noi cac diem theo thu tu seq, danh so, to dam diem dang toi.

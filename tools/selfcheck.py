@@ -2118,6 +2118,93 @@ def check_preflight_reads(app):
           "loi, so canh bao chua doc tren ten tab; kem so met toi rao")
 
 
+def check_fence_follows_fc(app):
+    """Rao nao duoc VE va DO la do FENCE_TYPE cua FC quyet dinh, khong do app.
+
+    Cho hong o day khong phai tinh sai khoang cach ma la DO NHAM MOT RAO FC KHONG
+    CHAN: FENCE_RADIUS giu nguyen gia tri cu sau khi tat rao tron, danh sach dinh
+    da giac van con trong nhiem vu sau khi tat rao da giac. Bay ho ra buc tuong
+    khong ton tai mot lan la lan sau ho khong tin con so nay nua.
+
+    Nen moi bai duoi day deu la: tham so VAN CO DU, chi thieu BIT.
+    """
+    from core import i18n
+    from core.field import REGISTRY
+    from laptop.tabs.flight import FlightTab
+    from core.field import haversine_m
+    from laptop.widgets.map_widget import (FENCE_TYPE_ALT_MAX, FENCE_TYPE_CIRCLE,
+                                           FENCE_TYPE_POLYGON, _seg_dist_m)
+
+    # Khoang cach toi doan thang: diem gan nhat nam GIUA doan, khong o hai dinh.
+    # Lay dinh gan nhat bang haversine se ra 109,5 m; dung la 77,8 m — chenh 29%,
+    # va chenh ve phia "con nhieu cho hon thuc te".
+    a, b = (10.0, 106.0), (10.001, 106.001)
+    giua = _seg_dist_m((10.001, 106.0), a, b)
+    assert 77 < giua < 79, giua
+    dinh = min(haversine_m(10.001, 106.0, *q) for q in (a, b))
+    assert 109 < dinh < 110 and dinh > giua + 30, (dinh, giua)
+    assert _seg_dist_m(a, a, b) == 0.0
+
+    home = (10.8221589, 106.6868454)
+    d = 0.0018  # ~200 m moi phia
+    poly = [(5001, 4, home[0] - d, home[1] - d), (5001, 4, home[0] - d, home[1] + d),
+            (5001, 4, home[0] + d, home[1] + d), (5001, 4, home[0] + d, home[1] - d)]
+
+    was = i18n.lang()
+    try:
+        i18n.set_lang("vi")
+        ft = FlightTab()
+        ft.resize(600, 400)
+        bus.emit("sik", "home", {"lat": home[0], "lon": home[1], "alt_msl": 10.1})
+
+        def dat(ftype, alt=20.0, dlat=0.0005, items=poly):
+            bus.emit("sik", "fence", {"FENCE_ENABLE": 1.0, "FENCE_TYPE": float(ftype),
+                                      "FENCE_RADIUS": 150.0, "FENCE_ALT_MAX": 100.0})
+            ft.map.fence["items"] = items
+            REGISTRY.feed({"src": "sik", "topic": "position",
+                           "data": {"lat": home[0] + dlat, "lon": home[1], "alt_rel": alt},
+                           "ts": time.time()})
+            ft.refresh()
+            return ft.map._fence_note()
+
+        # Du ca ba tham so ma FENCE_TYPE = 0: FC khong chan gi. Khong duoc noi
+        # "rao BAT" va tuyet doi khong duoc do cai gi.
+        note = dat(0)
+        assert "FENCE_TYPE=0" in note and "m tới" not in note, note
+
+        # Tung bit mot: chi cai duoc bat moi hien va moi duoc do.
+        note = dat(FENCE_TYPE_ALT_MAX)
+        assert "còn 80m tới trần" in note, note
+        assert "r150m" not in note and "đa giác" not in note, note
+
+        note = dat(FENCE_TYPE_CIRCLE)
+        assert "r150m" in note and "còn 94m tới rào" in note, note
+        assert "trần" not in note and "đa giác" not in note, note
+
+        note = dat(FENCE_TYPE_POLYGON)
+        assert "1 đa giác" in note and "còn 144m tới rào" in note, note
+        assert "r150m" not in note and "trần" not in note, note
+
+        # Bat ca ba -> chi hien MOT so: cai GAN NHAT. Doi do cao/vi tri thi con so
+        # phai nhay sang rao khac, khong dinh chet vao mot loai.
+        assert "còn 5m tới trần" in dat(7, alt=95.0)
+        assert "còn 5m tới rào" in dat(7, dlat=0.0013)
+
+        # Vung CAM VAO: cung mot khoang cach, cau nguoc nghia.
+        cam = [(5002, 3, home[0] + 0.0030, home[1]),
+               (5002, 3, home[0] + 0.0032, home[1] + 0.0002),
+               (5002, 3, home[0] + 0.0030, home[1] + 0.0004)]
+        note = dat(FENCE_TYPE_POLYGON, dlat=0.0028, items=cam)
+        assert "cách vùng cấm" in note, note
+
+        i18n.set_lang("en")
+        assert "below the ceiling" in dat(7, alt=95.0)
+    finally:
+        i18n.set_lang(was)
+    print("  ok  rao theo FENCE_TYPE cua FC: tham so con du ma thieu bit thi khong "
+          "ve khong do; hien rao GAN NHAT; vung cam noi nguoc lai")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -2158,4 +2245,5 @@ if __name__ == "__main__":
     check_home_note(app)
     check_drone_marker(app)
     check_preflight_reads(app)
+    check_fence_follows_fc(app)
     print("selfcheck: PASS")

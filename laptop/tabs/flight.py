@@ -144,6 +144,7 @@ class FlightTab(QWidget):
             hdg, _ = REGISTRY.best("position.heading")
         self.compass.set_heading(hdg)
         self.map.heading = hdg  # mui tam giac tren ban do quay cung kim la ban
+        self.map.alt_rel = REGISTRY.value("position.alt_rel")  # do con bao nhieu toi tran rao
 
         roll, _ = REGISTRY.best("attitude.roll")
         pitch, _ = REGISTRY.best("attitude.pitch")

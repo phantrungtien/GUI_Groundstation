@@ -122,7 +122,7 @@ mình đang bay không có nó.
 | Pin | < 20% | **RTL ngay**, không thương lượng |
 | Dải link SiK | Chớp/xám | Xem kịch bản #3 |
 | Cảnh báo divergence | Hai nguồn lệch > 5 m | Tin SiK. Nửa ROS2 đang nói sai vị trí |
-| `còn N m tới rào` ở dải chữ dưới bản đồ | Sát | Kéo về, đừng để FC tự xử. Chỉ có số này khi rào tròn và đã có home thật |
+| `còn N m tới rào` / `tới trần` / `cách vùng cấm` ở dải chữ dưới bản đồ | Sát | Kéo về, đừng để FC tự xử. Số này là rào **gần nhất** trong số các rào `FENCE_TYPE` đang bật |
 | Số trên tên tab Thông báo | `Thông báo (N)` | Mở ra đọc to lên, quyết định trong 5 giây |
 
 **Nút đỏ RTL / LAND / DISARM** đi thẳng qua SiK — không qua companion, không qua
