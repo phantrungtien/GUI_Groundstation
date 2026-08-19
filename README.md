@@ -134,7 +134,7 @@ nói lên còn bao nhiêu nếu không biết số cell, mà số cell thì đ�
 bay gần đây đo được 16,8 V / 15,2 V / 11,7 V — 4S và 3S xen kẽ nhau, một ngưỡng
 điện áp cứng sẽ sai ở ít nhất một chuyến. FC biết `BATT_CAPACITY` và số cell nên
 phần trăm của nó mới là con số có nghĩa (ba chuyến đó FC báo 98%, 99%, 77–81%).
-≤30% vàng, ≤15% đỏ — sửa ở `laptop/widgets/telemetry_bar.py`.
+≤30% vàng, ≤20% đỏ — khớp đúng bảng ngưỡng ở mục F của `docs/operating_procedure.md`, và selfcheck đọc chính file đó để chốt hai con số không trôi khỏi nhau. Sửa ở `laptop/widgets/telemetry_bar.py`.
 
 FC **không** báo phần trăm (`BATT_CAPACITY` chưa đặt) thì ô này **không có ngưỡng**
 và tooltip nói thẳng ra như vậy, chứ không bịa một ngưỡng rồi để người bay tin.

@@ -29,8 +29,12 @@ UNKNOWN_COLOR = "#7f8c8d"
 # ke nhau. Dat nguong dien ap cung la sai o it nhat mot trong ba chuyen do.
 # FC thi biet BATT_CAPACITY va so cell nen phan tram cua no moi la con so co
 # nghia (ba chuyen tren FC bao 98%, 99%, 77-81% — co bao that).
+# Hai con so nay KHONG duoc tu nghi ra: chung phai khop voi bang nguong o muc F
+# cua docs/operating_procedure.md ("< 30% goi ve", "< 20% RTL ngay, khong thuong
+# luong"). Giao dien to mau o mot nguong khac voi quy trinh la day nguoi bay ra
+# hai quyet dinh khac nhau cho cung mot con so.
 BATT_WARN_PCT = 30
-BATT_CRIT_PCT = 15
+BATT_CRIT_PCT = 20
 # GPS: bam theo fix_type chu khong theo so ve tinh. Do that tren ban: fix_type=1,
 # sats=0 — dem ve tinh mot minh thi o do hien so 0 trang tinh nhu moi so khac.
 GPS_MIN_FIX = 3  # 3 = 3D fix. 2 = chi 2D (khong co do cao GPS) -> canh bao.

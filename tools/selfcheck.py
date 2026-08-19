@@ -1807,8 +1807,13 @@ def check_telemetry_warn(app):
 
     # --- ham nguong, kiem thang ---
     assert tb.batt_level(None) is None, "FC khong bao phan tram thi KHONG duoc doan"
-    assert [tb.batt_level(p) for p in (100, 31, 30, 16, 15, 0)] == \
-        [None, None, "warn", "warn", "crit", "crit"], [tb.batt_level(p) for p in (100, 30, 15)]
+    assert [tb.batt_level(p) for p in (100, 31, 30, 21, 20, 0)] == \
+        [None, None, "warn", "warn", "crit", "crit"], [tb.batt_level(p) for p in (100, 30, 20)]
+    # Nguong phai khop bang o muc F cua quy trinh bay, khong duoc troi tu do.
+    proc = (Path(__file__).resolve().parent.parent
+            / "docs" / "operating_procedure.md").read_text(encoding="utf-8")
+    assert f"| Pin | < {tb.BATT_WARN_PCT}% |" in proc, "nguong vang lech voi quy trinh bay"
+    assert f"| Pin | < {tb.BATT_CRIT_PCT}% |" in proc, "nguong do lech voi quy trinh bay"
     assert tb.gps_level(None) is None
     assert [tb.gps_level(f) for f in (0, 1, 2, 3, 6)] == ["crit", "crit", "warn", None, None]
 
