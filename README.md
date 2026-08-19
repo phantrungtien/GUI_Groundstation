@@ -122,6 +122,28 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 | **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay) |
 | **Cài đặt** | Ngôn ngữ giao diện |
 
+### Thanh telemetry — ba ô tự đổi màu
+
+`ARM · CAO · TỐC · PIN · VỆ TINH · MODE`. Ô **ARM** đứng đầu vì đó là thứ phải
+liếc một cái là thấy: `MODE = GUIDED` không nói gì về chuyện cánh quạt đang quay
+hay đứng yên. Đã ARM thì ô đỏ — đỏ ở đây **không** nghĩa là hỏng, nghĩa là đứng
+lại gần.
+
+**PIN đổi màu theo phần trăm FC báo, không theo điện áp.** Điện áp một mình không
+nói lên còn bao nhiêu nếu không biết số cell, mà số cell thì đổi thật: ba chuyến
+bay gần đây đo được 16,8 V / 15,2 V / 11,7 V — 4S và 3S xen kẽ nhau, một ngưỡng
+điện áp cứng sẽ sai ở ít nhất một chuyến. FC biết `BATT_CAPACITY` và số cell nên
+phần trăm của nó mới là con số có nghĩa (ba chuyến đó FC báo 98%, 99%, 77–81%).
+≤30% vàng, ≤15% đỏ — sửa ở `laptop/widgets/telemetry_bar.py`.
+
+FC **không** báo phần trăm (`BATT_CAPACITY` chưa đặt) thì ô này **không có ngưỡng**
+và tooltip nói thẳng ra như vậy, chứ không bịa một ngưỡng rồi để người bay tin.
+
+**VỆ TINH đổi màu theo `fix_type`, không theo số vệ tinh.** Đo thật trên bàn:
+`fix_type=1, sats=0` — đếm vệ tinh một mình thì ô đó hiện số `0` trắng tinh như
+mọi số khác. Dưới 2D fix là đỏ, đúng 2D fix (không có độ cao GPS) là vàng. Rê
+chuột lên ô để biết fix loại nào.
+
 ### Tham số PID — rê chuột là biết nó là gì
 
 Nút **Đọc 63 tham số PID** ở tab **Trạng thái** hỏi FC từng nhóm rồi đổ vào các
@@ -220,7 +242,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 31 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 32 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -405,7 +427,7 @@ laptop/
   widgets/       # map, compass, attitude, telemetry_bar
 
 tools/
-  selfcheck.py     # 31 check, khong can SITL
+  selfcheck.py     # 32 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that

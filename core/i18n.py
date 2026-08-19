@@ -292,11 +292,40 @@ STR = {
     "msg.f_err": ("Lỗi trở lên", "Error and above"),
 
     # --- thanh telemetry duoi ban do ------------------------------------
+    "tlm.ARM": ("ARM", "ARM"),
+    # Trang thai, khong phai ten lenh — nen dich duoc, nhung giu chinh chu "ARM"
+    # cua ArduPilot o giua de doi chieu voi nut ben tab Dieu khien.
+    "tlm.armed": ("ĐÃ ARM", "ARMED"),
+    "tlm.disarmed": ("CHƯA ARM", "DISARMED"),
     "tlm.ALT": ("CAO", "ALT"),
     "tlm.SPD": ("TỐC", "SPD"),
     "tlm.PIN": ("PIN", "BAT"),
     "tlm.SAT": ("VỆ TINH", "SAT"),
     "tlm.MODE": ("MODE", "MODE"),
+    "tlm.batt_pct": ("Pin còn {pct}% — số này do FC báo (nó biết BATT_CAPACITY và số cell)",
+                     "Battery {pct}% left — reported by the FC (it knows BATT_CAPACITY "
+                     "and the cell count)"),
+    "tlm.batt_nopct": (
+        "FC KHÔNG báo phần trăm pin (BATT_CAPACITY chưa đặt). Điện áp một mình không nói "
+        "lên còn bao nhiêu nếu không biết số cell, nên ô này KHÔNG có ngưỡng cảnh báo — "
+        "tự canh lấy.",
+        "The FC does NOT report battery percentage (BATT_CAPACITY is unset). Voltage alone "
+        "cannot say how much is left without the cell count, so this cell has NO warning "
+        "threshold — watch it yourself."),
+    "tlm.fix_none": ("Chưa nhận được GPS_RAW_INT — không biết tình trạng định vị.",
+                     "No GPS_RAW_INT received yet — fix status unknown."),
+    "tlm.fix0": ("KHÔNG có GPS. Số vệ tinh vô nghĩa.", "NO GPS. The satellite count is meaningless."),
+    "tlm.fix1": ("Có GPS nhưng CHƯA bắt được fix — chưa có vị trí.",
+                 "GPS present but NO fix yet — there is no position."),
+    "tlm.fix2": ("Chỉ 2D fix — có kinh/vĩ độ nhưng KHÔNG có độ cao GPS.",
+                 "2D fix only — latitude/longitude but NO GPS altitude."),
+    "tlm.fix3": ("3D fix — đủ để bay.", "3D fix — good enough to fly."),
+    "tlm.fix4": ("DGPS — 3D fix có hiệu chỉnh vi sai.", "DGPS — 3D fix with differential correction."),
+    "tlm.fix5": ("RTK float — chính xác dưới mét, chưa khoá số nguyên.",
+                 "RTK float — sub-metre, integers not yet fixed."),
+    "tlm.fix6": ("RTK fixed — chính xác cỡ centimet.", "RTK fixed — centimetre-level."),
+    "tlm.fix7": ("Vị trí cố định khai báo sẵn (static).", "Static, surveyed-in position."),
+    "tlm.fix8": ("PPP — định vị điểm chính xác.", "PPP — precise point positioning."),
 
     # --- thanh trang thai link -------------------------------------------
     "link.never": ("chưa kết nối", "not connected"),

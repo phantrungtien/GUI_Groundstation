@@ -19,7 +19,7 @@ from core.i18n import t
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
 from laptop.widgets.map_widget import MapWidget
-from laptop.widgets.telemetry_bar import TelemetryBar
+from laptop.widgets.telemetry_bar import TelemetryBar, batt_level, gps_level
 from laptop.widgets.video import VideoView
 
 MARGIN = 12
@@ -148,9 +148,30 @@ class FlightTab(QWidget):
         mode, msrc = REGISTRY.best("heartbeat.mode")
         self.telemetry.set_cell("ALT", alt, asrc)
         self.telemetry.set_cell("SPD", spd, ssrc)
-        self.telemetry.set_cell("PIN", volt, vsrc, "{:.2f}")
-        self.telemetry.set_cell("SAT", sats, gsrc, "{:.0f}")
         self.telemetry.set_cell("MODE", mode, msrc)
+
+        # --- ARM: canh quat co the quay hay khong ------------------------
+        # Do la boolean quan trong nhat tren man hinh bay, va mode KHONG thay
+        # duoc cho no: "GUIDED" khong noi gi ve chuyen dong co dang quay hay dung.
+        # Mau do o day khong co nghia la HONG — nghia la dung lai gan.
+        armed, arsrc = REGISTRY.best("heartbeat.armed")
+        self.telemetry.set_cell(
+            "ARM", None if armed is None else t("tlm.armed" if armed else "tlm.disarmed"),
+            arsrc, level="crit" if armed else None)
+
+        # --- PIN: mau lay tu PHAN TRAM, chu khong tu dien ap -------------
+        # Dien ap van la thu HIEN ra (do la con so nguoi bay quen doc), nhung
+        # nguong thi bam vao phan tram FC bao — xem chu thich o telemetry_bar.py.
+        pct, _ = REGISTRY.best("battery.remaining")
+        self.telemetry.set_cell(
+            "PIN", volt, vsrc, "{:.2f}", level=batt_level(pct),
+            tip=t("tlm.batt_pct", pct=pct) if pct is not None else t("tlm.batt_nopct"))
+
+        # --- SAT: mau lay tu fix_type, chu khong tu so ve tinh -----------
+        fix, _ = REGISTRY.best("gps.fix_type")
+        self.telemetry.set_cell(
+            "SAT", sats, gsrc, "{:.0f}", level=gps_level(fix),
+            tip=t(f"tlm.fix{int(fix)}") if fix is not None else t("tlm.fix_none"))
         # Gia tri dai ra thi bar phai rong ra theo, khong duoc cat chu.
         if self.telemetry.sizeHint() != self.telemetry.size():
             self._place_telemetry()

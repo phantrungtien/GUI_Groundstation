@@ -1786,6 +1786,105 @@ def check_param_doc(app):
           "vao tooltip cua hang PARAM.*, doi theo ngon ngu")
 
 
+def check_telemetry_warn(app):
+    """Thanh telemetry: da ARM chua, va pin/GPS phai TU KEO MAT khi xau.
+
+    Truoc day moi o deu mot mau trang nhu nhau, nen 9,8 V trong y het 16,8 V va
+    fix_type=1 (chua co vi tri) trong y het 3D fix. Con `armed` thi doc de chan
+    logic ma khong hien o dau ca — boolean quan trong nhat tren man hinh bay.
+
+    Nguong pin bam vao PHAN TRAM chu khong dien ap: ba chuyen bay that gan day do
+    duoc 16,8 V / 15,2 V / 11,7 V — 4S va 3S xen ke, mot nguong dien ap cung se
+    sai o it nhat mot chuyen. Bai nay chot dung dieu do bang cach cho hai dien ap
+    khac han nhau ma cung mot phan tram, va doi hai o RA CUNG MOT MAU.
+    """
+    from core import i18n
+    from core.field import REGISTRY
+    from laptop.tabs.flight import FlightTab
+    from laptop.widgets import telemetry_bar as tb
+
+    OK, WARN, CRIT = (tb.LEVEL_COLOR[k] for k in (None, "warn", "crit"))
+
+    # --- ham nguong, kiem thang ---
+    assert tb.batt_level(None) is None, "FC khong bao phan tram thi KHONG duoc doan"
+    assert [tb.batt_level(p) for p in (100, 31, 30, 16, 15, 0)] == \
+        [None, None, "warn", "warn", "crit", "crit"], [tb.batt_level(p) for p in (100, 30, 15)]
+    assert tb.gps_level(None) is None
+    assert [tb.gps_level(f) for f in (0, 1, 2, 3, 6)] == ["crit", "crit", "warn", None, None]
+
+    was = i18n.lang()
+    try:
+        i18n.set_lang("vi")
+        ft = FlightTab()
+        ft.resize(900, 400)
+        val = ft.telemetry._val
+
+        def color(key):
+            return val[key].styleSheet().split("color:")[-1].rstrip(";")
+
+        def feed(topic, data):
+            REGISTRY.feed({"src": "sik", "topic": topic, "data": data, "ts": time.time()})
+
+        # --- ARM: phai hien ra, va phai doi mau ---
+        feed("heartbeat", {"armed": False, "mode": "STABILIZE"})
+        ft.refresh()
+        assert val["ARM"].text() == "CHƯA ARM", val["ARM"].text()
+        assert color("ARM") == OK, color("ARM")
+
+        feed("heartbeat", {"armed": True, "mode": "GUIDED"})
+        ft.refresh()
+        assert val["ARM"].text() == "ĐÃ ARM", val["ARM"].text()
+        assert color("ARM") == CRIT, "da ARM ma o van mau binh thuong"
+
+        # --- PIN: mau theo phan tram, KHONG theo dien ap ---
+        # 16,8 V (4S day) va 11,1 V (3S can) cung bao 12% -> ca hai deu phai do.
+        for volt in (16.8, 11.1):
+            feed("battery", {"voltage": volt, "remaining": 12})
+            ft.refresh()
+            assert color("PIN") == CRIT, f"{volt} V @12% ma khong do: {color('PIN')}"
+        feed("battery", {"voltage": 11.1, "remaining": 25})
+        ft.refresh()
+        assert color("PIN") == WARN, color("PIN")
+        # 11,1 V voi mot pack 3S la gan can, voi pack 6S la chet han — nhung FC bao
+        # 80% thi day la pack 3S dang khoe. Dung dien ap lam nguong la sai o day.
+        feed("battery", {"voltage": 11.1, "remaining": 80})
+        ft.refresh()
+        assert color("PIN") == OK, color("PIN")
+
+        # FC khong bao phan tram -> KHONG bia ra nguong, va phai noi ro o tooltip.
+        # Registry co y BO QUA gia tri None (field.py:65) nen khong the "gui None"
+        # de xoa cai da biet — phai bo han field di, dung nhu chua tung nhan.
+        REGISTRY.fields.pop("battery.remaining", None)
+        feed("battery", {"voltage": 11.1})
+        ft.refresh()
+        assert color("PIN") == OK, color("PIN")
+        assert "KHÔNG báo phần trăm" in val["PIN"].toolTip(), val["PIN"].toolTip()
+
+        # --- SAT: mau theo fix_type, KHONG theo so ve tinh ---
+        # Do that tren ban: fix_type=1, sats=0. Truoc day hien so 0 trang tinh.
+        feed("gps", {"fix_type": 1, "sats": 0})
+        ft.refresh()
+        assert val["SAT"].text() == "0" and color("SAT") == CRIT, (val["SAT"].text(), color("SAT"))
+        assert "CHƯA bắt được fix" in val["SAT"].toolTip(), val["SAT"].toolTip()
+        feed("gps", {"fix_type": 2, "sats": 12})
+        ft.refresh()
+        assert color("SAT") == WARN, "2D fix (khong co do cao GPS) ma khong canh bao"
+        # 12 ve tinh voi 3D fix moi la binh thuong; so ve tinh mot minh khong quyet dinh
+        feed("gps", {"fix_type": 3, "sats": 12})
+        ft.refresh()
+        assert color("SAT") == OK, color("SAT")
+
+        # Tooltip phai doi theo ngon ngu nhu moi chu khac
+        i18n.set_lang("en")
+        ft.refresh()
+        assert val["ARM"].text() == "ARMED", val["ARM"].text()
+        assert "3D fix" in val["SAT"].toolTip(), val["SAT"].toolTip()
+    finally:
+        i18n.set_lang(was)
+    print(f"  ok  thanh telemetry: o ARM moi, pin doi mau theo % (<={tb.BATT_WARN_PCT} vang, "
+          f"<={tb.BATT_CRIT_PCT} do), GPS theo fix_type")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -1821,4 +1920,5 @@ if __name__ == "__main__":
     check_video(app)
     check_i18n(app)
     check_param_doc(app)
+    check_telemetry_warn(app)
     print("selfcheck: PASS")
