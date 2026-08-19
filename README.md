@@ -122,6 +122,17 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 | **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay) |
 | **Cài đặt** | Ngôn ngữ giao diện |
 
+### Ký hiệu drone trên bản đồ
+
+Tam giác nhọn, mũi là đầu drone — cùng kiểu QGroundControl. Nó xoay theo
+`attitude.heading` (không có thì lùi về `position.heading`), cùng nguồn với kim
+la bàn, nên hai thứ không bao giờ chỉ hai hướng khác nhau.
+
+**Chưa biết hướng thì vẽ lại hình tròn**, không vẽ tam giác chĩa lên bắc. Một
+cái mũi nhọn là lời khẳng định "nó đang quay về hướng này"; chưa có heading mà
+vẫn vẽ mũi là nói dối, và là kiểu nói dối không ai kiểm được bằng mắt. Hình tròn
+nói đúng cái mình biết: ở đây, không biết hướng.
+
 ### Đóng app giữa lúc drone đang ARM — phải bấm hai lần
 
 Cửa sổ đóng lúc cánh quạt đang quay là mất đường cứu sinh: hết nút đỏ, hết HUD.
@@ -266,7 +277,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 34 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 35 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -451,7 +462,7 @@ laptop/
   widgets/       # map, compass, attitude, telemetry_bar
 
 tools/
-  selfcheck.py     # 34 check, khong can SITL
+  selfcheck.py     # 35 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that

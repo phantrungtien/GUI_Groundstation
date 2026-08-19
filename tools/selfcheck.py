@@ -1976,6 +1976,63 @@ def check_home_note(app):
     print("  ok  khoang cach ve nha tren dai chu, va dong ho gio bay tu luc ARM")
 
 
+def check_drone_marker(app):
+    """Tam giac nhon tren ban do: MUI phai chia dung huong drone dang quay.
+
+    Do bang cach chieu moi pixel cua hinh len truc huong bay roi so hai dau: phia
+    mui phai nho ra xa hon han phia duoi. Kiem "co ve tam giac khong" thi khong
+    bat duoc loi dang so nhat — ve tam giac nhung xoay nguoc, hoac xoay theo chieu
+    kim dong ho nguoc lai. Luc do nguoi bay doc mui ra huong 180 do sai.
+
+    Lay pixel bang cach DIFF voi khung khong co drone, khong loc theo mau: mui
+    nhon bi vien den phu gan kin nen loc mau se cat mat dung cai dang do.
+    """
+    from laptop.widgets.map_widget import MapWidget
+
+    m = MapWidget()
+    m.resize(300, 300)
+    m.zoom = 16
+    m.follow = False
+    m.center = (10.8, 106.68)
+    cx = cy = 150
+
+    m.pos = None
+    nen = m.grab().toImage()
+    m.set_position(*m.center)
+
+    def than(hdg):
+        m.heading = hdg
+        img = m.grab().toImage()
+        return [(x - cx, y - cy)
+                for x in range(cx - 30, cx + 31) for y in range(cy - 30, cy + 31)
+                if img.pixel(x, y) != nen.pixel(x, y)]
+
+    # Chua biet huong -> HINH TRON, khong duoc ve mui. Mot cai mui nhon la loi
+    # khang dinh "no dang quay ve huong nay"; chua co heading ma van ve mui la
+    # noi doi, va la kieu noi doi khong ai kiem duoc bang mat.
+    # Tron = nho ra deu nhau ve moi phia. Do BE RONG theo tam huong roi so cai
+    # xa nhat voi cai gan nhat; do ban kinh cua tung pixel thi vo nghia vi hinh
+    # dac, tam luon co pixel ban kinh 0.
+    tron = than(None)
+    xa = []
+    for g in range(0, 360, 45):
+        ux, uy = math.sin(math.radians(g)), -math.cos(math.radians(g))
+        xa.append(max(qx * ux + qy * uy for qx, qy in tron))
+    assert max(xa) - min(xa) < 3, f"chua biet huong ma khong phai hinh tron: {xa}"
+
+    for hdg in (0, 45, 90, 135, 180, 225, 270, 315):
+        # Truc huong bay tren man hinh: bac = len = y am.
+        ux, uy = math.sin(math.radians(hdg)), -math.cos(math.radians(hdg))
+        d = [qx * ux + qy * uy for qx, qy in than(hdg)]
+        truoc, sau = max(d), -min(d)
+        assert truoc > sau + 3, f"huong {hdg}: mui {truoc:.1f} px, duoi {sau:.1f} px"
+        # Va phai nhon that, khong phai mot cuc tron xoay: dai hon rong.
+        ngang = max(abs(qx * -uy + qy * ux) for qx, qy in than(hdg))
+        assert truoc > ngang * 1.3, f"huong {hdg}: dai {truoc:.1f} khong nhon hon rong {ngang:.1f}"
+    print("  ok  drone tren ban do: tam giac nhon, mui dung huong o ca 8 goc "
+          "(chua biet huong thi ve hinh tron)")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -2014,4 +2071,5 @@ if __name__ == "__main__":
     check_telemetry_warn(app)
     check_close_guard(app)
     check_home_note(app)
+    check_drone_marker(app)
     print("selfcheck: PASS")

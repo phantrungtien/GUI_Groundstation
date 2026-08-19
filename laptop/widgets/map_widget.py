@@ -16,8 +16,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtCore import QObject, QPoint, QPointF, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 # Tran so waypoint la mot con so cua GIAO THUC (bang thong SiK), khong phai cua
@@ -62,6 +62,11 @@ GRID = QColor(45, 52, 58)
 BG = QColor(26, 29, 32)
 TRAIL = QColor(52, 152, 219)
 DRONE = QColor(46, 204, 113)
+# Tam giac nhon chi huong mui, kieu QGroundControl. Toa do o he "mui len tren"
+# (truc y man hinh huong xuong, nen mui la y am); ve xong moi xoay theo heading.
+# Dai hon rong: cai lam nguoi ta doc ra huong tu mot cai liec la ti le do, khong
+# phai kich thuoc.
+DRONE_SHAPE = ((0, -13), (7, 8), (-7, 8))
 HOME = QColor(241, 196, 15)
 TEXT = QColor(130, 140, 150)
 FENCE_IN = QColor(230, 126, 34)    # vung duoc phep bay
@@ -302,6 +307,7 @@ class MapWidget(QWidget):
         self.center = (10.8221589, 106.6868454)
         self.follow = True  # bam theo drone; pan tay thi tat
         self.pos = None  # (lat, lon) hien tai
+        self.heading = None  # do, 0 = bac. None = chua biet -> ve hinh tron
         self.home = None
         self.fence = {}  # tham so FENCE_* + "items" (cac dinh da giac), xem set_fence
         self.wp = {}  # "items" (duong bay) + "seq"/"total", xem set_wp
@@ -653,6 +659,38 @@ class MapWidget(QWidget):
             return ""
         return t("map.draft", n=len(self.draft), alt=self.wp_alt)
 
+    def _draw_drone(self, p, dp):
+        """Tam giac nhon, mui la dau drone — giong QGroundControl.
+
+        CHUA BIET HUONG thi ve lai hinh tron, khong ve tam giac chi len bac. Mot
+        cai mui nhon la mot lời khẳng định "no dang quay ve huong nay"; chua co
+        heading ma van ve mui la noi doi, va la kieu noi doi khong ai kiem duoc
+        bang mat. Hinh tron thi noi dung cai minh biet: o day, khong biet huong.
+
+        Vien den quanh hinh khong phai trang tri — tren anh ve tinh xanh la cay
+        thi than mau xanh la cua drone chim han.
+        """
+        p.setPen(QPen(QColor(10, 10, 10), 2))
+        p.setBrush(DRONE)
+        if self.heading is None:
+            p.drawEllipse(dp, 6, 6)
+            return
+        p.save()
+        # Khu antialias VA nua pixel: canh xien cua tam giac khong bam luoi pixel,
+        # thieu antialias thi no rang cua. Va tam phai la TAM O PIXEL (+0,5) —
+        # xoay quanh mot goc pixel thi hinh lech mot pixel ve mot phia, va phia
+        # lech doi khi quay 180 do: do duoc mui nho ra 10 px / duoi 9 px thay vi
+        # 11 / 8. Chenh mot pixel thi nhin khong ra, nhung no lam bai kiem huong
+        # mui nhap nhang, va thu gi khong do duoc thi som muon cung troi.
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.translate(dp.x() + 0.5, dp.y() + 0.5)
+        # rotate() duong la thuan chieu kim dong ho, dung chieu cua heading
+        # (0 bac -> 90 dong). Mui o (0, -11) quay 90 do ra (11, 0) = sang phai =
+        # dong. Trung.
+        p.rotate(self.heading)
+        p.drawPolygon(QPolygonF([QPointF(x, y) for x, y in DRONE_SHAPE]))
+        p.restore()
+
     def paintEvent(self, _):
         p = QPainter(self)
         p.fillRect(self.rect(), BG)
@@ -725,10 +763,7 @@ class MapWidget(QWidget):
             p.drawPolyline(pts)
 
         if self.pos:
-            dp = self._to_px(*self.pos, cx, cy)
-            p.setPen(QPen(QColor(10, 10, 10), 2))
-            p.setBrush(DRONE)
-            p.drawEllipse(dp, 6, 6)
+            self._draw_drone(p, self._to_px(*self.pos, cx, cy))
 
         # Chu de tren anh ve tinh thi chim han. Ke mot dai toi mo phia sau — re hon
         # ve vien chu, va ngoai nang doc duoc that.

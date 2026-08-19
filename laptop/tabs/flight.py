@@ -141,6 +141,7 @@ class FlightTab(QWidget):
         if hdg is None:
             hdg, _ = REGISTRY.best("position.heading")
         self.compass.set_heading(hdg)
+        self.map.heading = hdg  # mui tam giac tren ban do quay cung kim la ban
 
         roll, _ = REGISTRY.best("attitude.roll")
         pitch, _ = REGISTRY.best("attitude.pitch")
