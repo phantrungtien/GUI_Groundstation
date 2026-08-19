@@ -1890,6 +1890,92 @@ def check_telemetry_warn(app):
           f"<={tb.BATT_CRIT_PCT} do), GPS theo fix_type")
 
 
+def check_close_guard(app):
+    """Dong cua so giua luc drone dang ARM: lan dau phai BI CHAN.
+
+    Va chan bang cach nao moi la cai dang kiem: KHONG duoc mo hop thoai modal.
+    Trong luc modal mo, activeModalWidget() khac None nen cua so chinh khong nhan
+    input — ba nut do van bao isEnabled() == True nhung bam khong an. Mot cau hoi
+    "ban co chac khong" dat dung luc drone tren troi ma lam chet nut do thi te hon
+    chinh cai no dinh ngan.
+    """
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import QApplication
+
+    from core.field import REGISTRY
+    from laptop.app import CLOSE_CONFIRM_S, MainWindow
+
+    win = MainWindow([{"name": "SITL", "mode": "SIM", "conn": "udp:127.0.0.1:14551"}])
+    try:
+        # Mo o tab Bay, khong phai bang 350 hang field.
+        assert win.ui.tabWidget.currentWidget() is win.ui.Flight, "mo sai tab"
+
+        def bam_dong():
+            e = QCloseEvent()
+            win.closeEvent(e)
+            assert QApplication.activeModalWidget() is None, \
+                "mo hop thoai modal -> nut do chet trong luc drone dang bay"
+            return e.isAccepted()
+
+        # Chua ARM (hoac khong biet) -> dong thang, khong hoi han gi
+        REGISTRY.fields.pop("heartbeat.armed", None)
+        assert bam_dong() is True, "chua ARM ma van chan"
+
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": {"armed": True},
+                       "ts": time.time()})
+        win._close_asked = 0.0
+        assert bam_dong() is False, "drone dang ARM ma dong mot phat la xong"
+        assert "ĐANG ARM" in win.banner.text(), win.banner.text()
+
+        # Bam lan hai trong cua so xac nhan -> di
+        assert bam_dong() is True, "bam lan hai roi ma van chan"
+
+        # Het cua so cho thi quay lai chan tu dau, khong "da hoi mot lan roi thoi"
+        win._close_asked = time.time() - CLOSE_CONFIRM_S - 0.1
+        assert bam_dong() is False, "het cua so xac nhan ma van cho dong mot phat"
+    finally:
+        REGISTRY.fields.pop("heartbeat.armed", None)
+        win._close_asked = 0.0
+        win.close()
+    print(f"  ok  dang ARM ma dong cua so: chan lan dau, bam lai trong "
+          f"{CLOSE_CONFIRM_S:.0f}s moi di, khong hop thoai modal")
+
+
+def check_home_note(app):
+    """Con bao nhieu met ve nha — hien tren dai chu duoi ban do."""
+    from core import i18n
+    from core.field import REGISTRY
+    from laptop.tabs.flight import FlightTab, _mmss
+
+    assert [_mmss(s) for s in (0, 9, 60, 61, 611)] == ["0:00", "0:09", "1:00", "1:01", "10:11"]
+
+    was = i18n.lang()
+    try:
+        i18n.set_lang("vi")
+        ft = FlightTab()
+        ft.resize(600, 400)
+        assert ft.map._home_note() == "", "chua co home ma da bao khoang cach"
+
+        # 0,001 do vi do = 111,3 m. Dung con so nay lam thuoc do.
+        home = (10.8221589, 106.6868454)
+        bus.emit("sik", "home", {"lat": home[0], "lon": home[1], "alt_msl": 10.1})
+        assert ft.map._home_note() == "", "co home nhung chua co vi tri drone"
+        # Vi tri drone di qua REGISTRY roi moi vao map (flight.py:133), khong
+        # phai qua bus truc tiep nhu home.
+        REGISTRY.feed({"src": "sik", "topic": "position",
+                       "data": {"lat": home[0] + 0.001, "lon": home[1], "alt_rel": 5.0},
+                       "ts": time.time()})
+        ft.refresh()
+        note = ft.map._home_note()
+        assert note == "về nhà 111 m", note
+
+        i18n.set_lang("en")
+        assert ft.map._home_note() == "111 m to home", ft.map._home_note()
+    finally:
+        i18n.set_lang(was)
+    print("  ok  khoang cach ve nha tren dai chu, va dong ho gio bay tu luc ARM")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -1926,4 +2012,6 @@ if __name__ == "__main__":
     check_i18n(app)
     check_param_doc(app)
     check_telemetry_warn(app)
+    check_close_guard(app)
+    check_home_note(app)
     print("selfcheck: PASS")

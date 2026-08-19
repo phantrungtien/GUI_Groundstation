@@ -42,6 +42,7 @@ MODE_COLOR = {
     "WAIT": "#b9770e",  # da mo nguon nhung chua co byte nao ve
     "DEGRADED": "#8e44ad",  # mat nua ROS2, SiK con — suy giam chuc nang
     "LOST": "#e74c3c",  # mat SiK — mat duong cuu sinh, nang nhat
+    "CLOSING": "#c0392b",  # dang ARM ma bam dong cua so
 }
 # Chu thich mode nam trong bang chu (core/i18n.py) duoi key "mode.<MODE>".
 
@@ -142,6 +143,12 @@ class ModeBanner(QLabel):
         """Mat duong SiK — mat duong cuu sinh. Nang nhat."""
         self._last = (self.show_lost, (profile, why), {})
         self._paint("LOST", t("banner.lost", name=profile["name"], why=why))
+
+    def show_close_warning(self, sec):
+        """Bam dong khi drone dang ARM. KHONG ghi vao `_last`: nhip 0,5 giay cua
+        app se ve de len dong nay va do la dung — het cua so xac nhan thi banner
+        phai tro ve noi trang thai bay, khong ke lai chuyen vua roi."""
+        self._paint("CLOSING", t("close.banner", sec=sec))
 
     def show_degraded(self, profile, why=""):
         """Mat nua ROS2 nhung SiK con — suy giam chuc nang, chua mat an toan.

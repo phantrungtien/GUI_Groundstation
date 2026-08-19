@@ -47,6 +47,7 @@ GPS_MIN_FIX = 3  # 3 = 3D fix. 2 = chi 2D (khong co do cao GPS) -> canh bao.
 # toi truoc.
 CELLS = [
     ("ARM", ""), ("ALT", "m"), ("SPD", "m/s"), ("PIN", "V"), ("SAT", ""), ("MODE", ""),
+    ("BAY", ""),
 ]
 WIDE = {"MODE": 72, "ARM": 88}  # "DISARMED" dai hon "GUIDED", ca hai dai hon "25"
 

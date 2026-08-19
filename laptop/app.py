@@ -11,7 +11,6 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QVBoxLayout,
@@ -50,19 +49,16 @@ QDockWidget::title { background:#2b2f33; padding:5px; }
 
 TITLE = "GCS — ArduCopter"
 
+# Giay de bam dong lan hai khi drone dang ARM. Cung con so voi CONFIRM_S cua
+# TAKEOFF — hai cho xac nhan giong nhau thi nhip tay cung phai giong nhau.
+CLOSE_CONFIRM_S = 3.0
+
 
 def mount(page, widget):
     """Nhet widget viet tay vao mot tab trong do Designer de san."""
     lay = QVBoxLayout(page)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.addWidget(widget)
-
-
-def placeholder(text):
-    lbl = QLabel(text)
-    lbl.setAlignment(Qt.AlignCenter)
-    lbl.setStyleSheet("color:#6b7279;")
-    return lbl
 
 
 class MainWindow(QMainWindow):
@@ -76,14 +72,17 @@ class MainWindow(QMainWindow):
         self.remote = None
         self.profile = None
         self.mode = None  # N3 doc cai nay de khoa nut o che do REPLAY
+        self._close_asked = 0.0  # lan bam dong dau, khi drone dang ARM
         self.setWindowTitle(TITLE)
 
         # Banner chiem het chieu ngang, day tabWidget xuong mot hang.
         self.banner = ModeBanner()
         self.ui.gridLayout.addWidget(self.banner, 0, 0)
         self.ui.gridLayout.addWidget(self.ui.tabWidget, 1, 0)
-        # ponytail: mo o Status vi tab Flight con rong. Doi ve Flight khi N4 xong.
-        self.ui.tabWidget.setCurrentWidget(self.ui.Status)
+        # Mo o tab Bay: do la man hinh nguoi bay nhin. (Truoc day mo o Trang thai
+        # vi tab Bay con rong — gio no da co ban do, la ban, chan troi va thanh
+        # telemetry, con Trang thai la bang 350 hang de tra cuu chu khong de bay.)
+        self.ui.tabWidget.setCurrentWidget(self.ui.Flight)
 
         self.status_tab = StatusTab()
         self.messages_tab = MessagesTab()
@@ -295,6 +294,29 @@ class MainWindow(QMainWindow):
         self.replay_bar.attach(None)
 
     def closeEvent(self, e):
+        """Dong cua so giua luc canh quat dang quay: bat dong LAN THU HAI.
+
+        KHONG dung QMessageBox. Trong luc mot hop thoai modal dang mo,
+        `activeModalWidget()` khac None nen cua so chinh khong nhan input — ba nut
+        do van bao `isEnabled() == True` nhung bam khong an (xem chu thich trong
+        ControlTab._takeoff). Mot hop thoai "ban co chac khong" dat dung luc drone
+        dang tren troi la lam chet nut do de doi lay mot cau hoi.
+
+        Cach nay giong het xac nhan TAKEOFF o che do REAL: bam lai la duoc, khong
+        bam lai thi thoi, va khong luc nao co gi chan man hinh.
+
+        Chi chan khi `armed` DUNG la True. Khong biet thi khong chan: bat nguoi
+        dung bam hai lan moi lan telemetry chap chon la day ho vao thoi quen bam
+        hai lan cho xong, va thoi quen do lam cai chot nay thanh vo dung.
+        """
+        if REGISTRY.value("heartbeat.armed") is True and \
+                time.time() - self._close_asked > CLOSE_CONFIRM_S:
+            self._close_asked = time.time()
+            self.banner.show_close_warning(int(CLOSE_CONFIRM_S))
+            self.ui.statusbar.showMessage(
+                t("close.armed", sec=CLOSE_CONFIRM_S), int(CLOSE_CONFIRM_S * 1000))
+            e.ignore()
+            return
         self.disconnect()
         super().closeEvent(e)
 

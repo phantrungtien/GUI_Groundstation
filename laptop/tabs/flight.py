@@ -56,6 +56,10 @@ NUDGE_RAMP = 2.0   # m/s cong them moi giay giu phim
 NUDGE_HZ = 5
 
 
+def _mmss(secs):
+    return f"{int(secs) // 60}:{int(secs) % 60:02d}"
+
+
 class FlightTab(QWidget):
     # Nap duong bay la mot LENH. No phai de lai vet o tab Messages va o
     # logs/commands.log y nhu ARM/TAKEOFF, khong duoc chi hien thoang tren ban do.
@@ -67,6 +71,7 @@ class FlightTab(QWidget):
         self._wp_confirm = 0.0  # lan bam dau cua "nap de len" khi dang bay AUTO
         self._held = set()      # phim huong dang giu
         self._nudge_since = 0.0  # luc phim dau tien xuong — goc tinh ramp toc do
+        self._armed_at = None    # luc `armed` lat len True — goc dem gio bay
         # Phim chi toi tab nao dang giu focus, nen phai xin focus tuong minh.
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -158,6 +163,20 @@ class FlightTab(QWidget):
         self.telemetry.set_cell(
             "ARM", None if armed is None else t("tlm.armed" if armed else "tlm.disarmed"),
             arsrc, level="crit" if armed else None)
+
+        # Dem gio tu luc ARM. Cung voi phan tram pin, day la ve thu hai cua cung
+        # mot cau hoi "con bay duoc bao lau" — va la ve KHONG ai khac cung cap:
+        # FC khong gui thoi gian bay qua MAVLink.
+        #
+        # Moc lay o suon len cua `armed`, khong phai luc bam nut: lenh ARM co the
+        # bi FC tu choi, va con so phai dem tu luc dong co THAT SU song.
+        if armed and self._armed_at is None:
+            self._armed_at = time.time()
+        elif not armed and armed is not None:
+            self._armed_at = None
+        self.telemetry.set_cell(
+            "BAY", None if self._armed_at is None else _mmss(time.time() - self._armed_at),
+            arsrc)
 
         # --- PIN: mau lay tu PHAN TRAM, chu khong tu dien ap -------------
         # Dien ap van la thu HIEN ra (do la con so nguoi bay quen doc), nhung

@@ -970,5 +970,3 @@ class SikAdapter(QThread):
             except Exception:
                 pass
 
-
-# ponytail: chua co send() — nut do va ARM la Phase N3, them vao day khi toi do.

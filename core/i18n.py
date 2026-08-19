@@ -121,6 +121,14 @@ STR = {
     "mode.REPLAY": ("phát lại — mọi nút điều khiển bị khoá",
                     "replay — every control is locked"),
 
+    "close.banner": ("⚠  DRONE ĐANG ARM  ·  bấm đóng lần nữa trong {sec}s để thoát",
+                     "⚠  DRONE IS ARMED  ·  press close again within {sec}s to quit"),
+    "close.armed": (
+        "Đóng app lúc này là mất đường cứu sinh: không còn nút đỏ, không còn HUD. "
+        "Bấm đóng lần nữa trong {sec:.0f}s nếu thật sự muốn thoát.",
+        "Closing now costs you the lifeline: no red buttons, no HUD. Press close "
+        "again within {sec:.0f}s if you really mean it."),
+
     # --- panel ket noi ----------------------------------------------------
     "conn.title": ("Nguồn kết nối", "Connection source"),
     "conn.connect": ("Kết nối", "Connect"),
@@ -302,6 +310,7 @@ STR = {
     "tlm.PIN": ("PIN", "BAT"),
     "tlm.SAT": ("VỆ TINH", "SAT"),
     "tlm.MODE": ("MODE", "MODE"),
+    "tlm.BAY": ("GIỜ BAY", "AIRBORNE"),
     "tlm.batt_pct": ("Pin còn {pct}% — số này do FC báo (nó biết BATT_CAPACITY và số cell)",
                      "Battery {pct}% left — reported by the FC (it knows BATT_CAPACITY "
                      "and the cell count)"),
@@ -385,6 +394,7 @@ STR = {
     "map.wp": ("đường bay {n} điểm", "mission, {n} point(s)"),
     "map.wp_cut": (" (FC có {total}, chỉ tải {got})", " (FC has {total}, only {got} loaded)"),
     "map.wp_now": (" · tới #{seq}", " · heading to #{seq}"),
+    "map.home_dist": ("về nhà {m:.0f} m", "{m:.0f} m to home"),
     "map.draft": ("đang đặt {n} điểm @{alt:.0f}m — CHƯA NẠP",
                   "drafting {n} point(s) @{alt:.0f}m — NOT UPLOADED"),
 }

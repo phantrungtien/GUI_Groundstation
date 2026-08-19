@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QWidget
 from core.adapters.sik import WP_MAX
 
 TILE = 256
+from core.field import haversine_m
 from core.i18n import t
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -633,6 +634,20 @@ class MapWidget(QWidget):
             note += t("map.wp_now", seq=w["seq"])
         return note
 
+    def _home_note(self):
+        """Con bao nhieu met ve nha.
+
+        Muc F cua quy trinh bay bat can nhac RTL theo pin, nhung "RTL het bao lau"
+        thi phu thuoc dang o cach nha bao xa — ma truoc day con so do khong nam o
+        dau ca, chi co dau X tren ban do de uoc luong bang mat.
+
+        Doi lien voi dau X chu khong tach ra o rieng: hai thu noi ve cung mot diem,
+        thay so ma khong thay dau X thi khong biet no tinh tu dau.
+        """
+        if not (self.home and self.pos):
+            return ""
+        return t("map.home_dist", m=haversine_m(*self.pos, *self.home))
+
     def _draft_note(self):
         if not self.draft:
             return ""
@@ -722,7 +737,7 @@ class MapWidget(QWidget):
         fence = self._fence_note()
         if fence:
             note += f"  ·  {fence}"
-        for extra in (self._wp_note(), self._draft_note()):
+        for extra in (self._home_note(), self._wp_note(), self._draft_note()):
             if extra:
                 note += f"  ·  {extra}"
         if not self.follow:
