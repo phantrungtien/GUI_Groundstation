@@ -333,6 +333,10 @@ STR = {
     "tlm.fix5": ("RTK float — chính xác dưới mét, chưa khoá số nguyên.",
                  "RTK float — sub-metre, integers not yet fixed."),
     "tlm.fix6": ("RTK fixed — chính xác cỡ centimet.", "RTK fixed — centimetre-level."),
+    "tlm.few_sats": ("3D fix nhưng DƯỚI {n} vệ tinh — fix mỏng manh, dễ tụt.",
+                     "3D fix but FEWER than {n} satellites — a thin fix that can drop."),
+    "tlm.bad_hdop": ("HDOP ≥ {h:.0f} — vệ tinh đông nhưng xếp thành cụm, vị trí nhoè ra.",
+                     "HDOP ≥ {h:.0f} — plenty of satellites but clustered, so the fix is smeared."),
     "tlm.fix7": ("Vị trí cố định khai báo sẵn (static).", "Static, surveyed-in position."),
     "tlm.fix8": ("PPP — định vị điểm chính xác.", "PPP — precise point positioning."),
 
@@ -394,6 +398,13 @@ STR = {
     "map.wp": ("đường bay {n} điểm", "mission, {n} point(s)"),
     "map.wp_cut": (" (FC có {total}, chỉ tải {got})", " (FC has {total}, only {got} loaded)"),
     "map.wp_now": (" · tới #{seq}", " · heading to #{seq}"),
+    "map.no_home": ("⚠ CHƯA CÓ HOME — RTL không biết bay về đâu",
+                    "⚠ NO HOME YET — RTL has nowhere to go"),
+    "map.home_guess": ("⚠ HOME TẠM (điểm định vị đầu) — chưa nhận HOME_POSITION từ FC, "
+                       "RTL KHÔNG về đây",
+                       "⚠ PROVISIONAL HOME (first fix) — no HOME_POSITION from the FC yet, "
+                       "RTL will NOT come here"),
+    "map.fence_left": ("còn {m:.0f}m tới rào", "{m:.0f}m to the fence"),
     "map.home_dist": ("về nhà {m:.0f} m", "{m:.0f} m to home"),
     "map.draft": ("đang đặt {n} điểm @{alt:.0f}m — CHƯA NẠP",
                   "drafting {n} point(s) @{alt:.0f}m — NOT UPLOADED"),

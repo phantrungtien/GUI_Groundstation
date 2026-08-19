@@ -309,6 +309,7 @@ class MapWidget(QWidget):
         self.pos = None  # (lat, lon) hien tai
         self.heading = None  # do, 0 = bac. None = chua biet -> ve hinh tron
         self.home = None
+        self.home_from_fc = False  # True = HOME_POSITION that tu FC, khong phai doan
         self.fence = {}  # tham so FENCE_* + "items" (cac dinh da giac), xem set_fence
         self.wp = {}  # "items" (duong bay) + "seq"/"total", xem set_wp
         self.draft = []  # [(lat, lon, alt)] dang dat bang chuot, chua nap len FC
@@ -353,9 +354,18 @@ class MapWidget(QWidget):
             self.center = (lat, lon)
         self.update()
 
-    def set_home(self, lat, lon):
+    def set_home(self, lat, lon, from_fc=False):
+        """`from_fc` = da nhan HOME_POSITION that tu FC, khong phai doan.
+
+        Phai phan biet, vi hai cai nay ve ra CUNG MOT dau X: khi chua co
+        HOME_POSITION, tab Bay lay tam diem dinh vi dau tien lam home. Nguoi bay
+        nhin thay dau X va tin la home da dat — trong khi RTL se bay ve home THAT
+        cua FC, o cho khac. Mot dau X sai cho con te hon khong co dau X nao, va
+        do dung la thu muc D.6 bat kiem ("Home da dat, DUNG CHO DUNG").
+        """
         if lat is not None and lon is not None:
             self.home = (lat, lon)
+            self.home_from_fc = from_fc
             self.update()
 
     def set_fence(self, data):
@@ -568,6 +578,19 @@ class MapWidget(QWidget):
         n = sum(1 for s in fence_shapes(f.get("items") or []) if s[0] == "poly")
         if n:
             bits.append(t("map.fence_poly", n=n))
+        # Muc F: "Khoang cach toi hang rao — sat thi keo ve". Ban do VE duoc vong
+        # rao nhung truoc day khong DO no, nen cai nguong duy nhat trong quy trinh
+        # chi uoc luong duoc bang mat.
+        #
+        # Chi tinh cho rao TRON: tam la home, ban kinh la FENCE_RADIUS, mot phep
+        # tru. Rao da giac thi khoang cach toi canh gan nhat la viec khac, chua
+        # lam — va noi ro o day chu khong lang le bo qua.
+        # `home_from_fc` la dieu kien bat buoc: tam vong rao cua ArduCopter la home
+        # THAT cua FC. Do tu mot home doan ra thi con so met kia la bia.
+        r = f.get("FENCE_RADIUS")
+        if r and self.pos and self.home and self.home_from_fc:
+            con = r - haversine_m(*self.pos, *self.home)
+            bits.append(t("map.fence_left", m=con))
         return t("map.fence", bits=" ".join(bits)) if bits else t("map.fence_on")
 
     def _draw_wp(self, p, cx, cy):
@@ -650,8 +673,14 @@ class MapWidget(QWidget):
         Doi lien voi dau X chu khong tach ra o rieng: hai thu noi ve cung mot diem,
         thay so ma khong thay dau X thi khong biet no tinh tu dau.
         """
-        if not (self.home and self.pos):
-            return ""
+        if not self.pos:
+            return ""       # chua ket noi thi khong co gi de noi, dung keu suong
+        # Muc D.6: "Home da dat, DUNG CHO DUNG". Ca hai truong hop duoi day truoc
+        # day deu im lang — mot cai khong ve gi, mot cai ve dau X y het home that.
+        if not self.home:
+            return t("map.no_home")
+        if not self.home_from_fc:
+            return t("map.home_guess")
         return t("map.home_dist", m=haversine_m(*self.pos, *self.home))
 
     def _draft_note(self):

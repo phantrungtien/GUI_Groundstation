@@ -84,9 +84,9 @@ Không đủ bảy thì **không cất cánh**. Thứ tự này là thứ tự h
 | 1 | Dải trạng thái link | **SiK xanh.** Đây là đường nút đỏ. SiK xám = hết bay hôm nay |
 | 2 | Tab Trạng thái | Số liệu **đang nhảy**, không đứng hình |
 | 3 | Tab Bay | Chấm drone **đúng chỗ trên bản đồ**, không ở giữa biển |
-| 4 | Tab Trạng thái, lọc `GPS` | Fix ≥ 3D, số vệ tinh ≥ 8, HDOP < 2 |
+| 4 | Tab Bay, ô **VỆ TINH** | Không vàng, không đỏ. Ô này gộp cả ba: Fix ≥ 3D, số vệ tinh ≥ 8, HDOP < 2 — rê chuột lên để biết cái nào trượt |
 | 5 | Dải chữ dưới bản đồ | Geofence đã tải: bán kính + trần + đa giác. Chữ nói "chỉ có MAVLink1" nghĩa là mất phần đa giác |
-| 6 | Tab Bay | **Home đã đặt, đúng chỗ đứng.** RTL bay về đây, không về chỗ bạn nghĩ |
+| 6 | Dải chữ dưới bản đồ | **`về nhà N m`**, không phải `⚠ HOME TẠM`. Home tạm là điểm định vị đầu tiên, vẽ ra dấu X y hệt home thật — nhưng RTL bay về home của FC, không về đó |
 | 7 | Tab Thông báo | Không có STATUSTEXT đỏ tồn đọng |
 
 **Nửa ROS2 xám thì vẫn bay được** — mất vision/SLAM/task, còn bay và còn nút đỏ.
@@ -122,8 +122,8 @@ mình đang bay không có nó.
 | Pin | < 20% | **RTL ngay**, không thương lượng |
 | Dải link SiK | Chớp/xám | Xem kịch bản #3 |
 | Cảnh báo divergence | Hai nguồn lệch > 5 m | Tin SiK. Nửa ROS2 đang nói sai vị trí |
-| Khoảng cách tới hàng rào | Sát | Kéo về, đừng để FC tự xử |
-| Tab Thông báo | STATUSTEXT đỏ | Đọc to lên, quyết định trong 5 giây |
+| `còn N m tới rào` ở dải chữ dưới bản đồ | Sát | Kéo về, đừng để FC tự xử. Chỉ có số này khi rào tròn và đã có home thật |
+| Số trên tên tab Thông báo | `Thông báo (N)` | Mở ra đọc to lên, quyết định trong 5 giây |
 
 **Nút đỏ RTL / LAND / DISARM** đi thẳng qua SiK — không qua companion, không qua
 nhánh nào khác. Chỉ bị khoá ở chế độ REPLAY.

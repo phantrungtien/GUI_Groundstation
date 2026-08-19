@@ -1806,16 +1806,24 @@ def check_telemetry_warn(app):
     OK, WARN, CRIT = (tb.LEVEL_COLOR[k] for k in (None, "warn", "crit"))
 
     # --- ham nguong, kiem thang ---
+    proc = (Path(__file__).resolve().parent.parent
+            / "docs" / "operating_procedure.md").read_text(encoding="utf-8")
+
     assert tb.batt_level(None) is None, "FC khong bao phan tram thi KHONG duoc doan"
     assert [tb.batt_level(p) for p in (100, 31, 30, 21, 20, 0)] == \
         [None, None, "warn", "warn", "crit", "crit"], [tb.batt_level(p) for p in (100, 30, 20)]
-    # Nguong phai khop bang o muc F cua quy trinh bay, khong duoc troi tu do.
-    proc = (Path(__file__).resolve().parent.parent
-            / "docs" / "operating_procedure.md").read_text(encoding="utf-8")
+    # Nguong phai khop bang o muc D va F cua quy trinh bay, khong duoc troi tu do.
     assert f"| Pin | < {tb.BATT_WARN_PCT}% |" in proc, "nguong vang lech voi quy trinh bay"
     assert f"| Pin | < {tb.BATT_CRIT_PCT}% |" in proc, "nguong do lech voi quy trinh bay"
-    assert tb.gps_level(None) is None
-    assert [tb.gps_level(f) for f in (0, 1, 2, 3, 6)] == ["crit", "crit", "warn", None, None]
+    assert tb.gps_level(None)[0] is None
+    assert [tb.gps_level(f)[0] for f in (0, 1, 2, 3, 6)] == ["crit", "crit", "warn", None, None]
+    # Ba dieu kien cua muc D.4, khong cai nao thay duoc cai nao: 3D fix voi 5 ve
+    # tinh, hay 12 ve tinh voi HDOP 2,5, deu phai vang.
+    assert tb.gps_level(3, 12, 0.8)[0] is None
+    assert tb.gps_level(3, 5, 0.8)[0] == "warn", "3D fix nhung it ve tinh ma khong keu"
+    assert tb.gps_level(3, 12, 2.5)[0] == "warn", "HDOP cao ma khong keu"
+    assert f"số vệ tinh ≥ {tb.GPS_MIN_SATS}" in proc, "nguong ve tinh lech voi quy trinh bay"
+    assert f"HDOP < {tb.GPS_MAX_HDOP:.0f}" in proc, "nguong HDOP lech voi quy trinh bay"
 
     was = i18n.lang()
     try:
@@ -2033,6 +2041,83 @@ def check_drone_marker(app):
           "(chua biet huong thi ve hinh tron)")
 
 
+def check_preflight_reads(app):
+    """Bay thu muc D bat doc truoc cat canh — ba thu truoc day khong doc duoc tai cho.
+
+    D.4 GPS: phai sang tab Trang thai loc "GPS" va doc ba hang, dung luc sap cat
+             canh. Gio ba dieu kien do vao mot o.
+    D.6 HOME: home CHUA dat truoc day chi the hien bang viec KHONG co dau X — tin
+             hieu am, ma tin hieu am thi mat khong bat duoc.
+    D.7 Canh bao: phai chuyen tab moi thay co STATUSTEXT do ton dong hay khong.
+    """
+    from core import i18n
+    from core.field import REGISTRY
+    from laptop.app import MainWindow
+    from laptop.tabs.flight import FlightTab
+
+    was = i18n.lang()
+    try:
+        i18n.set_lang("vi")
+
+        # --- D.6 + muc F: dai chu duoi ban do ---
+        ft = FlightTab()
+        ft.resize(600, 400)
+        home = (10.8221589, 106.6868454)
+        assert ft.map._home_note() == "", "chua ket noi ma da keu suong"
+
+        REGISTRY.feed({"src": "sik", "topic": "position",
+                       "data": {"lat": home[0] + 0.0005, "lon": home[1], "alt_rel": 20.0},
+                       "ts": time.time()})
+        ft.refresh()
+        # Chua co HOME_POSITION: tab Bay lay diem dinh vi dau lam home tam, va ve
+        # ra dau X y het home that. Phai noi ro do la home TAM, khong duoc de
+        # nguoi bay nhin dau X roi tin la RTL se ve day.
+        assert ft.map.home is not None and ft.map.home_from_fc is False
+        assert "HOME TẠM" in ft.map._home_note(), ft.map._home_note()
+
+        # Rao lay tam la home THAT cua FC -> home con la doan thi khong duoc bia
+        # ra so met toi rao.
+        bus.emit("sik", "fence", {"FENCE_ENABLE": 1.0, "FENCE_TYPE": 2.0,
+                                  "FENCE_RADIUS": 150.0})
+        assert "tới rào" not in ft.map._fence_note(), ft.map._fence_note()
+
+        bus.emit("sik", "home", {"lat": home[0], "lon": home[1], "alt_msl": 10.1})
+        assert ft.map.home_from_fc is True
+        assert "về nhà 56 m" == ft.map._home_note(), ft.map._home_note()
+        # Muc F: 0,0005 do vi do = 55,7 m tu home, rao ban kinh 150 m -> con ~94 m.
+        assert "còn 94m tới rào" in ft.map._fence_note(), ft.map._fence_note()
+
+        # --- D.7: so canh bao chua doc gan len ten tab ---
+        win = MainWindow([{"name": "SITL", "mode": "SIM", "conn": "udp:127.0.0.1:14551"}])
+        try:
+            tabs = win.ui.tabWidget
+            i = tabs.indexOf(win.ui.Messages)
+            assert tabs.tabText(i) == "Thông báo", tabs.tabText(i)
+
+            # Tab dang mo la Bay, nen canh bao roi vao tab Thong bao dang an.
+            for sev in (2, 4, 6):  # CRITICAL, WARNING, INFO — chi hai cai dau tinh
+                bus.emit("sik", "text", {"severity": sev, "text": b"PreArm: Compass"})
+            assert tabs.tabText(i) == "Thông báo  (2)", tabs.tabText(i)
+
+            # Doi ngon ngu khong duoc nuot mat con so
+            i18n.set_lang("en")
+            assert tabs.tabText(i) == "Messages  (2)", tabs.tabText(i)
+            i18n.set_lang("vi")
+
+            # Mo tab ra = da doc
+            tabs.setCurrentWidget(win.ui.Messages)
+            assert tabs.tabText(i) == "Thông báo", tabs.tabText(i)
+            # Dang mo tab thi canh bao moi khong duoc dem nua
+            bus.emit("sik", "text", {"severity": 3, "text": b"EKF variance"})
+            assert tabs.tabText(i) == "Thông báo", tabs.tabText(i)
+        finally:
+            win.close()
+    finally:
+        i18n.set_lang(was)
+    print("  ok  muc D doc tai cho: GPS ba dieu kien mot o, CHUA CO HOME noi thanh "
+          "loi, so canh bao chua doc tren ten tab; kem so met toi rao")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -2072,4 +2157,5 @@ if __name__ == "__main__":
     check_close_guard(app)
     check_home_note(app)
     check_drone_marker(app)
+    check_preflight_reads(app)
     print("selfcheck: PASS")

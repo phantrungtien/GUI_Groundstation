@@ -5,7 +5,7 @@ Day thuong la cho duy nhat FC noi ro no tu choi lenh vi ly do gi ("PreArm: ...")
 
 import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
@@ -37,9 +37,19 @@ MAX_ROWS = 2000
 FILTERS = [("msg.f_all", 7), ("msg.f_notice", 5), ("msg.f_warn", 4), ("msg.f_err", 3)]
 
 
+# Tu muc nay tro len (so CANG NHO cang nang) thi tinh la canh bao chua doc.
+# 4 = WARNING; PreArm cua FC ve o muc nay.
+WARN_SEV = 4
+
+
 class MessagesTab(QWidget):
+    #: So canh bao den trong luc tab nay khong hien. app.py gan len ten tab.
+    unread = Signal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._unread = 0
+        self._current = False
 
         self.filter = QComboBox()
         self.filter.addItems([""] * len(FILTERS))
@@ -97,6 +107,13 @@ class MessagesTab(QWidget):
         if not text:
             return
 
+        # Muc D.7 bat doc "khong co STATUSTEXT do ton dong" — nhung phai CHUYEN
+        # TAB moi thay. Dem len ten tab de biet co gi phai doc ma khong phai roi
+        # man hinh bay di kiem tra.
+        if sev <= WARN_SEV and not self._current:
+            self._unread += 1
+            self.unread.emit(self._unread)
+
         stamp = time.strftime("%H:%M:%S", time.localtime(env["ts"]))
         item = QListWidgetItem(f"{stamp}  [{SEVERITY.get(sev, sev)}]  {text}")
         item.setForeground(QColor(SEV_COLOR.get(sev, "#dcdcdc")))
@@ -119,6 +136,18 @@ class MessagesTab(QWidget):
         for i in range(self.list.count()):
             item = self.list.item(i)
             item.setHidden(item.data(Qt.UserRole) > t)
+
+    def set_current(self, on):
+        """app.py goi khi doi tab. Mo tab nay ra = da doc, xoa dem.
+
+        Khong dung isVisible(): no chi dung khi cua so DA duoc show(), nen bai
+        kiem se phai bat mot cua so that len man hinh nguoi dung giua luc chay
+        selfcheck. Mot co tuong minh thi kiem duoc ma khong cuop focus cua ai.
+        """
+        self._current = on
+        if on and self._unread:
+            self._unread = 0
+            self.unread.emit(0)
 
     def _clear(self):
         self.list.clear()

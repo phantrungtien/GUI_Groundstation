@@ -92,6 +92,11 @@ class MainWindow(QMainWindow):
         mount(self.ui.Messages, self.messages_tab)
         mount(self.ui.Control, self.control_tab)
         mount(self.ui.Flight, self.flight_tab)
+        self._unread = 0
+        self.messages_tab.unread.connect(self._show_unread)
+        self.ui.tabWidget.currentChanged.connect(
+            lambda: self.messages_tab.set_current(
+                self.ui.tabWidget.currentWidget() is self.ui.Messages))
         self.control_tab.log.connect(self._on_cmd_log)
         # Nap duong bay cung la lenh xuong FC — vao chung mot duong log voi
         # ARM/TAKEOFF, khong lam duong rieng.
@@ -150,8 +155,16 @@ class MainWindow(QMainWindow):
                        (self.ui.Control, "tab.control"), (self.ui.Messages, "tab.messages"),
                        (self.camera_tab, "tab.camera"), (self.settings_tab, "tab.settings")):
             tabs.setTabText(tabs.indexOf(w), t(key))
+        self._show_unread(self._unread)  # doi ngon ngu khong duoc nuot mat con so
         self.conn_dock.setWindowTitle(t("dock.conn"))
         self.faults_dock.setWindowTitle(t("dock.faults"))
+
+    def _show_unread(self, n):
+        """So canh bao chua doc, gan sau ten tab Thong bao."""
+        self._unread = n
+        tabs = self.ui.tabWidget
+        i = tabs.indexOf(self.ui.Messages)
+        tabs.setTabText(i, t("tab.messages") + (f"  ({n})" if n else ""))
 
     def _on_cmd_log(self, text, sev=5):
         """Ket qua moi lan bam nut: thanh trang thai + tab Thong bao + file.

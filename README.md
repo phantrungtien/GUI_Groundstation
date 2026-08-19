@@ -165,10 +165,37 @@ phần trăm của nó mới là con số có nghĩa (ba chuyến đó FC báo 9
 FC **không** báo phần trăm (`BATT_CAPACITY` chưa đặt) thì ô này **không có ngưỡng**
 và tooltip nói thẳng ra như vậy, chứ không bịa một ngưỡng rồi để người bay tin.
 
-**VỆ TINH đổi màu theo `fix_type`, không theo số vệ tinh.** Đo thật trên bàn:
-`fix_type=1, sats=0` — đếm vệ tinh một mình thì ô đó hiện số `0` trắng tinh như
-mọi số khác. Dưới 2D fix là đỏ, đúng 2D fix (không có độ cao GPS) là vàng. Rê
-chuột lên ô để biết fix loại nào.
+**VỆ TINH gộp cả ba điều kiện của mục D.4** — `fix ≥ 3D`, `vệ tinh ≥ 8`,
+`HDOP < 2` — vào một ô. Trước đây phải sang tab Trạng thái, lọc `GPS`, đọc ba
+hàng, đúng lúc sắp cất cánh. Ba cái đều cần, không cái nào thay được cái nào:
+`fix_type=3` với 5 vệ tinh là fix mỏng manh, còn HDOP cao là vệ tinh đông nhưng
+xếp thành cụm nên vị trí nhoè ra. Đo thật trên bàn: `fix_type=1, sats=0` — đếm
+vệ tinh một mình thì ô đó hiện số `0` trắng tinh như mọi số khác.
+
+Rê chuột lên ô để biết **điều kiện nào trượt**, không chỉ biết là nó vàng.
+
+### Dấu X home có thể là home GIẢ — dải chữ nói rõ
+
+Khi chưa nhận `HOME_POSITION` từ FC, tab Bay lấy **điểm định vị đầu tiên** làm
+home tạm (`flight.py:139`). Nó vẽ ra dấu X **y hệt** home thật, nên người bay
+nhìn thấy X và tin là home đã đặt — trong khi RTL sẽ bay về home thật của FC, ở
+chỗ khác. Một dấu X sai chỗ còn tệ hơn không có dấu X nào, và đó đúng là thứ mục
+D.6 bắt kiểm (*"Home đã đặt, **đúng chỗ đứng**"*).
+
+Dải chữ giờ nói thẳng: `⚠ HOME TẠM (điểm định vị đầu) — chưa nhận HOME_POSITION
+từ FC, RTL KHÔNG về đây`. Có `HOME_POSITION` rồi thì đổi thành `về nhà 56 m`.
+
+**Số mét tới rào** (mục F: *"sát thì kéo về"*) chỉ hiện khi home là home **thật**:
+tâm vòng rào của ArduCopter là home của FC, đo từ một home đoán ra thì con số đó
+là bịa. Chỉ tính cho rào **tròn**; rào đa giác thì khoảng cách tới cạnh gần nhất
+là việc khác, chưa làm.
+
+### Tab Thông báo mang số cảnh báo chưa đọc
+
+Mục D.7 bắt đọc *"không có STATUSTEXT đỏ tồn đọng"* — nhưng phải chuyển tab mới
+thấy. Tên tab giờ thành `Thông báo  (2)` khi có cảnh báo từ mức `WARNING` trở
+lên đến trong lúc tab đó không mở. Mở tab ra là xoá đếm. Số này sống qua cả lần
+đổi ngôn ngữ (`Messages  (2)`).
 
 **GIỜ BAY** đếm từ lúc `armed` lật lên `True` — mốc lấy ở đó chứ không phải lúc
 bấm nút, vì lệnh ARM có thể bị FC từ chối. Cùng với phần trăm pin, đây là vế thứ
@@ -277,7 +304,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 35 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 36 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -462,7 +489,7 @@ laptop/
   widgets/       # map, compass, attitude, telemetry_bar
 
 tools/
-  selfcheck.py     # 35 check, khong can SITL
+  selfcheck.py     # 36 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that

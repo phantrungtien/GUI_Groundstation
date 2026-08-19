@@ -19,7 +19,8 @@ from core.i18n import t
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
 from laptop.widgets.map_widget import MapWidget
-from laptop.widgets.telemetry_bar import TelemetryBar, batt_level, gps_level
+from laptop.widgets.telemetry_bar import (GPS_MAX_HDOP, GPS_MIN_SATS,
+                                          TelemetryBar, batt_level, gps_level)
 from laptop.widgets.video import VideoView
 
 MARGIN = 12
@@ -103,7 +104,8 @@ class FlightTab(QWidget):
         # Home, rao va duong bay khong phai dai luong lien tuc, chung ve mot lan
         # roi thoi — nen doc thang tu bus, khong qua REGISTRY (o do qua 2 giay la
         # het tuoi, ma duong bay thi dung yen suot ca chuyen).
-        bus.on("home", lambda e: self.map.set_home(e["data"]["lat"], e["data"]["lon"]))
+        bus.on("home", lambda e: self.map.set_home(e["data"]["lat"], e["data"]["lon"],
+                                                   from_fc=True))
         bus.on("fence", lambda e: self.map.set_fence(e["data"]))
         bus.on("wp", self._on_wp)
 
@@ -187,11 +189,13 @@ class FlightTab(QWidget):
             "PIN", volt, vsrc, "{:.2f}", level=batt_level(pct),
             tip=t("tlm.batt_pct", pct=pct) if pct is not None else t("tlm.batt_nopct"))
 
-        # --- SAT: mau lay tu fix_type, chu khong tu so ve tinh -----------
+        # --- SAT: ba dieu kien cua muc D.4, khong chi so ve tinh ---------
         fix, _ = REGISTRY.best("gps.fix_type")
+        hdop, _ = REGISTRY.best("gps.hdop")
+        level, why = gps_level(fix, sats, hdop)
         self.telemetry.set_cell(
-            "SAT", sats, gsrc, "{:.0f}", level=gps_level(fix),
-            tip=t(f"tlm.fix{int(fix)}") if fix is not None else t("tlm.fix_none"))
+            "SAT", sats, gsrc, "{:.0f}", level=level,
+            tip=t(why, n=GPS_MIN_SATS, h=GPS_MAX_HDOP) if why else t("tlm.fix_none"))
         # Gia tri dai ra thi bar phai rong ra theo, khong duoc cat chu.
         if self.telemetry.sizeHint() != self.telemetry.size():
             self._place_telemetry()
