@@ -1800,9 +1800,16 @@ def check_param_doc(app):
     ghep = [f"ATC_RAT_{ax}_{g}" for ax in param_doc.AXIS for g in param_doc.GAIN]
     ghep += [f"ATC_ANG_{ax}_P" for ax in param_doc.AXIS]
     ghep += [f"PSC_{grp}_{g}" for grp in param_doc.PSC_GROUP for g in ("P", "I", "D")]
-    thieu = [p for p in ghep + list(param_doc.EXPLICIT) if not param_doc.doc(p)]
-    assert not thieu, f"tham so khong co giai thich: {thieu}"
-    n_doc = len(set(ghep) | set(param_doc.EXPLICIT))
+    ten = ghep + list(param_doc.EXPLICIT)
+    was0 = i18n.lang()
+    try:
+        for lang in ("vi", "en"):
+            i18n.set_lang(lang)
+            thieu = [p for p in ten if not param_doc.doc(p)]
+            assert not thieu, f"tham so khong co giai thich ({lang}): {thieu}"
+    finally:
+        i18n.set_lang(was0)
+    n_doc = len(set(ten))
     # Field thuong KHONG duoc bia ra mo ta — thieu thi im lang, dung doan bua.
     assert param_doc.doc("ATTITUDE.roll") == "" and param_doc.doc("FOO_BAR") == ""
 
