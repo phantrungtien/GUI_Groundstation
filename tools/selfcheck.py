@@ -1789,13 +1789,20 @@ def check_param_doc(app):
 
     Ho ATC_*/PSC_* duoc GHEP tu hai bang manh chu khong viet tay tung cai, nen cho
     hong khong phai la go nham chu ma la mot ten khong lot vao khuon nao va im
-    lang khong co mo ta. Doi chieu ca 63 cai o day thi khong the im lang duoc.
+    lang khong co mo ta. Dung sinh lai dung cai khuon do roi doi chieu tung cai.
+
+    Danh sach ten KHONG con lay tu tab Trang thai: tu 23/08/2026 tab keo thang
+    bang tham so tu FC, nen khong con danh sach ten nao trong code de doi chieu.
     """
     from core import i18n, param_doc
-    from laptop.tabs.status import PID_PARAMS, StatusTab
+    from laptop.tabs.status import StatusTab
 
-    thieu = [p for p in PID_PARAMS if not param_doc.doc(p)]
+    ghep = [f"ATC_RAT_{ax}_{g}" for ax in param_doc.AXIS for g in param_doc.GAIN]
+    ghep += [f"ATC_ANG_{ax}_P" for ax in param_doc.AXIS]
+    ghep += [f"PSC_{grp}_{g}" for grp in param_doc.PSC_GROUP for g in ("P", "I", "D")]
+    thieu = [p for p in ghep + list(param_doc.EXPLICIT) if not param_doc.doc(p)]
     assert not thieu, f"tham so khong co giai thich: {thieu}"
+    n_doc = len(set(ghep) | set(param_doc.EXPLICIT))
     # Field thuong KHONG duoc bia ra mo ta — thieu thi im lang, dung doan bua.
     assert param_doc.doc("ATTITUDE.roll") == "" and param_doc.doc("FOO_BAR") == ""
 
@@ -1820,8 +1827,8 @@ def check_param_doc(app):
         assert "roll axis" in tip_en and "P gain" in tip_en, tip_en
     finally:
         i18n.set_lang(was)
-    print(f"  ok  giai thich tham so: {len(PID_PARAMS)}/{len(PID_PARAMS)} co mo ta, "
-          "vao tooltip cua hang PARAM.*, doi theo ngon ngu")
+    print(f"  ok  giai thich tham so: {n_doc} ten co mo ta (ghep tu khuon + bang "
+          "viet tay), vao tooltip cua hang PARAM.*, doi theo ngon ngu")
 
 
 def check_telemetry_warn(app):
@@ -2293,6 +2300,62 @@ def _make_tlog():
     return path
 
 
+def check_mavlink2_upgrade(app):
+    """Thay khung MAVLink2 dau tien thi chieu GUI phai nang len v2.
+
+    Do that 23/08/2026 tren MicoAir743 qua USB: pymavlink giu nguyen "1.0" sau
+    292 goi v2 lien tiep vi `auto_mavlink_version()` chi soi khi mieng byte doc
+    duoc bat dau bang byte mo dau — cam vao giua luong thi khong bao gio dung luc.
+    Hau qua: `mission_type` (truong mo rong cua v2) ném TypeError, va app do loi
+    cho FC — "dang o MAVLink1" — trong khi 496/496 khung deu la 0xFD.
+    """
+    from pymavlink import mavutil
+
+    from core.adapters.sik import _upgrade_v2
+
+    class FakeMsg:
+        def __init__(self, magic):
+            self._buf = bytes([magic]) + b"\x00" * 9
+
+        def get_msgbuf(self):
+            return self._buf
+
+    class FakeMaster:
+        def __init__(self):
+            self.WIRE_PROTOCOL_VERSION = "1.0"
+            self.calls = []
+
+        def auto_mavlink_version(self, buf):
+            self.calls.append(buf[0])
+            self.WIRE_PROTOCOL_VERSION = "2.0"
+
+    m = FakeMaster()
+    _upgrade_v2(m, FakeMsg(0xFE))  # khung v1: KHONG duoc nang, FC co the chi doc v1
+    assert m.WIRE_PROTOCOL_VERSION == "1.0" and not m.calls, m.calls
+    _upgrade_v2(m, FakeMsg(0xFD))
+    assert m.WIRE_PROTOCOL_VERSION == "2.0" and m.calls == [0xFD], m.calls
+    _upgrade_v2(m, FakeMsg(0xFD))  # da v2 roi thi thoi, khong dung lai moi goi
+    assert m.calls == [0xFD], m.calls
+
+    # Va tren mot ket noi pymavlink THAT: sau khi nang, `mission_type` phai goi
+    # duoc. Day moi la thu ma tab Bay can de doc rao da giac.
+    real = mavutil.mavlink_connection("udp:127.0.0.1:15999", source_system=254)
+    try:
+        if real.WIRE_PROTOCOL_VERSION != "2.0":
+            try:
+                real.mav.mission_request_list_send(1, 1, mission_type=1)
+                raise AssertionError("v1 ma da goi duoc mission_type — bai test sai cho")
+            except TypeError:
+                pass
+        _upgrade_v2(real, FakeMsg(0xFD))
+        assert real.WIRE_PROTOCOL_VERSION == "2.0", real.WIRE_PROTOCOL_VERSION
+        real.mav.mission_request_list_send(1, 1, mission_type=1)  # khong duoc ném
+    finally:
+        real.close()
+    print("  ok  nang MAVLink2 khi FC noi v2: goi duoc mission_type (doc rao da giac); "
+          "khung v1 thi giu nguyen v1")
+
+
 def check_analysis(app):
     """Tab Phan tich: doc .tlog ra chuoi thoi gian, ve do thi va quy dao 3D.
 
@@ -2466,5 +2529,6 @@ if __name__ == "__main__":
     check_drone_marker(app)
     check_preflight_reads(app)
     check_fence_follows_fc(app)
+    check_mavlink2_upgrade(app)
     check_analysis(app)
     print("selfcheck: PASS")

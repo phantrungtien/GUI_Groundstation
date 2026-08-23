@@ -48,6 +48,31 @@ ASK_EVERY = 3.0  # giay giua hai lan hoi lai cai con thieu (rao + duong bay)
 ASK_MAX = 8      # bo cuoc sau ~24s: firmware khong co rao thi hoi mai vo ich
 
 
+def _upgrade_v2(master, msg):
+    """Thay khung MAVLink2 dau tien thi nang ca chieu GUI len v2.
+
+    pymavlink co san `auto_mavlink_version()`, nhung tren cong NOI TIEP no gan
+    nhu khong bao gio chay: no chi soi khi mieng byte doc duoc BAT DAU bang byte
+    mo dau, ma cam vao giua luong thi mieng dau roi vao giua goi. Do that tren
+    MicoAir743 qua USB 23/08/2026: nhan 292 goi v2 lien tuc ma
+    `WIRE_PROTOCOL_VERSION` van la "1.0".
+
+    Hau qua khong nam o chieu DOC (thu vien v1 van doc duoc khung v2) ma o chieu
+    GUI: `mission_request_list_send(..., mission_type=...)` la truong mo rong cua
+    v2, goi bang lop v1 thi ném TypeError -> app tuong FC bi ep MAVLink1 va bao
+    sai nhu vay, trong khi ca 496/496 khung deu la 0xFD.
+
+    Khong ep v2 ngay tu luc mo cong: FC dat SERIALn_PROTOCOL=1 that su chi doc
+    duoc v1, ep v2 la moi lenh gui di deu roi vao thung rac mot cach im lang.
+    Chi nang khi chinh FC da noi v2 truoc.
+    """
+    if master.WIRE_PROTOCOL_VERSION == "2.0":
+        return
+    buf = msg.get_msgbuf()
+    if buf and buf[0] == 253:  # 0xFD
+        master.auto_mavlink_version(buf)
+
+
 def from_autopilot(msg):
     """Goi nay co phai FC noi khong?
 
@@ -415,10 +440,19 @@ class SikAdapter(QThread):
             return  # dut link la dut ca hai chieu, lenh cung khong di duoc
 
         if action == "param_read":
-            # Hoi tung ten mot, khong PARAM_REQUEST_LIST: ca 1431 tham so qua SiK
-            # 57600 la vai chuc giay chiem het duong truyen — trong luc do HUD dung.
             for pname in args["names"]:
                 m.param_request_read_send(sysid, compid, pname.encode(), -1)
+        elif action == "param_all":
+            # Keo ca bang tham so thay vi hoi theo mot danh sach ten ghim cung.
+            # Ten tham so DOI theo firmware: ArduCopter 4.7-dev doi hang loat sang
+            # SI — WPNAV_SPEED -> WP_SPD, PSC_VELXY_* -> PSC_NE_VEL_*, RTL_ALT ->
+            # RTL_ALT_M. Do that 23/08/2026: 30/63 ten app hoi khong con ton tai,
+            # va FC im lang chu khong bao sai, nen giao dien trong nhu link hong.
+            #
+            # Gia: 1037 tham so mat 9,4 s qua USB, uoc ~20 s qua SiK 57600 va
+            # chiem gan het duong truyen trong luc do. Vi vay no la mot nut bam,
+            # khong phai viec tu dong lam luc ket noi.
+            m.param_request_list_send(sysid, compid)
         elif action in ("arm", "disarm"):
             m.command_long_send(
                 sysid, compid, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
@@ -832,6 +866,7 @@ class SikAdapter(QThread):
                 self._run_commands(master)
 
                 if msg is not None:
+                    _upgrade_v2(master, msg)
                     name = msg.get_type()
                     # UNKNOWN_*: msgid khong co trong dialect. Khung nhieu trung CRC
                     # ra kieu nay, va no la thu duy nhat lam mot duong truyen hong

@@ -280,14 +280,18 @@ STR = {
     "st.search": ("lọc theo tên field, vd: ATTITUDE hoặc volt",
                   "filter by field name, e.g. ATTITUDE or volt"),
     "st.freeze": ("Tạm dừng", "Freeze"),
-    "st.read_pid": ("Đọc {n} tham số PID", "Read {n} PID parameters"),
-    "st.reading": ("Đang đọc... còn {n}", "Reading... {n} left"),
-    "st.pid_tip": ("FC không tự gửi tham số — bấm để hỏi. Kết quả vào hàng PARAM.*; "
-                   "rê chuột lên một hàng để xem tham số đó là gì.",
-                   "The FC does not push parameters — press to ask. Results land in PARAM.* "
-                   "rows; hover a row to see what that parameter does."),
-    "st.pid_missing": ("{n} tham số không có trên firmware này: {names}",
-                       "{n} parameter(s) absent from this firmware: {names}"),
+    "st.read_param": ("Đọc tham số từ FC", "Read parameters from FC"),
+    "st.reading": ("Đang đọc... {n} tham số", "Reading... {n} parameters"),
+    "st.param_done": ("Đọc lại — lần trước về {n} tham số",
+                      "Read again — {n} parameters last time"),
+    "st.pid_tip": ("FC không tự gửi tham số — bấm để xin cả bảng. Kết quả vào hàng "
+                   "PARAM.*; rê chuột lên một hàng để xem tham số đó là gì.\n"
+                   "Khoảng 1000 tham số: qua USB mất ~10 giây, qua SiK 57600 mất "
+                   "~20 giây và chiếm gần hết đường truyền trong lúc đó.",
+                   "The FC does not push parameters — press to pull the whole table. "
+                   "Results land in PARAM.* rows; hover a row to see what it does.\n"
+                   "About 1000 parameters: ~10 s over USB, ~20 s over a 57600 SiK link, "
+                   "hogging the link while it runs."),
     "st.count": ("{n} field", "{n} field(s)"),
     # Trang thai cam bien, giai ma tu ba bitmask cua SYS_STATUS.
     "sensor.ok": ("TỐT", "OK"),

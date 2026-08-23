@@ -29,31 +29,13 @@ from laptop import theme
 
 STALE_COLOR = theme.MUTED
 
-# Tham so tinh chinh (PID). FC KHONG tu gui tham so — phai hoi tung cai. Hoi ca
-# 1431 cai thi chiem duong truyen vai chuc giay, nen chi hoi dung nhom nay.
-# Ten theo ArduCopter 4.x; firmware khac thi cai nao khong co se im lang bo qua.
-def _pid_names():
-    names = []
-    for axis in ("RLL", "PIT", "YAW"):
-        names += [f"ATC_RAT_{axis}_{k}" for k in
-                  ("P", "I", "D", "IMAX", "FLTT", "FLTE", "FLTD", "SMAX")]
-        names.append(f"ATC_ANG_{axis}_P")
-    for grp, keys in (
-        ("PSC_POSXY", ("P",)), ("PSC_POSZ", ("P",)),
-        ("PSC_VELXY", ("P", "I", "D", "IMAX", "FLTE", "FLTD")),
-        ("PSC_VELZ", ("P", "I", "D", "IMAX", "FLTE", "FLTD")),
-        ("PSC_ACCZ", ("P", "I", "D", "IMAX", "FLTT", "FLTE", "FLTD", "SMAX")),
-    ):
-        names += [f"{grp}_{k}" for k in keys]
-    names += ["MOT_THST_HOVER", "MOT_SPIN_ARM", "MOT_SPIN_MIN", "MOT_SPIN_MAX",
-              "INS_GYRO_FILTER", "INS_ACCEL_FILTER",
-              "WPNAV_SPEED", "WPNAV_SPEED_UP", "WPNAV_SPEED_DN", "WPNAV_ACCEL",
-              "LOIT_SPEED", "LOIT_ACC_MAX", "ANGLE_MAX", "PILOT_SPEED_UP"]
-    return names
-
-
-PID_PARAMS = _pid_names()
-
+# Bang tham so keo THANG tu FC (PARAM_REQUEST_LIST), khong con danh sach ten
+# ghim cung trong code: ten tham so doi theo firmware. ArduCopter 4.7-dev doi
+# hang loat sang don vi SI — WPNAV_SPEED -> WP_SPD, PSC_VELXY_* -> PSC_NE_VEL_*,
+# RTL_ALT -> RTL_ALT_M — va do that ngay 23/08/2026 tren MicoAir743 thi 30/63
+# ten cu khong con ton tai. FC khong bao sai voi ten la, no chi im lang, nen bang
+# ten cung tao ra dung kieu hong te nhat: giao dien trong ma khong noi vi sao.
+QUIET_TICKS = 10  # 10 nhip 400 ms khong them tham so nao -> coi nhu FC gui xong
 
 def fmt(key, v):
     """Chuoi hien trong cot Gia tri.
@@ -124,10 +106,9 @@ class StatusTab(QWidget):
         self._timer.timeout.connect(self._flush)
         self._timer.start(self.FLUSH_MS)
 
-        self._pid_ticks = 0
+        self._pid_n = self._pid_quiet = 0  # dem tham so da ve, va so nhip im lang
         self._pid_timer = QTimer(self)
         self._pid_timer.timeout.connect(self._pid_tick)
-        self._missing = []  # tham so firmware nay khong co, de dat lai tooltip
         i18n.on_change(self._retext)
 
     def _retext(self):
@@ -143,15 +124,10 @@ class StatusTab(QWidget):
         for key, ma in self._sensor.items():
             self.model.item(self._rows[key], 1).setText(fmt(key, ma))
         if self._pid_timer.isActive():
-            return  # dang doc: nhan tiep theo (200 ms nua) tu viet lai nut
-        self.btn_pid.setText(t("st.read_pid", n=len(PID_PARAMS)))
-        if self._missing:
-            self.btn_pid.setToolTip(t("st.pid_missing", n=len(self._missing),
-                                      names=self._fmt_missing()))
-
-    def _fmt_missing(self):
-        m = self._missing
-        return ", ".join(m[:6]) + ("..." if len(m) > 6 else "")
+            return  # dang doc: nhan tiep theo (400 ms nua) tu viet lai nut
+        self.btn_pid.setText(t("st.read_param"))
+        if self._pid_n:
+            self.btn_pid.setToolTip(t("st.param_done", n=self._pid_n))
 
     def attach(self, adapter):
         """app.py goi khi ket noi/ngat. REPLAY khong hoi duoc gi — nut phai xam."""
@@ -159,30 +135,28 @@ class StatusTab(QWidget):
         self.btn_pid.setEnabled(adapter is not None and adapter.mode != "REPLAY")
 
     def read_pid(self):
-        """Hoi theo nhip va tu xin lai cai chua ve.
+        """Xin FC gui ca bang tham so, roi dem cai ve duoc.
 
-        Ban het 63 yeu cau mot luot thi FC chi tra ve ~25: hang doi gui tham so cua
-        no co han, phan con lai roi im lang — va giao dien trong nhu da doc xong.
-        Moi nhip xin lai dung nhung cai con thieu, nen mat goi tu lanh.
+        Mot yeu cau duy nhat, khong xin lai tung cai: FC tu bom het danh sach.
+        Cai phai theo doi vi vay khong con la "con thieu ten nao" ma la "no con
+        gui nua khong" — het im lang QUIET_TICKS nhip thi coi nhu xong.
         """
         if not self.adapter:
             return
-        self._pid_ticks = 0
+        self._pid_n = self._pid_quiet = 0
         self.search.setText("PARAM.")  # loc san cho de nhin ket qua nho ve
+        self.adapter.send("param_all", {})
         self._pid_timer.start(400)
 
     def _pid_tick(self):
-        missing = [n for n in PID_PARAMS if f"PARAM.{n}" not in self._rows]
-        self._pid_ticks += 1
-        # Bo cuoc sau ~8s: ten nao khong co tren firmware nay thi FC khong bao gio
-        # tra loi, xin mai la treo vong lap.
-        if not missing or self._pid_ticks > 20 or not self.adapter:
+        n = sum(1 for k in self._rows if k.startswith("PARAM."))
+        self._pid_quiet = 0 if n > self._pid_n else self._pid_quiet + 1
+        self._pid_n = n
+        if self._pid_quiet >= QUIET_TICKS or not self.adapter:
             self._pid_timer.stop()
-            self._missing = missing
             self._retext()
             return
-        self.btn_pid.setText(t("st.reading", n=len(missing)))
-        self.adapter.send("param_read", {"names": missing[:8]})
+        self.btn_pid.setText(t("st.reading", n=n))
 
     def _on_status(self, env):
         """Chay o main thread (adapter da di qua Qt signal roi)."""
