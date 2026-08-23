@@ -428,6 +428,14 @@ STR = {
     "an.summary": ("{name} — {msgs} gói · {mins:.1f} phút · {fields} field · đọc mất {sec:.1f}s",
                    "{name} — {msgs} packets · {mins:.1f} min · {fields} fields · read in {sec:.1f}s"),
     "an.err": ("không đọc được log: {err}", "cannot read log: {err}"),
+    "an.empty": ("{name} — không có gói MAVLink nào đọc được: file rỗng, hỏng, "
+                 "hoặc không phải .tlog",
+                 "{name} — no readable MAVLink packet: the file is empty, corrupt, "
+                 "or not a .tlog"),
+    "an.empty_note": ("Log này không có gói nào đọc được.\n"
+                      "Chọn một file .tlog khác.",
+                      "No readable packet in this log.\n"
+                      "Pick another .tlog file."),
     "an.filter": ("lọc field, vd: BATTERY hoặc PARAM.ATC",
                   "filter fields, e.g. BATTERY or PARAM.ATC"),
     "an.pick_field": ("chọn một hoặc vài field bên trái để vẽ",

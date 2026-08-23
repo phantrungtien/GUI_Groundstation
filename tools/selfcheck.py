@@ -2326,6 +2326,7 @@ def check_analysis(app):
 
     empty = logdata.LogData("rong.tlog")
     empty.track = [(0.0, 0.0, 0.0, 1.0), (1.0, 0.0, 0.0, 2.0)]
+    empty.parsed = 200  # co goi, chi la khong bat duoc fix — khac han log rong
     assert not empty.has_fix, "toan diem (0,0) ma van bao co dinh vi"
     assert empty.local_track()[1] == [], "log khong fix ma van tra ra quy dao"
 
@@ -2390,14 +2391,38 @@ def check_analysis(app):
 
     assert tab.traj.grab().toImage().width() > 10, "widget quy dao khong ve ra gi"
 
+    # Bo loc KHONG duoc lam mat cai dang ve: go vao o loc de tim them mot field
+    # thi nhung field da chon bi an di, ma an di khong co nghia la bo chon.
+    tab.filter.setText("khong-co-field-nao-ten-nhu-vay")
+    app.processEvents()
+    assert tab.fields.count() == 0, "bo loc rac ma van con field"
+    assert len(tab.chart.series()) == 1, "loc mot cai la mat luon duong dang ve"
+    tab.filter.setText("")
+    app.processEvents()
+    assert len(tab.chart.series()) == 1, "xoa bo loc xong do thi khong ve lai"
+
     # Log khong fix: phai NOI RA chu khong ve mot duong thang dung.
     tab._loaded(empty)
     app.processEvents()
     assert tab.traj._e == [] and tab.traj._note, "log khong fix ma van ve quy dao"
+    assert "GPS" in tab.traj._note, f"log co goi ma bao nham la log rong: {tab.traj._note}"
+
+    # File khong phai .tlog: pymavlink khong nem loi, no doc ra 0 goi. Man hinh
+    # phai noi thang la khong doc duoc gi, khong duoc hien "0 goi · 0 field" nhu
+    # the vua doc thanh cong mot log rong ruot.
+    nothing = logdata.LogData("rac.tlog")
+    tab._loaded(nothing)
+    app.processEvents()
+    assert tab.fields.count() == 0 and not tab.chart.series()
+    assert "0" not in tab.summary.text().split("—")[-1], (
+        f"file rac bi bao nhu doc thanh cong: {tab.summary.text()}")
+    assert tab.traj._note and "GPS" not in tab.traj._note, (
+        f"file rac ma do loi cho GPS: {tab.traj._note}")
 
     tab.close()
     print(f"  ok  tab Phan tich: {len(with_fix.fields)} field tu .tlog, PARAM tach theo "
-          "ten, diem lat=lon=0 bi loc, log khong fix thi noi ra chu khong ve bua")
+          "ten, diem lat=lon=0 bi loc, bo loc khong lam mat duong dang ve, log "
+          "khong fix va file khong doc duoc noi ra hai cau khac nhau")
 
 
 if __name__ == "__main__":

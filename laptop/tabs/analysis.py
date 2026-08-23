@@ -66,6 +66,10 @@ class AnalysisTab(QWidget):
         super().__init__(parent)
         self.log = None
         self._loader = None
+        # Ten field dang ve. Giu rieng chu khong hoi QListWidget: go vao o loc la
+        # nhung muc dang chon bi an di, ma hoi danh sach thi cai an = cai khong
+        # chon, do thi trang bang trong luc nguoi dung chi dinh tim them mot field.
+        self._picked = []
 
         # --- hang chon file ---
         self.picker = QComboBox()
@@ -91,7 +95,7 @@ class AnalysisTab(QWidget):
         self.norm.toggled.connect(self._replot)
         self.fields = QListWidget()
         self.fields.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.fields.itemSelectionChanged.connect(self._replot)
+        self.fields.itemSelectionChanged.connect(self._on_pick)
 
         left = QVBoxLayout()
         left.setContentsMargins(0, 0, 0, 0)
@@ -170,6 +174,9 @@ class AnalysisTab(QWidget):
 
     def _show_summary(self):
         d = self.log
+        if not d.parsed:
+            self.summary.setText(t("an.empty", name=Path(d.path).name))
+            return
         self.summary.setText(t(
             "an.summary", name=Path(d.path).name, msgs=d.parsed,
             mins=d.duration / 60.0, fields=len(d.fields), sec=d.load_seconds))
@@ -224,6 +231,10 @@ class AnalysisTab(QWidget):
     def _loaded(self, log):
         self.btn_load.setEnabled(True)
         self.log = log
+        self._picked = []  # log khac thi ten field cung khac, giu lai la vo nghia
+        # pymavlink KHONG nem loi khi file khong phai .tlog — no chi khong doc ra
+        # goi nao. Khong noi ro thi man hinh giong het mot log doc thanh cong ma
+        # ben trong rong, va nguoi dung ngoi doi mot do thi khong bao gio hien.
         self._show_summary()
         self._refilter()
         self._show_track()
@@ -231,6 +242,9 @@ class AnalysisTab(QWidget):
     # ------------------------------------------------------------------ ve
 
     def _show_track(self):
+        if not self.log.parsed:
+            self.traj.set_track([], [], [], note=t("an.empty_note"))
+            return
         _, e, n, u = self.log.local_track()
         if len(e) < 2:
             # Khong bia mot duong thang dung roi de nguoi doc tuong la quy dao:
@@ -239,11 +253,23 @@ class AnalysisTab(QWidget):
         else:
             self.traj.set_track(e, n, u)
 
+    def _on_pick(self):
+        """Nguoi dung doi lua chon: cap nhat danh sach dang ve.
+
+        Chi dung nhung muc DANG HIEN de sua — field dang chon ma bo loc giau di
+        thi van giu nguyen, khong coi la vua bo chon.
+        """
+        shown = {self.fields.item(r).text() for r in range(self.fields.count())}
+        chosen = {i.text() for i in self.fields.selectedItems()}
+        self._picked = [n for n in self._picked if n not in shown or n in chosen]
+        self._picked += [n for n in sorted(chosen) if n not in self._picked]
+        self._replot()
+
     def _refilter(self):
         """Loc theo chuoi con, khong phan biet hoa thuong — nhu o tab Trang thai."""
         if self.log is None:
             return
-        keep = {i.text() for i in self.fields.selectedItems()}
+        keep = set(self._picked)
         q = self.filter.text().strip().lower()
         self.fields.blockSignals(True)
         self.fields.clear()
@@ -264,7 +290,7 @@ class AnalysisTab(QWidget):
         if self.log is None:
             return
 
-        picked = [i.text() for i in self.fields.selectedItems()][:MAX_SERIES]
+        picked = self._picked[:MAX_SERIES]
         if not picked:
             self.chart.setTitle(t("an.pick_field"))
             self.ax.setRange(0, 1)
