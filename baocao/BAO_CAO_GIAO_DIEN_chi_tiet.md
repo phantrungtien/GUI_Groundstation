@@ -1,6 +1,6 @@
 # Báo cáo: Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `7319e8a`
+**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `affa8d8` — toàn bộ số đo ở mục 5–8 lấy tại phiên bản `7319e8a` ngày 13–14/08/2026; phần làm thêm sau đó mô tả ở mục 4.11 và nghiệm thu ở mục 9
 **Chế độ chạy:** ROS 2 Humble + ArduPilot SITL + MAVROS (profile `SITL + ROS2 (sitl_mission.launch.py)`)
 **Ngày thực nghiệm:** 13/08/2026, 23:20 – 00:00 (giờ Việt Nam)
 **Máy chạy thử:** laptop Ubuntu 22.04, ROS 2 Humble; máy tính nhúng Raspberry Pi 5 (`192.168.1.113`) phục vụ luồng video
@@ -13,7 +13,7 @@ Báo cáo mô tả và đánh giá thực nghiệm một trạm điều khiển 
 
 Báo cáo gồm hai phần bổ trợ nhau: một phân tích tính năng theo từng thành phần giao diện, trong đó mỗi quyết định thiết kế được truy về phép đo hoặc sự cố đã sinh ra nó (mục 4); và một phần nghiệm thu định lượng trên ngăn xếp mô phỏng đầy đủ (mục 5 đến 9).
 
-Kết quả chính: giao diện dựng được đường bay bốn điểm và nạp thành công lên bộ điều khiển bay trong 0,68 s (bảy mục đọc ngược về, gồm điểm home, lệnh cất cánh và lệnh hạ cánh do phần mềm tự chèn); lệnh ARM được chấp nhận sau 1,2 s và máy bay đạt 12 m sau 9,2 s; sai lệch vị trí giữa hai nguồn dữ liệu nằm trong khoảng 0,0 – 0,38 m suốt chuyến bay; toàn bộ 29 phép tự kiểm của bộ `selfcheck` đều đạt. Luồng video từ Pi hoạt động nhưng chất lượng bị giới hạn bởi đường WiFi tại thời điểm đo (2,15 Mbps, đỉnh khoảng ngắt quãng 4,77 s), thấp hơn nhiều so với con số ghi nhận ngày 06/08/2026 (5,75 Mbps, đỉnh 615 ms) — và giao diện phản ứng đúng như thiết kế: chuyển sang ô xám thay vì đóng băng khung hình cũ.
+Kết quả chính: giao diện dựng được đường bay bốn điểm và nạp thành công lên bộ điều khiển bay trong 0,68 s (bảy mục đọc ngược về, gồm điểm home, lệnh cất cánh và lệnh hạ cánh do phần mềm tự chèn); lệnh ARM được chấp nhận sau 1,2 s và máy bay đạt 12 m sau 9,2 s; sai lệch vị trí giữa hai nguồn dữ liệu nằm trong khoảng 0,0 – 0,38 m suốt chuyến bay; toàn bộ 29 phép tự kiểm của bộ `selfcheck` đều đạt (bộ kiểm ở phiên bản hiện tại đã lên 38 phép và vẫn đạt hết — mục 9). Luồng video từ Pi hoạt động nhưng chất lượng bị giới hạn bởi đường WiFi tại thời điểm đo (2,15 Mbps, đỉnh khoảng ngắt quãng 4,77 s), thấp hơn nhiều so với con số ghi nhận ngày 06/08/2026 (5,75 Mbps, đỉnh 615 ms) — và giao diện phản ứng đúng như thiết kế: chuyển sang ô xám thay vì đóng băng khung hình cũ.
 
 ---
 
@@ -41,7 +41,7 @@ Từ đó, câu hỏi mà báo cáo này trả lời là:
 1. **Một kiến trúc hai nguồn có trọng tài tường minh.** Mọi đại lượng hiển thị đều mang theo nguồn phát và tuổi dữ liệu, thay vì bị gộp lại thành một con số không truy nguyên được. Cơ chế trọng tài (mục 2.1) là mã dùng chung, không phụ thuộc vào loại đường truyền — thêm một đường thứ ba chỉ tốn một dòng cấu hình ưu tiên.
 2. **Phân loại suy giảm theo hậu quả, không theo hiện tượng.** Mất đường ROS 2 và mất đường MAVLink cho ra hai màu banner khác nhau với hai thông điệp khác nhau, vì hành động phải làm tiếp theo của người vận hành là khác nhau (mục 8.2).
 3. **Nguyên tắc "đọc ngược để xác nhận" áp cho mọi lệnh có trạng thái.** Đường bay sau khi nạp được tải lại từ bộ điều khiển bay rồi mới vẽ; lệnh cất cánh được đối chiếu với độ cao thực sau 6 s. "Đã gửi" không được phép hiển thị giống "đã làm" (mục 6.1 và 6.3).
-4. **Một bộ số đo tái lập được** cho toàn bộ chu trình trên ngăn xếp ROS 2/MAVROS thật, kèm mã kiểm thử tự động 29 phép (mục 9), thay vì đánh giá định tính.
+4. **Một bộ số đo tái lập được** cho toàn bộ chu trình trên ngăn xếp ROS 2/MAVROS thật, kèm mã kiểm thử tự động 29 phép ở thời điểm đo, nay là 38 phép (mục 9), thay vì đánh giá định tính.
 
 ---
 
@@ -115,25 +115,26 @@ laptop/          # tầng giao diện
   app.py         # cửa sổ chính, ghép mọi thành phần
   connection.py  # quét cổng USB + banner chế độ
   link_faults.py # mô phỏng đứt đường truyền (chỉ chế độ SIM)
-  tabs/          # flight · status · control · messages
-  widgets/       # map · compass · attitude · telemetry_bar · video
+  tabs/          # flight · status · control · messages · analysis · settings
+  widgets/       # map · compass · attitude · telemetry_bar · video · trajectory3d
+  theme.py       # bảng màu và QSS dùng chung cho mọi widget
 tools/           # công cụ đo, kiểm thử, tải ảnh bản đồ, cầu nối ROS 2
 ```
 
-Quy tắc phụ thuộc một chiều: `laptop/` được phép gọi `core/`, chiều ngược lại thì không. Nhờ vậy toàn bộ logic xử lý dữ liệu kiểm thử được mà không cần dựng cửa sổ, và đó là điều kiện để bộ `selfcheck` chạy được 29 phép kiểm trong khoảng 90 giây mà không cần SITL.
+Quy tắc phụ thuộc một chiều: `laptop/` được phép gọi `core/`, chiều ngược lại thì không. Nhờ vậy toàn bộ logic xử lý dữ liệu kiểm thử được mà không cần dựng cửa sổ, và đó là điều kiện để bộ `selfcheck` chạy được 38 phép kiểm trong khoảng hai phút mà không cần SITL.
 
-**Quy mô mã nguồn** (đếm tại phiên bản `7319e8a`):
+**Quy mô mã nguồn** (đếm tại phiên bản `affa8d8`; số trong ngoặc là của `7319e8a`, phiên bản lấy số đo ở mục 5–8):
 
 | Thành phần | Số dòng Python |
 |---|---|
-| `core/` (bus, trọng tài, quyền, hai adapter) | 1 280 |
-| `laptop/` (cửa sổ chính, 4 tab, 5 widget vẽ tay) | 3 131 |
-| `tools/` (kiểm thử, đo đạc, cầu nối, tải ảnh bản đồ) | 3 947 |
-| **Tổng** | **8 358** |
+| `core/` (bus, trọng tài, quyền, hai adapter, bộ đọc log, bảng chữ song ngữ) | 2 055 *(1 280)* |
+| `laptop/` (cửa sổ chính, 6 tab, 6 widget vẽ tay, bảng màu chung) | 4 568 *(3 131)* |
+| `tools/` (kiểm thử, đo đạc, cầu nối, tải ảnh bản đồ, máy chủ video) | 5 310 *(3 947)* |
+| **Tổng** | **11 933** *(8 358)* |
 
-Tỉ lệ đáng chú ý: mã công cụ đo và kiểm thử chiếm 47 % tổng số dòng, nhiều hơn cả tầng giao diện. Đây không phải sự mất cân đối mà là hệ quả của một nguyên tắc làm việc xuyên suốt dự án — mọi khẳng định về hành vi phần mềm phải có số đo kèm theo, nên công cụ tạo ra số đo được viết ngang hàng với chức năng.
+Tỉ lệ đáng chú ý: mã công cụ đo và kiểm thử chiếm 44 % tổng số dòng, nhiều hơn cả tầng giao diện. Đây không phải sự mất cân đối mà là hệ quả của một nguyên tắc làm việc xuyên suốt dự án — mọi khẳng định về hành vi phần mềm phải có số đo kèm theo, nên công cụ tạo ra số đo được viết ngang hàng với chức năng.
 
-**Dữ liệu bản đồ.** Ảnh vệ tinh được tải trước về đĩa dưới dạng tile `{z}/{x}/{y}.png` bằng `tools/fetch_tiles.py`: hiện có 21 084 tile, 296 MB, phủ nền thế giới ở mức zoom thấp và hai bãi bay ở mức zoom 13–19, riêng khu vực trường thêm mức 20–21. Nguồn ảnh được chọn sau một phép đo so sánh: nhà cung cấp trước đó hết ảnh gốc ở mức zoom 19 (mức 20 và 21 trả về cùng một tấm "không có dữ liệu", trùng mã băm), trong khi nguồn đang dùng vẫn cho ảnh thật ở mức 21 — quy ra độ phân giải mặt đất 29 cm/pixel so với 7,3 cm/pixel [1]. Bản đồ hoạt động hoàn toàn ngoại tuyến; khi có mạng, ứng dụng tải bù phần còn thiếu và lưu lại cho lần bay sau.
+**Dữ liệu bản đồ.** Ảnh vệ tinh được tải trước về đĩa dưới dạng tile `{z}/{x}/{y}.png` bằng `tools/fetch_tiles.py`: hiện có 21 134 tile, 297 MB, phủ nền thế giới ở mức zoom thấp và hai bãi bay ở mức zoom 13–19, riêng khu vực trường thêm mức 20–21. Nguồn ảnh được chọn sau một phép đo so sánh: nhà cung cấp trước đó hết ảnh gốc ở mức zoom 19 (mức 20 và 21 trả về cùng một tấm "không có dữ liệu", trùng mã băm), trong khi nguồn đang dùng vẫn cho ảnh thật ở mức 21 — quy ra độ phân giải mặt đất 29 cm/pixel so với 7,3 cm/pixel [1]. Bản đồ hoạt động hoàn toàn ngoại tuyến; khi có mạng, ứng dụng tải bù phần còn thiếu và lưu lại cho lần bay sau.
 
 ---
 
@@ -161,7 +162,7 @@ ros2 launch simtofly_mavros_sitl mavros_apm.launch.py fcu_url:=udp://:14550@
 python3 ~/GUI_NATIVE/tools/ros2_bridge.py --host 127.0.0.1
 ```
 
-Toạ độ home được đặt trùng với vùng đã tải sẵn ảnh vệ tinh ngoại tuyến (21 084 tile, 296 MB) để bản đồ trong giao diện có nền thật thay vì ô trống.
+Toạ độ home được đặt trùng với vùng đã tải sẵn ảnh vệ tinh ngoại tuyến (21 134 tile, 297 MB) để bản đồ trong giao diện có nền thật thay vì ô trống.
 
 Ba điểm khác biệt so với quy trình khởi động chuẩn bằng `ros2 launch simtofly_mavros_sitl sitl_mission.launch.py`, cần nêu rõ để người đọc tái lập được:
 
@@ -183,15 +184,17 @@ Các mốc thời gian được đo bằng đồng hồ hệ thống tại thờ
 
 ## 4. Phân tích tính năng giao diện
 
-Ứng dụng gồm năm tab, một dải banner chế độ chiếm hết chiều ngang, một dock chọn nguồn kết nối bên phải, một dock mô phỏng đứt truyền bên trái (chỉ hiện ở chế độ mô phỏng), và widget trạng thái đường truyền ở góc dưới phải.
+Ứng dụng gồm bảy tab (năm tab ở thời điểm chụp ảnh, thêm Phân tích và Cài đặt sau đó — mục 4.11), một dải banner chế độ chiếm hết chiều ngang, một dock chọn nguồn kết nối bên phải, một dock mô phỏng đứt truyền bên trái (chỉ hiện ở chế độ mô phỏng), và widget trạng thái đường truyền ở góc dưới phải.
 
 | Tab | Nội dung |
 |---|---|
 | **Flight** | Bản đồ vệ tinh ngoại tuyến; la bàn, chân trời nhân tạo, thanh telemetry và ô video PiP nổi đè lên bản đồ |
-| **Status** | Toàn bộ trường số của mọi message MAVLink, kèm nguồn và tuổi dữ liệu |
+| **Status** | Toàn bộ trường số của mọi message MAVLink; hàng quá hạn chuyển xám |
 | **Control** | ARM/DISARM, đổi mode, TAKEOFF; nhóm nút khẩn cấp; dòng trạng thái node ROS 2 (chỉ đọc) |
 | **Messages** | STATUSTEXT của bộ điều khiển bay cộng kết quả mọi lệnh do người dùng bấm |
 | **Camera** | Luồng MJPEG toàn khung từ máy tính nhúng |
+| **Phân tích** | Mở `.tlog` từ đĩa, vẽ đồ thị trường và quỹ đạo bay 3D (mục 4.11) |
+| **Cài đặt** | Đổi ngôn ngữ giao diện Việt ↔ Anh ngay lúc đang chạy (mục 4.11) |
 
 Nguyên tắc thiết kế xuyên suốt là **không mặc định đoán**: ứng dụng mở lên không tự kết nối, banner xám, và người vận hành phải chọn nguồn rồi bấm "Ket noi" (Hình 1). Chế độ hiển thị (`REAL` đỏ / `SIM` xanh / `REPLAY` xám) lấy từ trường `mode` khai trong file cấu hình chứ không suy từ chuỗi kết nối — cắm radio thật mà chọn nhầm profile mô phỏng thì banner vẫn xanh, và đó là lỗi cấu hình chứ không phải suy đoán sai của phần mềm [1].
 
@@ -260,7 +263,9 @@ Thanh telemetry (ALT/SPD/PIN/SAT/MODE) là nơi thể hiện rõ nhất nguyên 
 
 Tab này không khai báo trước một trường nào. Adapter trải phẳng `msg.to_dict()` của **mọi** message thành các cặp `TÊN_MESSAGE.field` rồi đẩy lên bus dưới topic `status`; bảng chỉ việc hiển thị. Đổi firmware hay bật thêm message thì bảng tự dài ra, không phải sửa mã.
 
-Bốn chức năng phụ trợ: ô lọc theo tên (gõ `SENSOR.` là thấy ngay cảm biến nào hỏng), nút tạm dừng để đọc một giá trị đang nhảy, cột nguồn và cột tuổi cho từng hàng, và nút đọc 63 tham số PID theo yêu cầu. Tham số phải hỏi mới có vì bộ điều khiển bay không tự gửi; hỏi cả 1 431 tham số sẽ chiếm đường truyền vài chục giây, nên chỉ nhóm liên quan tới điều khiển và dẫn đường được hỏi.
+Bốn chức năng phụ trợ: ô lọc theo tên (gõ `SENSOR.` là thấy ngay cảm biến nào hỏng), nút tạm dừng để đọc một giá trị đang nhảy, dấu hiệu quá hạn cho từng hàng, và nút đọc 63 tham số PID theo yêu cầu.
+
+Hai chi tiết của bảng này đã đổi sau phiên chụp ảnh. Thứ nhất, **hai cột Nguồn và Tuổi bị bỏ**, còn lại đúng hai cột Field và Giá trị: ở chế độ thật mọi hàng đều mang cùng một nguồn `sik`, nên cột nguồn lặp lại một chữ suốt 300 hàng mà không thêm thông tin nào, còn cột tuổi thì con số nhảy liên tục làm mắt khó bám — thông tin "hàng này đã cũ" nay thể hiện bằng cách chuyển chữ sang xám. Nguồn phát vẫn hiện đầy đủ ở thanh telemetry, nơi hai nguồn thật sự tranh nhau. Thứ hai, nhóm `SENSOR.*` được adapter giải mã sẵn từ mặt nạ bit thành tên bộ cảm biến, và 63 tham số PID mỗi cái mang một dòng giải thích trong tooltip, đổi theo ngôn ngữ đang chọn. Tham số phải hỏi mới có vì bộ điều khiển bay không tự gửi; hỏi cả 1 431 tham số sẽ chiếm đường truyền vài chục giây, nên chỉ nhóm liên quan tới điều khiển và dẫn đường được hỏi.
 
 Về hiệu năng: dữ liệu được gom lại và vẽ mỗi 200 ms thay vì vẽ theo từng gói. Với khoảng 82 message/s, mỗi message nhiều trường, việc vẽ từng cái một là lãng phí thấy rõ và làm giao diện giật.
 
@@ -320,16 +325,43 @@ Chức năng bổ sung gần đây cho phép dịch chuyển máy bay bằng ph�
 
 Bốn chốt chặn trước khi nhích: phải ở chế độ gửi được lệnh, phải đã ARM, không được đang nằm dưới đất, và phải đang ở GUIDED — ứng dụng **không tự chuyển mode hộ**, vì đang bay AUTO mà một phím lỡ tay kéo sang GUIDED là bỏ ngang nhiệm vụ giữa chừng. Tốc độ tăng dần từ 1 m/s lên trần 5 m/s theo thời gian giữ phím, lệnh lặp ở 5 Hz (lệnh vận tốc của ArduPilot tự hết hạn sau ~3 s, nên mất liên lạc giữa chừng thì máy bay dừng và treo chứ không rơi vào chế độ an toàn khẩn cấp). Mất tiêu điểm cửa sổ giữa lúc đang giữ phím cũng phát lệnh dừng — thiếu chi tiết này thì sự kiện thả phím không bao giờ tới và máy bay giữ nguyên vận tốc cuối cho tới khi lệnh hết hạn.
 
+### 4.11 Bổ sung sau phiên đo (19–23/08/2026)
+
+Phần này làm sau khi đã chụp ảnh và lấy số ở các mục 5–8, nên **không có ảnh chụp kèm** và cũng không có số đo trên phần cứng thật; nghiệm thu bằng bộ kiểm tự động (mục 9), vốn dựng widget thật trên nền đồ hoạ ngoại tuyến.
+
+**Tab Phân tích — đọc lại chuyến vừa bay mà không phải rời ứng dụng.** Tab đọc thẳng một tệp `.tlog` từ đĩa chứ không lấy qua bus: bus chỉ mang giá trị đang chạy và `core/field.py` chỉ giữ giá trị mới nhất, còn đồ thị thì cần cả lịch sử. Log mẫu tách ra 16 trường vẽ được; nhóm `PARAM.*` tách theo tên tham số thay vì gộp thành một đường vô nghĩa. Hai chi tiết đáng nói:
+
+- Điểm `lat = lon = 0` bị lọc bỏ. Bộ điều khiển bay báo toạ độ 0 khi chưa bắt được định vị, và vẽ nguyên xi thì quỹ đạo 3D thành một đường thẳng đứng ở giữa Đại Tây Dương. Log không có định vị nào thì tab **nói thành lời** rằng log này chỉ có độ cao, thay vì vẽ một hình sai trông như đúng.
+- Tuỳ chọn chuẩn hoá 0–1 để so **hình dạng** giữa các đường khác đơn vị: điện áp 12 V và độ cao 30 m trên cùng một trục thì đường điện áp bẹp thành vạch ngang. Khoảng giá trị thật vẫn hiện trong chú giải, nên chuẩn hoá không giấu mất con số.
+
+Việc này trùng với `MAVExplorer.py` có sẵn kèm `pymavlink`; tab trong ứng dụng cốt để không phải thoát ra giữa buổi bay, còn đào sâu — FFT, so hai log, lọc theo chế độ bay — thì vẫn nên mở MAVExplorer.
+
+**Song ngữ Việt – Anh.** Toàn bộ chữ trong giao diện đi qua một bảng tra 207 mục hai thứ tiếng; tab Cài đặt đổi ngôn ngữ ngay lúc đang chạy, mọi widget viết lại chữ tại chỗ, và lựa chọn được nhớ cho lần chạy sau. Kèm theo đó, 63 tham số PID mỗi cái có một dòng giải thích hiện trong tooltip khi rê chuột lên hàng `PARAM.*` — đọc `ATC_RAT_RLL_FLTD` mà không phải tra tài liệu ArduPilot ở cửa sổ khác.
+
+**Thanh telemetry mở rộng.** Thêm ba ô lấy từ nhận xét khi bay thật: ô **ARM** (chế độ bay không nói được cánh quạt có quay hay không — `GUIDED` đúng cả lúc đang nằm im lẫn lúc đang bay), **đồng hồ giờ bay** tính từ sườn lên của cờ `armed` chứ không từ lúc bấm nút (lệnh ARM có thể bị từ chối, và con số phải đếm từ lúc động cơ thật sự sống), và **khoảng cách về nhà**. Màu pin bám vào phần trăm bộ điều khiển bay báo (≤ 30 % vàng, ≤ 20 % đỏ) chứ không bám vào điện áp — điện áp vẫn là con số hiện ra vì người bay quen đọc nó, nhưng ngưỡng thì lấy theo phần trăm. Ô GPS xét đủ ba điều kiện: kiểu định vị, số vệ tinh (≥ 8) và HDOP (≤ 2,0); đủ vệ tinh mà HDOP xấu vẫn phải là màu cảnh báo.
+
+**Bốn mục kiểm tra trước bay đọc ngay trên màn hình bay.** Các mục D và F của quy trình vận hành trước đây phải mở tài liệu ra đối chiếu; nay ba điều kiện GPS gộp vào một ô, chưa có điểm home thì nói thành lời thay vì để trống, và số cảnh báo chưa đọc hiện ngay trên tên tab Messages.
+
+**Hàng rào vẽ và đo theo `FENCE_TYPE`, không theo sự có mặt của tham số.** Tham số hàng rào còn nằm trong bộ điều khiển bay không có nghĩa là hàng rào đang bật: chỉ bit tương ứng trong `FENCE_TYPE` mới quyết định. Giao diện vì thế chỉ vẽ và chỉ đo những hàng rào đang thật sự có hiệu lực, hiện khoảng cách tới hàng rào **gần nhất**, và với vùng cấm thì khoảng cách được nói ngược lại — tính từ trong ra mép, vì ở đó "gần rào" mang nghĩa ngược với hàng rào bao ngoài.
+
+**Máy bay trên bản đồ thành tam giác nhọn chỉ hướng mũi**, theo lối QGroundControl: một hình tròn không nói được máy bay đang quay mặt về đâu, mà đó lại là câu hỏi đầu tiên khi nhìn xuống bản đồ. Khi chưa biết hướng, phần mềm vẽ lại hình tròn thay vì đoán một hướng nào đó.
+
+**Chặn đóng cửa sổ khi đang ARM.** Đóng nhầm ứng dụng lúc cánh quạt đang quay thì mất luôn màn hình theo dõi. Lần bấm đầu bị chặn, phải bấm lại trong 3 giây — dùng đúng cơ chế xác nhận hai bậc của nút khẩn cấp, không dùng hộp thoại chặn, vì hộp thoại chặn đã đo được là làm ba nút khẩn cấp mất tác dụng (mục 4.6).
+
+**Video.** Nhịp khung nay đo ngay tại đầu nhận trong ứng dụng thay vì hỏi máy chủ: máy chủ báo nó gửi 15 fps không nói lên được gì, cái quyết định người lái thấy mượt hay giật là số khung **về tới giao diện** sau khi qua WiFi. Máy chủ video nhận thêm hai đường vào: một topic ảnh ROS 2 (đổi `imgmsg` sang mảng numpy bằng một phép reshape viết tay, cố ý không dùng `cv_bridge` vì nó kéo theo cả ngăn xếp thị giác ROS và gây xung đột ABI với OpenCV cài bằng `pip`), và một mô hình YOLO11n ONNX bám vết lửa/khói vẽ hộp thẳng lên khung trước khi nén JPEG. Giao diện không sửa một dòng nào cho việc này — nó vẫn chỉ biết một địa chỉ `http://<host>:8080/stream`. Cần nói rõ: hộp vẽ ra là **để người xem**; quyết định thả bóng chữa cháy vẫn do bộ phát hiện bên hệ thống bay quyết theo ngưỡng màu đo được, không theo mô hình này.
+
+**Bảng màu gom về một chỗ.** Trước đây mỗi widget tự khai mã màu riêng, nên cùng một ý nghĩa "cảnh báo" có ba sắc vàng khác nhau tuỳ file. Toàn bộ chuyển về `laptop/theme.py`; đây là thay đổi không đụng tới hành vi, và bộ kiểm chạy qua để chứng minh đúng điều đó.
+
 ---
 
 ## 5. Telemetry
 
 ### 5.1 Độ phủ dữ liệu
 
-Tab Status liệt kê **308 trường** ở thời điểm chụp (Hình 3), gồm mọi trường số của mọi message MAVLink mà bộ điều khiển bay gửi lên, cộng các trường cảm biến đã giải mã và tham số PID đọc theo yêu cầu. Mỗi hàng mang tên nguồn và tuổi dữ liệu, nên một trường đứng yên vì hỏng phân biệt được với một trường đứng yên vì đại lượng không đổi.
+Tab Status liệt kê **308 trường** ở thời điểm chụp (Hình 3), gồm mọi trường số của mọi message MAVLink mà bộ điều khiển bay gửi lên, cộng các trường cảm biến đã giải mã và tham số PID đọc theo yêu cầu. Hàng quá hạn chuyển xám (lúc chụp là cột tuổi riêng — xem mục 4.5), nên một trường đứng yên vì hỏng phân biệt được với một trường đứng yên vì đại lượng không đổi.
 
 ![Hình 3](anh/03_trang_thai.png)
-*Hình 3 — Tab Status với 308 trường, ô lọc theo tên, và cột nguồn cho từng trường.*
+*Hình 3 — Tab Status với 308 trường và ô lọc theo tên. Ảnh chụp ngày 13/08, khi bảng còn hai cột Nguồn và Tuổi; bố cục hiện tại còn hai cột Field và Giá trị (mục 4.5).*
 
 ### 5.2 Tải đường truyền
 
@@ -497,7 +529,7 @@ Ngoài phiên chạy mô tả ở trên, phần mềm mang theo ba lớp kiểm 
 
 | Công cụ | Phạm vi | Kết quả 13/08/2026 |
 |---|---|---|
-| `tools/selfcheck.py` | 29 phép kiểm không cần SITL: chuẩn hoá NED→ENU, lọc nguồn, trọng tài đa nguồn, nút khẩn cấp đi trước kiểm tra quyền, khoá nút ở chế độ phát lại, quét cổng USB, chốt chặn TAKEOFF, cấu trúc nhiệm vụ waypoint, giải mã MJPEG | **PASS (29/29)** |
+| `tools/selfcheck.py` | 38 phép kiểm không cần SITL: chuẩn hoá NED→ENU, lọc nguồn, trọng tài đa nguồn, nút khẩn cấp đi trước kiểm tra quyền, khoá nút ở chế độ phát lại, quét cổng USB, chốt chặn TAKEOFF, cấu trúc nhiệm vụ waypoint, giải mã MJPEG, cùng chín phép kiểm cho phần bổ sung ở mục 4.11 | **PASS (29/29) ngày 13/08; PASS (38/38) ngày 23/08** |
 | `tools/measure_bandwidth.py` | Byte/s thực theo từng loại message trên cổng đang cắm | 2 899 B/s, 82,2 msg/s (mục 5.2) |
 | `tools/compare_gcs.py` | Đối chiếu từng con số với MAVProxy trên **cùng một luồng gói tin**, ở hai trạng thái tĩnh | Toạ độ khớp tuyệt đối; mọi đại lượng khác lệch nhỏ hơn nửa đơn vị hiển thị [4] |
 
@@ -529,6 +561,7 @@ Song song, mọi chuyến bay ở mọi chế độ đều được ghi `.tlog` 
 3. **Chưa có phần cứng bay thật trong vòng lặp.** Những kiểu hỏng chỉ xuất hiện trên phần cứng — bộ điều khiển bay từ chối lệnh DISARM khi nó tin là đang bay, cảm biến khoảng cách trả giá trị 0 khi hỏng, độ cao tương đối đọc ra âm 8,5 m khi mất định vị vệ tinh [2] — đều nằm ngoài phạm vi phiên này.
 4. **Video đo qua một chặng chuyển tiếp phụ** (mục 7.2), và chất lượng liên kết WiFi tại thời điểm đo kém hơn hẳn ngày dựng hệ thống, nên các con số fps ở đây là cận dưới chứ không phải năng lực thật của hệ thống.
 5. **Gazebo chạy chế độ không cửa sổ và thế giới `iris_runway.sdf` không mang cảm biến ảnh**, nên toàn bộ phần thị giác của ngăn xếp mô phỏng không được kiểm ở phiên này; nguồn video là webcam thật gắn trên Pi.
+6. **Phần bổ sung ở mục 4.11 chưa qua phần cứng.** Nó được nghiệm thu bằng bộ kiểm tự động trên widget thật, nhưng chưa chạy lại trên mạch Pixhawk 6C lẫn trên ngăn xếp mô phỏng đầy đủ, và chưa có ảnh chụp. Mọi hình trong báo cáo vì thế phản ánh giao diện ngày 13–14/08/2026.
 
 **Về sự cố cấu hình MAVROS (mục 8.1).** Điều đáng rút ra không phải là "chọn sai cổng" mà là **một thành phần trung gian có thể báo kết nối thành công trong khi không chuyển được dữ liệu nào có ích**. MAVROS nói "Got HEARTBEAT, connected. FCU: ArduPilot", bộ định tuyến của nó đếm được 4 450 gói không lỗi, và các publisher đều tồn tại — ba tín hiệu đều xanh trong khi hệ thống hỏng. Chỉ phép đếm message thực tế trên từng topic mới phát hiện được. Đây đúng là loại lỗi mà nguyên tắc thiết kế của chính giao diện đang phòng: hàng trạng thái đường truyền không suy từ "adapter đang chạy" mà từ lần cuối thật sự có gói về [1].
 
@@ -540,7 +573,7 @@ Giao diện đạt được mục tiêu đặt ra ban đầu: vận hành một 
 
 Giá trị thực tế của phần mềm nằm nhiều ở cách nó xử lý trạng thái xấu hơn là ở trạng thái tốt: phân biệt hai kiểu mất kết nối theo đúng hậu quả của chúng, đọc ngược nhiệm vụ thay vì tin vào cái vừa gửi đi, hiện ô xám thay vì đóng băng khung hình cũ, và ghi lại mọi lệnh cùng phản hồi để sau sự cố còn truy được nguyên nhân.
 
-Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chính các hạn chế nêu trên: (i) lặp lại toàn bộ phép đo trên radio SiK và bộ điều khiển bay thật để có số băng thông và tỉ lệ mất gói có ý nghĩa; (ii) thay module WiFi rời cho Pi 5 để đưa luồng video về lại mức 16 fps đã đạt được ngày 06/08; (iii) đưa cảm biến ảnh mô phỏng của Gazebo vào vòng kiểm thử để phần thị giác của ngăn xếp cũng được nghiệm thu tự động.
+Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chính các hạn chế nêu trên: (i) lặp lại toàn bộ phép đo trên radio SiK và bộ điều khiển bay thật để có số băng thông và tỉ lệ mất gói có ý nghĩa, đồng thời chụp lại bộ ảnh cho phần bổ sung ở mục 4.11; (ii) thay module WiFi rời cho Pi 5 để đưa luồng video về lại mức 16 fps đã đạt được ngày 06/08; (iii) đưa cảm biến ảnh mô phỏng của Gazebo vào vòng kiểm thử để phần thị giác của ngăn xếp cũng được nghiệm thu tự động.
 
 ---
 
@@ -558,7 +591,7 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 | 8 | `anh/08_dang_bay_pip_camera.png` | Ô video PiP trên tab Flight khi đang bay |
 | 9 | `anh/12_mat_nua_ros2.png` | Kịch bản mất nửa ROS 2 |
 
-Các ảnh còn lại trong thư mục `anh/`: `04_dieu_khien.png` (tab Control), `10_rtl_dang_ve.png` (đang bay về), `11_thong_bao.png` (tab Messages). Toàn bộ số đo thô nằm ở `anh/so_do.json`.
+Các ảnh còn lại trong thư mục `anh/`: `04_dieu_khien.png` (tab Control), `10_rtl_dang_ve.png` (đang bay về), `11_thong_bao.png` (tab Messages). Toàn bộ số đo thô nằm ở `anh/so_do.json`. Mọi ảnh trong báo cáo chụp ngày 13–14/08/2026, tức trước phần bổ sung ở mục 4.11 — chỗ nào bố cục đã đổi thì chú thích hình nói rõ.
 
 ---
 
@@ -566,7 +599,7 @@ Các ảnh còn lại trong thư mục `anh/`: `04_dieu_khien.png` (tab Control)
 
 Báo cáo này lấy nguồn từ chính mã nguồn, tài liệu và nhật ký đo của dự án. Không có nguồn ngoài nào được viện dẫn.
 
-[1] `GUI_NATIVE/README.md` — mô tả kiến trúc, ba chế độ kết nối, năm tab, và mục "Bẫy đã gặp"; kho mã tại phiên bản `7319e8a`.
+[1] `GUI_NATIVE/README.md` — mô tả kiến trúc, ba chế độ kết nối, các tab, và mục "Bẫy đã gặp"; kho mã tại phiên bản `affa8d8`.
 
 [2] `GUI_NATIVE/docs/protocol.md` — đặc tả envelope, quy ước đơn vị và hệ toạ độ, bảng topic, giao thức nạp đường bay, và các phép đo băng thông trước đó (03/08/2026 và 11/08/2026).
 

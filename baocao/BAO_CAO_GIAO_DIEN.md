@@ -1,6 +1,6 @@
 # Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Phần mềm khảo sát:** `GUI_NATIVE` (PySide6), phiên bản `7319e8a` · **Thực nghiệm:** 13–14/08/2026 — mô phỏng ArduPilot SITL + Gazebo + MAVROS + ROS 2 Humble, và phần cứng thật (mạch điều khiển bay Pixhawk 6C) qua radio SiK
+**Phần mềm khảo sát:** `GUI_NATIVE` (PySide6), phiên bản `affa8d8` · **Thực nghiệm:** 13–14/08/2026 — mô phỏng ArduPilot SITL + Gazebo + MAVROS + ROS 2 Humble, và phần cứng thật (mạch điều khiển bay Pixhawk 6C) qua radio SiK; phần bổ sung 19–23/08/2026 nghiệm thu bằng bộ kiểm tự động (phần cuối mục 5)
 
 ---
 
@@ -36,8 +36,8 @@ Gazebo ──9002──> ArduPilot SITL ─┬─5760─> MAVProxy ──14550�
 | Ngôn ngữ, khung giao diện | Python 3.10, PySide6 (Qt 6); bố cục từ Qt Designer, các widget bản đồ/la bàn/chân trời/telemetry/video tự vẽ bằng `QPainter` |
 | Thư viện | `pymavlink`, `websockets`, `rclpy` (phía cầu nối), `pyyaml`, `pyserial` |
 | Đồng thời | 5 luồng: Qt chính (vẽ), 2 adapter (`QThread`), video, tải ảnh bản đồ — dữ liệu qua ranh giới luồng chỉ bằng `Signal` |
-| Quy mô | 8 358 dòng Python: `core/` 1 280 · `laptop/` 3 131 · `tools/` 3 947 (mã đo và kiểm thử chiếm 47 %) |
-| Bản đồ | 21 084 tile ngoại tuyến, 296 MB, độ phân giải tới 7,3 cm/pixel; tự tải bù khi có mạng |
+| Quy mô | 11 933 dòng Python: `core/` 2 055 · `laptop/` 4 568 · `tools/` 5 310 (mã đo và kiểm thử chiếm 44 %) |
+| Bản đồ | 21 134 tile ngoại tuyến, 297 MB, độ phân giải tới 7,3 cm/pixel; tự tải bù khi có mạng |
 
 ## 3. Cấu hình thực nghiệm
 
@@ -58,13 +58,17 @@ Giao diện chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt và
 |---|---|
 | **Banner chế độ** | Bảy trạng thái: chưa kết nối · đang chờ dữ liệu · REAL · SIM · REPLAY · mất nửa ROS 2 · mất telemetry |
 | **Panel nguồn** | Tự quét mọi cổng USB-serial đang cắm, suy baud theo loại cổng, báo thiếu quyền kèm câu lệnh cần chạy |
-| **Tab Flight** | Bản đồ vệ tinh ngoại tuyến + vệt bay, home, geofence, đường bay; la bàn, chân trời nhân tạo, thanh telemetry và ô video nổi đè lên bản đồ |
-| **Tab Status** | Toàn bộ trường số của mọi message MAVLink (308 trường lúc đo), lọc theo tên, kèm nguồn và tuổi dữ liệu |
+| **Tab Flight** | Bản đồ vệ tinh ngoại tuyến + vệt bay, home, geofence, đường bay; máy bay vẽ thành tam giác nhọn chỉ hướng mũi; la bàn, chân trời nhân tạo, thanh telemetry và ô video nổi đè lên bản đồ. Hàng rào chỉ vẽ và chỉ đo khi bit tương ứng của `FENCE_TYPE` bật, kèm số mét tới hàng rào gần nhất |
+| **Tab Status** | Toàn bộ trường số của mọi message MAVLink (308 trường lúc đo), lọc theo tên; hàng quá hạn chuyển xám. Nhóm `SENSOR.*` được adapter giải mã từ mặt nạ bit thành tên bộ cảm biến; 63 tham số PID đọc theo yêu cầu, mỗi tham số có một dòng giải thích trong tooltip |
 | **Tab Control** | ARM/DISARM, đổi mode, TAKEOFF, nhóm nút khẩn cấp, trạng thái node ROS 2 (chỉ đọc) |
 | **Tab Messages** | STATUSTEXT của bộ điều khiển bay + kết quả mọi lệnh người dùng bấm |
-| **Tab Camera** | Luồng MJPEG từ máy tính nhúng, dùng chung nguồn với ô PiP trên tab Flight |
+| **Tab Camera** | Luồng MJPEG từ máy tính nhúng, dùng chung nguồn với ô PiP trên tab Flight; nhịp khung đo ngay tại đầu nhận chứ không hỏi máy chủ. Máy chủ video lấy hình từ `/dev/video*` hoặc từ một topic ảnh ROS 2, và tuỳ chọn bám vết lửa/khói bằng YOLO11n ONNX vẽ thẳng lên khung |
+| **Tab Phân tích** | Mở một tệp `.tlog` từ đĩa, vẽ đồ thị tối đa 6 trường cùng lúc (có chuẩn hoá 0–1 để so hình dạng) và dựng quỹ đạo bay 3D; đọc log rời, không đụng tới kết nối đang chạy |
+| **Tab Cài đặt** | Đổi ngôn ngữ giao diện giữa tiếng Việt và tiếng Anh ngay lúc đang chạy (207 mục chữ), lựa chọn được ghi nhớ |
 | **Waypoint** | Đặt bằng chuột phải (tối đa 50), nạp lên bộ điều khiển bay, đọc ngược lại để đối chiếu, xoá đường bay |
 | **Nhích bằng bàn phím** | Phím mũi tên gửi lệnh vận tốc trong mode GUIDED, tốc độ tăng dần 1→5 m/s |
+| **Thanh telemetry** | Ngoài ALT/SPD/MODE còn có ô ARM, đồng hồ giờ bay tính từ sườn lên của `armed`, khoảng cách về nhà; pin đổi màu theo phần trăm (≤30 % vàng, ≤20 % đỏ) chứ không theo điện áp, GPS đổi màu theo ba điều kiện fix/số vệ tinh/HDOP |
+| **Chốt đóng cửa sổ** | Đóng ứng dụng trong lúc máy bay đang ARM bị chặn ở lần bấm đầu, phải bấm lại trong 3 giây — không dùng hộp thoại chặn |
 | **Mô phỏng đứt truyền** | Bịt riêng từng nửa để diễn tập, chỉ hiện ở chế độ SIM |
 | **Ghi log** | `.tlog` MAVLink thô ở mọi chế độ, `logs/commands.log` ghi mọi lệnh và phản hồi |
 
@@ -72,7 +76,7 @@ Giao diện chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt và
 *Hình 1 — Tab Flight sau khi kết nối: bản đồ vệ tinh ngoại tuyến, la bàn và chân trời nhân tạo, thanh telemetry, hai hàng trạng thái đường truyền.*
 
 ![Hình 2](anh/03_trang_thai.png)
-*Hình 2 — Tab Status: 308 trường, mỗi hàng kèm nguồn và tuổi dữ liệu.*
+*Hình 2 — Tab Status: 308 trường, ảnh chụp ngày 13/08. Bảng lúc đó còn hai cột Nguồn và Tuổi; sau phiên đo hai cột này được bỏ, hàng quá hạn chuyển xám thay cho cột tuổi (phần cuối mục 5).*
 
 ## 5. Kết quả đo
 
@@ -109,7 +113,7 @@ Bốn hình dưới đây chụp phiên làm việc với mạch Pixhawk 6C lúc
 *Hình 5 — Tab Flight ở chế độ REAL: tiêu đề cửa sổ mang nhãn `[REAL]`, banner báo suy giảm vì nửa ROS 2 chưa nối, bản đồ vệ tinh mức zoom 20, thanh telemetry báo 21 vệ tinh và mode STABILIZE.*
 
 ![Hình 6](anh/13_sik_statusstatus.jpeg)
-*Hình 6 — Tab Status trên mạch Pixhawk 6C: 311 trường, mọi hàng đều khai nguồn `sik`. Bảng tự dài ra theo những gì mạch gửi lên, không khai báo trước trường nào.*
+*Hình 6 — Tab Status trên mạch Pixhawk 6C: 311 trường, mọi hàng đều khai nguồn `sik` (bố cục hai cột Nguồn/Tuổi của ngày 14/08). Bảng tự dài ra theo những gì mạch gửi lên, không khai báo trước trường nào.*
 
 ![Hình 7](anh/14_sik_controlcontrol.jpeg)
 *Hình 7 — Tab Control ở chế độ REAL: dòng nhắc "moi lenh duoi day di xuong may bay that", nhóm ba nút khẩn cấp sẵn sàng, dòng trạng thái node ROS 2 báo chưa có tin từ máy tính nhúng.*
@@ -129,11 +133,28 @@ Bốn hình này cũng cho thấy cơ chế phân loại suy giảm hoạt độ
 ![Hình 10](anh/12_mat_nua_ros2.png)
 *Hình 10 — Mất nửa ROS 2 giữa chuyến bay: banner nói rõ mất cái gì và còn cái gì.*
 
-**Kiểm thử tự động.** Bộ `tools/selfcheck.py` chạy **29/29 phép kiểm đạt**, gồm chuẩn hoá hệ toạ độ, trọng tài đa nguồn, nút khẩn cấp đi trước mọi kiểm tra, khoá nút ở chế độ phát lại, cấu trúc nhiệm vụ waypoint và giải mã MJPEG.
+**Kiểm thử tự động.** Bộ `tools/selfcheck.py` chạy **38/38 phép kiểm đạt** ở phiên bản `affa8d8`, gồm chuẩn hoá hệ toạ độ, trọng tài đa nguồn, nút khẩn cấp đi trước mọi kiểm tra, khoá nút ở chế độ phát lại, cấu trúc nhiệm vụ waypoint, giải mã MJPEG, và chín phép kiểm thêm cho phần bổ sung mô tả ngay dưới đây. Bộ kiểm dựng widget thật trên nền đồ hoạ ngoại tuyến nên chạy được mà không cần SITL lẫn phần cứng.
+
+### Bổ sung sau phiên đo (19–23/08/2026)
+
+Những phần dưới đây làm sau khi chụp ảnh và lấy số ở mục 5, nên chúng **chưa có ảnh chụp trên phần cứng thật**; nghiệm thu bằng bộ kiểm tự động nói trên.
+
+| Bổ sung | Nghiệm thu |
+|---|---|
+| **Tab Phân tích** — đọc `.tlog` từ đĩa, vẽ đồ thị nhiều trường (chuẩn hoá 0–1 tuỳ chọn) và quỹ đạo 3D | 16 trường tách đúng từ log mẫu; `PARAM.*` tách theo tên tham số; điểm `lat=lon=0` (chưa bắt được định vị) bị lọc và báo thành lời thay vì vẽ một đường thẳng đứng giả |
+| **Song ngữ Việt–Anh** với tab Cài đặt | 207 mục chữ × 2 thứ tiếng; widget viết lại chữ ngay lúc đổi, lựa chọn được nhớ giữa hai lần chạy |
+| **Giải thích tham số PID** trong tooltip | 63/63 tham số có mô tả, đổi theo ngôn ngữ đang chọn |
+| **Thanh telemetry mở rộng** — ô ARM, giờ bay, khoảng cách về nhà, màu pin theo phần trăm, màu GPS theo `fix_type` | Ngưỡng ≤30 % vàng, ≤20 % đỏ; GPS xét đủ ba điều kiện fix/số vệ tinh/HDOP |
+| **Hàng rào theo `FENCE_TYPE` của bộ điều khiển bay** | Tham số còn sót lại mà bit tương ứng đã tắt thì không vẽ, không đo; hiện hàng rào **gần nhất**; vùng cấm nói ngược lại (khoảng cách tới mép tính từ trong ra) |
+| **Bốn mục kiểm tra trước bay (D/F)** đọc thẳng trên màn hình bay | Ba điều kiện GPS gộp vào một ô; chưa có điểm home thì nói thành lời; số cảnh báo chưa đọc hiện ngay trên tên tab |
+| **Máy bay trên bản đồ thành tam giác chỉ hướng** | Mũi tam giác đúng hướng ở cả tám góc phần tư; chưa biết hướng thì vẽ hình tròn thay vì đoán |
+| **Chặn đóng cửa sổ khi đang ARM** | Lần bấm đầu bị chặn, bấm lại trong 3 s mới đóng; không dùng hộp thoại chặn |
+| **Video: đo nhịp khung tại đầu nhận**, lấy hình từ topic ảnh ROS 2, bám vết lửa/khói bằng YOLO11n ONNX | Giải mã khung thật; mất tín hiệu quá ngưỡng thì xoá khung cũ thay vì để đóng băng |
+| **Bảng màu gom về `laptop/theme.py`** | Các widget không còn tự chế mã màu riêng; không đổi hành vi |
 
 ## 6. Điểm nổi bật của giao diện
 
-1. **Hai nguồn dữ liệu có trọng tài tường minh.** Mỗi đại lượng hiển thị đều khai nguồn phát và tuổi dữ liệu; phần mềm tự tính sai lệch vị trí giữa hai nguồn và cảnh báo khi vượt ngưỡng. Thêm đường truyền thứ ba chỉ tốn một dòng cấu hình ưu tiên.
+1. **Hai nguồn dữ liệu có trọng tài tường minh.** Mỗi ô telemetry khai nguồn phát bằng chấm màu, và bảng tra cứu chuyển xám khi dữ liệu quá hạn — nên một trường đứng yên vì hỏng phân biệt được với một trường đứng yên vì đại lượng không đổi; phần mềm tự tính sai lệch vị trí giữa hai nguồn và cảnh báo khi vượt ngưỡng. Thêm đường truyền thứ ba chỉ tốn một dòng cấu hình ưu tiên.
 2. **Phân loại suy giảm theo hậu quả.** Mất nửa ROS 2 và mất telemetry cho hai màu banner khác nhau với hai thông điệp khác nhau, vì hành động tiếp theo của người vận hành là khác nhau.
 3. **"Đã gửi" không bao giờ hiển thị giống "đã làm".** Đường bay được đọc ngược từ bộ điều khiển bay rồi mới vẽ; lệnh cất cánh được đối chiếu với độ cao thực sau 6 s để bắt trường hợp lệnh bị một luồng setpoint khác đè lên; lệnh không có phản hồi trong 3 s bị ghi rõ là không có phản hồi.
 4. **Các chốt an toàn suy từ hành vi đo được của phần cứng, không từ suy đoán.** Chặn ARM khi cần ga chưa về vị trí thấp (bộ điều khiển bay không tự kiểm việc này); chặn TAKEOFF khi không ở GUIDED (ở LOITER nó chấp nhận rồi không làm gì); nút DISARM hai bậc chia theo "đang ở dưới đất hay không", xác định bằng hai nguồn độc lập chứ không suy từ độ cao tương đối.
@@ -155,7 +176,7 @@ Bốn hình này cũng cho thấy cơ chế phân loại suy giảm hoạt độ
 | **Đối chiếu sau lệnh**: đọc ngược nhiệm vụ, kiểm độ cao sau cất cánh | Có, tự động | Nạp nhiệm vụ và đọc lại được, nhưng việc đối chiếu do người vận hành chủ động làm |
 | **Chốt an toàn theo số đo của chính khung máy bay** (ngưỡng cần ga, ngưỡng cảm biến khoảng cách) | Có, tham số hoá trong mã | Dựa vào kiểm tra phía bộ điều khiển bay |
 | **Diễn tập đứt đường truyền ngay trong giao diện** | Có, chỉ ở chế độ mô phỏng | Không có sẵn |
-| **Quy mô mã có thể đọc hết** | 8 358 dòng, một người nắm được toàn bộ | Rất lớn; sửa một hành vi nhỏ tốn nhiều công tìm hiểu |
+| **Quy mô mã có thể đọc hết** | 11 933 dòng, một người nắm được toàn bộ | Rất lớn; sửa một hành vi nhỏ tốn nhiều công tìm hiểu |
 
 Phần lớn khác biệt bắt nguồn từ một điều: hai công cụ kia là phần mềm đa dụng cho mọi loại máy bay và mọi loại người dùng, còn phần mềm này viết cho đúng một cấu hình — một khung bay, một radio, một máy tính nhúng chạy ROS 2 — nên nó được phép đưa tri thức về chính cấu hình đó vào trong mã.
 
@@ -165,8 +186,8 @@ Phần lớn khác biệt bắt nguồn từ một điều: hai công cụ kia l
 |---|---|---|
 | Cả hai | **Lưu và mở lại đường bay ra file** | Nhiệm vụ hiện chỉ tồn tại trên bộ điều khiển bay hoặc trong bản nháp; nên xuất ra tệp để tái sử dụng giữa các buổi bay |
 | Cả hai | **Sửa waypoint đã đặt** (kéo thả, chèn giữa, đổi độ cao từng điểm) | Hiện chỉ thêm ở cuối và bỏ điểm cuối |
-| Mission Planner | **Cây tham số đầy đủ, có ghi** | Hiện chỉ đọc 63 tham số điều khiển; nên cho tìm kiếm và ghi tham số có xác nhận |
-| Mission Planner | **Phân tích log sau bay** (đồ thị dataflash) | Có `.tlog` nhưng chưa có công cụ đọc trực quan; hiện phải mở bằng phần mềm khác |
+| Mission Planner | **Cây tham số đầy đủ, có ghi** | Hiện chỉ **đọc** 63 tham số điều khiển, mỗi tham số kèm một dòng giải thích trong tooltip; chưa ghi được — nên cho tìm kiếm và ghi tham số có xác nhận |
+| Mission Planner | **Phân tích log sau bay** (đồ thị dataflash) | Đã làm một phần: tab Phân tích đọc `.tlog`, vẽ đồ thị trường và quỹ đạo 3D ngay trong ứng dụng. Còn thiếu log dataflash `.bin` tần số cao của chính bộ điều khiển bay — cần đào sâu thì vẫn phải mở MAVExplorer |
 | QGroundControl | **Video H.264/RTSP thay MJPEG** | MJPEG tốn khoảng 60 KB mỗi khung; nén liên khung sẽ hạ băng thông xuống nhiều lần trên đúng đường WiFi đang là nút thắt |
 | QGroundControl | **Mẫu nhiệm vụ khảo sát** (quét lưới, quét hành lang) | Sinh tự động từ một đa giác, thay vì đặt tay từng điểm |
 | QGroundControl | **Chạy trên máy tính bảng / thiết bị di động** | Hữu ích khi ra bãi bay; kiến trúc envelope hiện tại đã tách sẵn phần lõi nên khả thi |
@@ -181,12 +202,13 @@ Ngược lại, có những thứ của hai công cụ kia **không nên bắt c
 2. Hai nguồn dữ liệu đều bắt nguồn từ cùng một bộ điều khiển bay mô phỏng — phép so vị trí bắt được lỗi hệ toạ độ và lỗi đơn vị, không nói gì về độ chính xác định vị.
 3. Phiên phần cứng thật thực hiện trên bàn thử, chưa bay ngoài bãi, nên phần đối chiếu số liệu khi đang bay vẫn dựa trên mô phỏng.
 4. Chất lượng WiFi lúc đo video kém hơn hẳn ngày dựng hệ thống, nên con số fps ở đây là cận dưới.
+5. Phần bổ sung cuối mục 5 làm sau phiên chụp ảnh, mới nghiệm thu bằng bộ kiểm tự động trên widget thật, **chưa chạy lại trên mạch Pixhawk 6C** — nên các hình từ 1 đến 10 phản ánh giao diện ngày 13–14/08, không phải bố cục hiện tại.
 
 ## 9. Kết luận
 
 Giao diện vận hành trọn vẹn một chuyến bay ArduCopter qua ngăn xếp ROS 2/MAVROS, với độ trễ phản hồi lệnh dưới 1,2 s ở mọi bước và sai lệch giữa hai nguồn dữ liệu dưới 0,4 m khi bay. Giá trị thực tế của phần mềm nằm ở cách xử lý trạng thái xấu nhiều hơn ở trạng thái tốt: phân biệt hai kiểu mất kết nối theo hậu quả, đọc ngược để xác nhận thay vì tin vào lệnh đã gửi, hiện ô xám thay vì đóng băng khung hình cũ, và ghi lại mọi lệnh cùng phản hồi.
 
-So với Mission Planner và QGroundControl, phần mềm này hẹp hơn nhiều về tính năng nhưng sâu hơn ở đúng phần bài toán của mình — vận hành một máy bay có máy tính nhúng ROS 2, với các chốt an toàn suy từ hành vi đo được của chính khung bay đang dùng. Hướng phát triển tiếp theo là bổ sung những tiện ích đã chín ở hai công cụ kia (lưu/sửa nhiệm vụ, ghi tham số, phân tích log, video nén liên khung), đồng thời lặp lại toàn bộ phép đo trên radio và phần cứng bay thật.
+So với Mission Planner và QGroundControl, phần mềm này hẹp hơn nhiều về tính năng nhưng sâu hơn ở đúng phần bài toán của mình — vận hành một máy bay có máy tính nhúng ROS 2, với các chốt an toàn suy từ hành vi đo được của chính khung bay đang dùng. Hướng phát triển tiếp theo là bổ sung những tiện ích đã chín ở hai công cụ kia (lưu/sửa nhiệm vụ, ghi tham số, video nén liên khung), đồng thời lặp lại toàn bộ phép đo trên radio và phần cứng bay thật.
 
 ---
 
@@ -211,9 +233,10 @@ So với Mission Planner và QGroundControl, phần mềm này hẹp hơn nhiề
 
 Nguồn là mã nguồn, tài liệu và nhật ký đo của chính dự án; không viện dẫn tài liệu ngoài.
 
-[1] `GUI_NATIVE/README.md` — kiến trúc, ba chế độ kết nối, các bẫy đã gặp; phiên bản `7319e8a`.
+[1] `GUI_NATIVE/README.md` — kiến trúc, ba chế độ kết nối, các bẫy đã gặp; phiên bản `affa8d8`.
 [2] `GUI_NATIVE/docs/protocol.md` — đặc tả envelope, quy ước đơn vị, giao thức nạp đường bay, số đo băng thông trước đó.
 [3] `GUI_NATIVE/tools/ros2_bridge.py` — cầu nối ROS 2 → WebSocket, cấu hình QoS, cơ chế chốt `/gcs/authority`.
 [4] `GUI_NATIVE/docs/doi_chieu_gcs.md` — đối chiếu số liệu với MAVProxy trên cùng luồng gói tin (07/08/2026); mục 7 ghi lại quá trình thử Mission Planner trên Linux.
 [5] `GUI_NATIVE/docs/setup_pi5.md` — dựng máy chủ MJPEG trên Pi 5 và các phép đo fps/băng thông ngày 06/08/2026.
 [6] Nhật ký phiên 13/08/2026: `logs/commands.log`, `logs/*.tlog`, `baocao/anh/so_do.json`, kết quả `tools/selfcheck.py` và `tools/measure_bandwidth.py`.
+[7] Phần bổ sung 19–23/08/2026: các commit `c9b350c`…`affa8d8`, nghiệm thu bằng `tools/selfcheck.py` (38/38 đạt).
