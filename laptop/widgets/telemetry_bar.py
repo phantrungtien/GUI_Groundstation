@@ -13,14 +13,15 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QLabel
 
 from core import i18n
 from core.i18n import t
+from laptop import theme
 
-SRC_COLOR = {"sik": "#27ae60", "remote": "#3498db", None: "#7f8c8d"}
+SRC_COLOR = {"sik": theme.OK, "remote": theme.INFO, None: theme.MUTED}
 
 # Mau theo muc do cua chinh gia tri. "crit" khong phai luc nao cung la HONG —
 # o ARM no la "canh quat co the quay", mot trang thai binh thuong nhung tuyet doi
 # khong duoc lot mat.
-LEVEL_COLOR = {None: "#dcdcdc", "warn": "#f39c12", "crit": "#e74c3c"}
-UNKNOWN_COLOR = "#7f8c8d"
+LEVEL_COLOR = {None: theme.TEXT, "warn": theme.WARN, "crit": theme.CRIT}
+UNKNOWN_COLOR = theme.MUTED
 
 # --- NUM CHINH ------------------------------------------------------------
 # Nguong pin tinh theo PHAN TRAM FC bao, khong theo dien ap. Dien ap mot minh
@@ -93,7 +94,13 @@ def gps_level(fix, sats=None, hdop=None):
 class TelemetryBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background:rgba(20,23,25,210);border:1px solid #3a3f44;")
+        # QLabel trong suot: khong co dong nay thi moi o bi nen QWidget chung
+        # to de len, thanh ra mot day mieng vuong thay vi mot tam kinh lien.
+        self.setStyleSheet(
+            f"QFrame{{background:{theme.SURFACE};border:1.5px solid {theme.DIVIDER};"
+            f"border-radius:{theme.RADIUS_PANEL}px;}}"
+            "QLabel{background:transparent;border:none;}"
+        )
         grid = QGridLayout(self)
         grid.setContentsMargins(10, 6, 10, 6)
         grid.setHorizontalSpacing(18)
@@ -101,7 +108,7 @@ class TelemetryBar(QFrame):
         self._val, self._dot, self._name = {}, {}, {}
         for col, (key, unit) in enumerate(CELLS):
             name = QLabel()
-            name.setStyleSheet("color:#8a9199;font-size:10px;")
+            name.setStyleSheet(f"color:{theme.MUTED};font-size:10px;")
             self._name[key] = name
             dot = QLabel("●")
             val = QLabel("--")
@@ -135,4 +142,4 @@ class TelemetryBar(QFrame):
         val.setStyleSheet(f"font-size:16px;font-weight:bold;color:{color};")
         val.setToolTip(tip)
         dot.setToolTip(tip)
-        dot.setStyleSheet(f"color:{SRC_COLOR.get(src, '#7f8c8d')};font-size:11px;")
+        dot.setStyleSheet(f"color:{SRC_COLOR.get(src, theme.MUTED)};font-size:11px;")

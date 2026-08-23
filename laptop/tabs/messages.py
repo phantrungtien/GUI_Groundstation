@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from core import bus
 from core import i18n
 from core.i18n import t
+from laptop import theme
 
 # MAV_SEVERITY
 SEVERITY = {
@@ -28,8 +29,8 @@ SEVERITY = {
     4: "WARNING", 5: "NOTICE", 6: "INFO", 7: "DEBUG",
 }
 SEV_COLOR = {
-    0: "#ff5252", 1: "#ff5252", 2: "#ff7043", 3: "#ff7043",
-    4: "#ffb300", 5: "#dcdcdc", 6: "#dcdcdc", 7: "#8a9199",
+    0: theme.CRIT, 1: theme.CRIT, 2: "#ff8a5c", 3: "#ff8a5c",
+    4: theme.WARN, 5: theme.TEXT, 6: theme.TEXT, 7: theme.MUTED,
 }
 # Bay dai vo han se an het RAM trong chuyen bay dai — chuyen do soak test do duoc.
 MAX_ROWS = 2000
@@ -58,7 +59,7 @@ class MessagesTab(QWidget):
         self.clear_btn = QPushButton()
         self.clear_btn.clicked.connect(self._clear)
         self.count = QLabel("0")
-        self.count.setStyleSheet("color:#8a9199;")
+        self.count.setStyleSheet(f"color:{theme.MUTED};")
 
         self.list = QListWidget()
         self.list.setWordWrap(True)
@@ -116,7 +117,7 @@ class MessagesTab(QWidget):
 
         stamp = time.strftime("%H:%M:%S", time.localtime(env["ts"]))
         item = QListWidgetItem(f"{stamp}  [{SEVERITY.get(sev, sev)}]  {text}")
-        item.setForeground(QColor(SEV_COLOR.get(sev, "#dcdcdc")))
+        item.setForeground(QColor(SEV_COLOR.get(sev, theme.TEXT)))
         item.setData(Qt.UserRole, sev)
         item.setHidden(sev > self._threshold())
 

@@ -25,8 +25,9 @@ from core import bus
 from core.adapters.sik import STALE
 from core import i18n, param_doc
 from core.i18n import t
+from laptop import theme
 
-STALE_COLOR = "#7f8c8d"
+STALE_COLOR = theme.MUTED
 
 # Tham so tinh chinh (PID). FC KHONG tu gui tham so — phai hoi tung cai. Hoi ca
 # 1431 cai thi chiem duong truyen vai chuc giay, nen chi hoi dung nhom nay.
@@ -81,7 +82,7 @@ class StatusTab(QWidget):
         self.btn_pid.clicked.connect(self.read_pid)
         self.btn_pid.setEnabled(False)
         self.count = QLabel()
-        self.count.setStyleSheet("color:#8a9199;")
+        self.count.setStyleSheet(f"color:{theme.MUTED};")
         self.adapter = None
 
         self.model = QStandardItemModel(0, 2, self)
@@ -231,5 +232,5 @@ class StatusTab(QWidget):
         for key, row in self._rows.items():
             stale = now - self._seen.get(key, 0) > STALE
             self.model.item(row, 1).setForeground(
-                QColor(STALE_COLOR) if stale else QColor("#dcdcdc")
+                QColor(STALE_COLOR) if stale else QColor(theme.TEXT)
             )

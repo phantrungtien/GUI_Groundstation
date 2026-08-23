@@ -20,6 +20,8 @@ from PySide6.QtCore import QObject, QPoint, QPointF, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QWidget
 
+from laptop import theme
+
 # Tran so waypoint la mot con so cua GIAO THUC (bang thong SiK), khong phai cua
 # ban do — lay tu adapter chu khong go lai o day.
 from core.adapters.sik import WP_MAX
@@ -58,30 +60,30 @@ FETCH_PAUSE = 0.1  # giay giua hai lan tai — lich su voi may chu
 OFFLINE_AFTER = 5  # bay nhieu lan lien tiep thi coi nhu mat mang, nghi mot lat
 OFFLINE_NAP = 30.0
 
-GRID = QColor(45, 52, 58)
-BG = QColor(26, 29, 32)
-TRAIL = QColor(52, 152, 219)
-DRONE = QColor(46, 204, 113)
+GRID = QColor("#1e2c38")
+BG = QColor(theme.BG_DEEP)
+TRAIL = QColor(theme.INFO)
+DRONE = QColor(theme.OK)
 # Tam giac nhon chi huong mui, kieu QGroundControl. Toa do o he "mui len tren"
 # (truc y man hinh huong xuong, nen mui la y am); ve xong moi xoay theo heading.
 # Dai hon rong: cai lam nguoi ta doc ra huong tu mot cai liec la ti le do, khong
 # phai kich thuoc.
 DRONE_SHAPE = ((0, -13), (7, 8), (-7, 8))
-HOME = QColor(241, 196, 15)
-TEXT = QColor(130, 140, 150)
-FENCE_IN = QColor(230, 126, 34)    # vung duoc phep bay
-FENCE_OUT = QColor(192, 57, 43)    # vung cam vao
+HOME = QColor(theme.WARN)
+TEXT = QColor(theme.MUTED)
+FENCE_IN = QColor("#e8913c")       # vung duoc phep bay
+FENCE_OUT = QColor(theme.CRIT)     # vung cam vao
 # Rao dang TAT ve dut net, nhung phai SANG: xam toi thi chim han vao anh ve tinh
 # va "rao dang tat" nhin y het "khong co rao" — hai chuyen rat khac nhau.
-FENCE_OFF = QColor(210, 218, 226)
+FENCE_OFF = QColor("#d6e0e8")
 # Duong bay da nap. Mau phai khac han vet bay (xanh duong): mot cai la KE HOACH,
 # cai kia la thu drone DA bay qua — nhin nham hai thu nay la hieu sai man hinh.
-WP_LINE = QColor(155, 89, 182)
-WP_NOW = QColor(236, 240, 241)  # waypoint dang bay toi
+WP_LINE = QColor("#a96fd6")
+WP_NOW = QColor("#ffffff")  # waypoint dang bay toi
 # Duong bay DANG DAT tren man hinh, chua nap len FC. Cung ho mau voi duong bay
 # that (cung la mot ke hoach) nhung nhat va dut net: dat xong ma tuong da nap
 # roi la cat canh voi mot nhiem vu cu nam trong FC.
-WP_DRAFT = QColor(208, 168, 235)
+WP_DRAFT = QColor("#d0a8eb")
 DRAFT_ALT = 20.0  # met so voi home, cho waypoint dat bang chuot. Doi o menu ban do.
 
 # MAV_CMD_NAV_FENCE_* — dinh da giac va tam vong tron

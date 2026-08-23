@@ -23,9 +23,10 @@ from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from core import i18n
 from core.i18n import t
+from laptop import theme
 
 
-def _hint(text, color="#8a939b"):
+def _hint(text, color=theme.MUTED):
     lbl = QLabel(text)
     lbl.setWordWrap(True)
     lbl.setStyleSheet(f"color:{color};")
@@ -45,7 +46,7 @@ class LinkFaults(QWidget):
         self.ros2_box = QGroupBox()
         r = QVBoxLayout(self.ros2_box)
         r.addWidget(self.cut_remote)
-        self.ros2_hint = _hint("", "#e59866")
+        self.ros2_hint = _hint("", theme.WARN)
         r.addWidget(self.ros2_hint)
 
         self.cut_sik = QCheckBox()
@@ -53,7 +54,7 @@ class LinkFaults(QWidget):
         self.sik_box = QGroupBox()
         s = QVBoxLayout(self.sik_box)
         s.addWidget(self.cut_sik)
-        self.sik_hint = _hint("", "#e74c3c")
+        self.sik_hint = _hint("", theme.CRIT)
         s.addWidget(self.sik_hint)
 
         self.both_hint = _hint("")

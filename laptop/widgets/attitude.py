@@ -10,11 +10,15 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
-SKY = QColor(52, 122, 183)
-GROUND = QColor(120, 85, 52)
-LINE = QColor(235, 240, 245)
-FRAME = QColor(120, 130, 140)
-MARK = QColor(241, 196, 15)
+from laptop import theme
+
+SKY = QColor("#4b91d5")
+# Dat giu mau nau chu khong doi sang xanh la: tren nen ban do ve tinh (cung xanh
+# la) thi nua duoi cua chan troi phai khac han, khong duoc lan.
+GROUND = QColor("#7a5534")
+LINE = QColor(theme.TEXT)
+FRAME = QColor(theme.BORDER_HI)
+MARK = QColor("#ffe04b")  # ky hieu may bay — vang, mau duy nhat khong dung o cho khac
 
 PX_PER_DEG = 2.2  # do dich cua duong chan troi tren moi do pitch
 

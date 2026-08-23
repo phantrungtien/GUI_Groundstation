@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from core import i18n
 from core.i18n import t
+from laptop import theme
 
 
 class SettingsTab(QWidget):
@@ -39,7 +40,7 @@ class SettingsTab(QWidget):
 
         self.note = QLabel()
         self.note.setWordWrap(True)
-        self.note.setStyleSheet("color:#8a939b;")
+        self.note.setStyleSheet(f"color:{theme.MUTED};")
 
         lay = QVBoxLayout(self)
         lay.addWidget(self.box)

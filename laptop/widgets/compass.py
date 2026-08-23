@@ -7,10 +7,13 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
-BG = QColor(20, 23, 25, 210)
-RING = QColor(120, 130, 140)
-TICK = QColor(200, 210, 220)
-NEEDLE = QColor(231, 76, 60)
+from laptop import theme
+
+BG = QColor(theme.SURFACE)
+BG.setAlpha(215)
+RING = QColor(theme.BORDER_HI)
+TICK = QColor(theme.TEXT_DIM)
+NEEDLE = QColor(theme.ACCENT)  # huong bac + mui bay
 
 
 class Compass(QWidget):

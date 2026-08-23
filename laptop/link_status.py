@@ -11,9 +11,10 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 
 from core.adapters.sik import STALE
 from core.i18n import t
+from laptop import theme
 
-ALIVE, DEAD = "#27ae60", "#7f8c8d"
-WARN = "#e67e22"
+ALIVE, DEAD = theme.OK, theme.MUTED
+WARN = theme.WARN
 # Tren 5% mat goi thi doi mau. Duong SiK khoe do duoc 0,0% (13/08/2026, 30s tren
 # radio that); vai phan tram la con song nhung da bat dau an mon, va do la luc
 # nguoi bay can biet — chu khong phai luc no ve 0.
@@ -78,5 +79,5 @@ class LinkStatus(QWidget):
             else:
                 text = t("link.dead", sec=now - seen)
             self._info[src].setText(text)
-            color = DEAD if not alive else (WARN if loss >= WARN_LOSS else "#ddd")
+            color = DEAD if not alive else (WARN if loss >= WARN_LOSS else theme.TEXT_DIM)
             self._info[src].setStyleSheet(f"color:{color};")

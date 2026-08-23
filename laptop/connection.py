@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from core import i18n
 from core.i18n import t
+from laptop import theme
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "connections.yaml"
@@ -34,16 +35,8 @@ CONFIG = ROOT / "config" / "connections.yaml"
 # (COM3 khong noi gi ve loai chip), VID thi giong nhau moi he dieu hanh.
 BRIDGE_VIDS = {0x0403, 0x10c4, 0x1a86, 0x067b}
 
-MODE_COLOR = {
-    "REAL": "#b03a2e",
-    "SIM": "#1f618d",
-    "REPLAY": "#5d6d7e",
-    None: "#33383d",  # chua chon nguon
-    "WAIT": "#b9770e",  # da mo nguon nhung chua co byte nao ve
-    "DEGRADED": "#8e44ad",  # mat nua ROS2, SiK con — suy giam chuc nang
-    "LOST": "#e74c3c",  # mat SiK — mat duong cuu sinh, nang nhat
-    "CLOSING": "#c0392b",  # dang ARM ma bam dong cua so
-}
+# Tam mau nam o theme.MODE_COLOR — xem chu thich ve tinh phan biet o do.
+MODE_COLOR = theme.MODE_COLOR
 # Chu thich mode nam trong bang chu (core/i18n.py) duoi key "mode.<MODE>".
 
 
@@ -193,7 +186,7 @@ class ConnectionPanel(QWidget):
 
         self.hint = QLabel()
         self.hint.setWordWrap(True)
-        self.hint.setStyleSheet("color:#8a9199;")
+        self.hint.setStyleSheet(f"color:{theme.MUTED};")
 
         row = QHBoxLayout()
         row.addWidget(self.btn_connect)

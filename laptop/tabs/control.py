@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 from core import authority, bus, i18n
 from core.field import REGISTRY, STALE
 from core.i18n import t
+from laptop import theme
 
 MODES = ["STABILIZE", "ALT_HOLD", "LOITER", "GUIDED", "AUTO", "POSHOLD", "BRAKE"]
 
@@ -61,14 +62,7 @@ CONFIRM_S = 3.0  # cua so bam lai de xac nhan TAKEOFF o che do REAL
 # dung: RNGFND1_TYPE = 24, dai 5-400 cm. Doi cam bien thi xem lai con so nay.
 RNG_GROUND_CM = 100
 
-RED_QSS = """
-QPushButton {
-    background:#b03a2e; color:#fff; font-size:15px; font-weight:bold;
-    padding:16px 8px; border:1px solid #7b2318;
-}
-QPushButton:hover { background:#c0392b; }
-QPushButton:disabled { background:#4a2a25; color:#8a7a76; }
-"""
+RED_QSS = theme.danger_button()
 
 
 class ControlTab(QWidget):
@@ -129,7 +123,7 @@ class ControlTab(QWidget):
         mg = QGridLayout(self.mission_box)
         self._mission_running = None  # node dang chay, de dich lai khi doi ngon ngu
         self.mission_now = QLabel()
-        self.mission_now.setStyleSheet("color:#8a939b;")
+        self.mission_now.setStyleSheet(f"color:{theme.MUTED};")
         mg.addWidget(self.mission_now, 0, 0)
         bus.on("mission", self._on_mission_state)
 
@@ -176,7 +170,7 @@ class ControlTab(QWidget):
 
         self.note = QLabel()
         self.note.setAlignment(Qt.AlignCenter)
-        self.note.setStyleSheet("color:#e59866;")
+        self.note.setStyleSheet(f"color:{theme.WARN};")
 
         lay = QVBoxLayout(self)
         lay.addWidget(normal)
@@ -313,11 +307,11 @@ class ControlTab(QWidget):
             key = next((k for k, n in MISSIONS if n == running), None)
             self.mission_now.setText(
                 t("ctl.mission_run", nice=t(key) if key else running, node=running))
-            self.mission_now.setStyleSheet("color:#e59866;font-weight:bold;")
+            self.mission_now.setStyleSheet(f"color:{theme.WARN};font-weight:bold;")
         else:
             self.mission_now.setText(
                 t("ctl.mission_idle") if running == "" else t("ctl.mission_none"))
-            self.mission_now.setStyleSheet("color:#8a939b;")
+            self.mission_now.setStyleSheet(f"color:{theme.MUTED};")
 
     def _cmd(self, action, args=None):
         r = authority.dispatch({"target": "sik", "action": action, "args": args or {}})

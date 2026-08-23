@@ -16,6 +16,7 @@ from core import authority, bus
 from core.adapters.sik import WP_MAX
 from core.field import REGISTRY
 from core.i18n import t
+from laptop import theme
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
 from laptop.widgets.map_widget import MapWidget
@@ -84,7 +85,8 @@ class FlightTab(QWidget):
         self.warn = QLabel(self)
         self.warn.setAlignment(Qt.AlignCenter)
         self.warn.setStyleSheet(
-            "background:rgba(192,57,43,220);color:#fff;font-weight:bold;padding:5px;"
+            f"background:{theme.CRIT};color:{theme.BG_DEEP};font-weight:bold;"
+            f"padding:5px;border-radius:{theme.RADIUS}px;"
         )
         self.warn.hide()
 
