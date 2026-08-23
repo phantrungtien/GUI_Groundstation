@@ -96,13 +96,54 @@ def letterbox(img, size=640, pad=114):
     return out, r, dx, dy
 
 
-def decode(raw, r, dx, dy, w, h, conf_min, iou_nms, max_box_frac=0.25):
-    """[1, 4+nc, 8400] -> [(x1, y1, x2, y2, ten_lop, diem)] tren toa do anh goc.
+def _ghim(bx, by, bx2, by2, w, h, max_box_frac):
+    """Cat hop ve trong khung va vut hop qua to. None = bo hop nay.
 
-    Xuat voi nms=False nen NMS phai lam o day. 8400 hop la 80x80 + 40x40 +
-    20x20 o luoi ba tang; gan het la rac diem ~0, loc nguong TRUOC roi moi NMS
-    thi nhanh hon hai bac.
+    Cat ve trong khung: hop trum ra ngoai mep anh la binh thuong (vat bi cat boi
+    mep), nhung ve ra ngoai thi OpenCV im lang bo net.
+
+    VUT HOP QUA TO. Cung luat `max_blob_frac` ma fire_detector ben firedrop_sim
+    dung, va vi cung mot ly do da do duoc: diem "Fire" CAO NHAT cua ca mot chuyen
+    bay la 0.607 tren mot khung phu kin man hinh nen be tong xam, luc drone da dau
+    va camera nhin canh quat cua chinh no. Dam chay THAT trong cung chuyen do chi
+    duoc 0.25. Ha nguong de thay dam chay ma khong co luat nay thi thu duy nhat
+    GUI hien ra la cai dam chay khong ton tai, voi diem cao gap doi dam chay that.
     """
+    x1, y1 = max(0, int(bx)), max(0, int(by))
+    x2, y2 = min(w - 1, int(bx2)), min(h - 1, int(by2))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    if (x2 - x1) * (y2 - y1) > max_box_frac * w * h:
+        return None
+    return x1, y1, x2, y2
+
+
+def decode(raw, r, dx, dy, w, h, conf_min, iou_nms, max_box_frac=0.25):
+    """Dau ra YOLO -> [(x1, y1, x2, y2, lop, diem)] tren toa do anh goc.
+
+    Nhan HAI dang, phan biet bang shape chu khong bang co dat co:
+
+      [1, 4+nc, 8400]  xuat nms=False — NMS phai lam o day
+      [1, N, 6]        xuat nms=True  — x1,y1,x2,y2,diem,lop, da loc trung roi
+
+    8400 hop la 80x80 + 40x40 + 20x20 o luoi ba tang; gan het la rac diem ~0,
+    loc nguong TRUOC roi moi NMS thi nhanh hon hai bac.
+    """
+    # Model da co NMS ben trong. KHONG chay NMS lan hai: no khong lam sach hon,
+    # chi ton thoi gian va an mat may hop nam sat nhau ma lan dau da co y giu.
+    if raw.ndim == 3 and raw.shape[2] == 6:
+        out = []
+        for x1, y1, x2, y2, score, cls in raw[0]:
+            if score < conf_min:
+                continue  # [1,300,6] dem du 300 cho, cho thua lap day bang diem 0
+            # Toa do o he 640 DA letterbox — phai go dem roi chia ti le, giong
+            # het nhanh duoi. Quen buoc nay thi hop van hien, chi la lech deu.
+            g = _ghim((x1 - dx) / r, (y1 - dy) / r, (x2 - dx) / r, (y2 - dy) / r,
+                      w, h, max_box_frac)
+            if g:
+                out.append((*g, int(cls), float(score)))
+        return out
+
     p = raw[0].T                      # [8400, 4+nc]
     scores = p[:, 4:]
     best = scores.max(axis=1)
@@ -123,22 +164,9 @@ def decode(raw, r, dx, dy, w, h, conf_min, iou_nms, max_box_frac=0.25):
     out = []
     for i in np.array(idx).flatten():
         bx, by, bwi, bhi = boxes[i]
-        # Cat ve trong khung: hop trum ra ngoai mep anh la binh thuong (ngon lua
-        # bi cat boi mep), nhung ve ra ngoai thi OpenCV im lang bo net.
-        x1, y1 = max(0, int(bx)), max(0, int(by))
-        x2, y2 = min(w - 1, int(bx + bwi)), min(h - 1, int(by + bhi))
-        if x2 <= x1 or y2 <= y1:
-            continue
-        # VUT HOP QUA TO. Cung luat `max_blob_frac` ma fire_detector ben
-        # firedrop_sim dung, va vi cung mot ly do da do duoc: diem "Fire" CAO
-        # NHAT cua ca mot chuyen bay la 0.607 tren mot khung phu kin man hinh
-        # nen be tong xam, luc drone da dau va camera nhin canh quat cua chinh
-        # no. Dam chay THAT trong cung chuyen do chi duoc 0.25. Ha nguong de
-        # thay dam chay ma khong co luat nay thi thu duy nhat GUI hien ra la cai
-        # dam chay khong ton tai, voi diem cao gap doi dam chay that.
-        if (x2 - x1) * (y2 - y1) > max_box_frac * w * h:
-            continue
-        out.append((x1, y1, x2, y2, int(cls[i]), float(best[i])))
+        g = _ghim(bx, by, bx + bwi, by + bhi, w, h, max_box_frac)
+        if g:
+            out.append((*g, int(cls[i]), float(best[i])))
     return out
 
 
@@ -204,17 +232,29 @@ class FireTracker:
     """
 
     def __init__(self, model_path, conf=0.35, iou_nms=0.45, max_box_frac=0.25,
-                 providers=None):
+                 providers=None, threads=0, confirm_hits=2, max_miss=5):
         import onnxruntime as ort
 
+        # `threads`: do tren Pi5/yolov8n-640 — 1 luong 542ms, 2 luong 347ms,
+        # 4 luong 426ms. Bon luong CHAM hon hai vi con camera va nen JPEG cung
+        # dang an core. De 0 la giao cho onnxruntime tu chon (may khac may khac).
+        opt = ort.SessionOptions()
+        if threads:
+            opt.intra_op_num_threads = threads
         self.sess = ort.InferenceSession(
-            str(model_path), providers=providers or ["CPUExecutionProvider"]
+            str(model_path), opt, providers=providers or ["CPUExecutionProvider"]
         )
         self.inp = self.sess.get_inputs()[0].name
         self.size = self.sess.get_inputs()[0].shape[2] or 640
         self.conf, self.iou_nms, self.max_box_frac = conf, iou_nms, max_box_frac
         self.names = self._names()
-        self.tracker = Tracker()
+        # confirm_hits/max_miss dem theo KHUNG SUY DIEN, khong theo giay. Chay
+        # moi khung o 15 fps thi max_miss=5 la 1/3 giay; chay o 2,4 fps (yolov8n
+        # tren CPU Pi) thi cung con so do thanh HAI GIAY hop ma o do khong con
+        # gi — dung cai loi "ve thu khong ton tai" ma file nay chong. Nen ai goi
+        # o nhip cham phai ha xuong, xem mjpeg_server.py.
+        self.tracker = Tracker(confirm_hits=confirm_hits, max_miss=max_miss)
+        self.tracks = []  # vet da xac nhan cua lan suy dien GAN NHAT
         self.ms = 0.0  # thoi gian suy dien khung cuoi, de hien len HUD
 
     def _names(self):
@@ -240,19 +280,29 @@ class FireTracker:
         h, w = img.shape[:2]
         dets = decode(raw, r, dx, dy, w, h, self.conf, self.iou_nms, self.max_box_frac)
         self.ms = (time.monotonic() - t0) * 1000.0
-        return self.tracker.update(dets)
+        self.tracks = self.tracker.update(dets)
+        return self.tracks
 
     def draw(self, img):
         """Suy dien roi ve TAI CHO len `img`. Tra ve so vet dang bam."""
-        tracks = self.infer(img)
-        for t in tracks:
+        self.infer(img)
+        return self.draw_cached(img)
+
+    def draw_cached(self, img):
+        """Ve cac vet CUA LAN SUY DIEN GAN NHAT, khong chay model.
+
+        Tach ra vi tren Pi mot lan suy dien mat ~410 ms con khung hinh ve moi
+        ~67 ms: goi `draw()` tung khung la keo ca luong video xuong 2,4 fps.
+        Luong YOLO chay rieng, con day chi ve lai cai no vua tim duoc.
+        """
+        for t in self.tracks:
             name = self.names.get(t.cls, f"lop{t.cls}")
             color = COLORS.get(name, COLOR_OTHER)
             x1, y1, x2, y2 = t.box
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
             _nhan(img, f"#{t.id} {name} {t.score:.2f}", x1, y1, color)
-        _hud(img, f"{len(tracks)} vet | {self.ms:.0f} ms")
-        return len(tracks)
+        _hud(img, f"{len(self.tracks)} vet | {self.ms:.0f} ms")
+        return len(self.tracks)
 
 
 def _nhan(img, text, x, y, color):
@@ -303,6 +353,28 @@ def demo(model=None):
     # cung hop do nhung tat luat (frac 1.0) thi phai ra - de chac la bi vut
     # VI QUA TO, khong phai vi mot loi hinh hoc nao khac
     assert len(decode(to, r, dx, dy, 640, 480, 0.35, 0.45, max_box_frac=1.0)) == 1
+
+    # DANG THU HAI: model xuat kem NMS -> [1, N, 6] = x1,y1,x2,y2,diem,lop.
+    # Cung mot hop, cung ket qua nhu nhanh tren — neu hai nhanh ra khac nhau thi
+    # doi model se lam hop lech ma khong ai doi nghi vao decode().
+    nms = np.zeros((1, 3, 6), np.float32)
+    nms[0, 0] = [288, 288, 352, 352, 0.9, 0]  # he 640 da letterbox
+    nms[0, 1] = [288, 288, 352, 352, 0.0, 0]  # cho thua: [1,300,6] luon dem du 300
+    nms[0, 2] = [0, 0, 640, 640, 0.99, 1]     # phu kin khung -> phai bi vut vi qua to
+    (x1, y1, x2, y2, cls, score), = decode(nms, r, dx, dy, 640, 480, 0.35, 0.45)
+    assert (x1, y1, x2, y2) == (288, 208, 352, 272), (x1, y1, x2, y2)
+    assert cls == 0 and abs(score - 0.9) < 1e-6
+
+    # draw_cached: chay moi khung hinh nen mot loi ten bien o day lam CHET
+    # luong doc camera va video dung han — da xay ra that. Goi duoc no ma khong
+    # can .onnx bang cach muon ham cho mot vat gia du thuoc tinh.
+    class _Gia:
+        names, ms = {0: "Fire"}, 12.3
+        tracks = [Track(1, (10, 10, 50, 50), 0, 0.9)]
+    _Gia.draw_cached = FireTracker.draw_cached
+    anh = np.zeros((120, 160, 3), np.uint8)
+    assert _Gia().draw_cached(anh) == 1
+    assert anh.any(), "phai ve duoc hop len anh, khong duoc de anh den"
 
     assert abs(iou((0, 0, 10, 10), (0, 0, 10, 10)) - 1.0) < 1e-9
     assert iou((0, 0, 10, 10), (20, 20, 30, 30)) == 0.0

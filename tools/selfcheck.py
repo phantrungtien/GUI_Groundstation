@@ -1716,8 +1716,14 @@ def check_video(app):
     assert not src.alive, "van bao con song sau khi het khung"
     assert src.pixmap is None, "dong bang khung cuoi — phai xoa de hien o xam"
     c = view.grab().toImage().pixelColor(5, 5)
-    assert abs(c.red() - 0x25) < 12 and abs(c.blue() - 0x2C) < 12, \
-        f"mat video ma khong phai o xam: {c.getRgb()}"
+    # Doi chieu voi bang mau chu khong go cung ma hex: doi theme la doi mau o nen,
+    # nhung y nghia cua phep thu — "da xoa khung cu, dang ve o nen" — khong doi.
+    from PySide6.QtGui import QColor
+    from laptop import theme
+    bg = QColor(theme.BG)
+    assert all(abs(a - b) < 12 for a, b in
+               zip(c.getRgb()[:3], bg.getRgb()[:3])), \
+        f"mat video ma khong phai o nen: {c.getRgb()} != {bg.getRgb()[:3]}"
 
     src.stop()
     srv.shutdown()

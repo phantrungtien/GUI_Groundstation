@@ -67,6 +67,69 @@ BOUNDARY = "frame"
 _lock = threading.Lock()
 _latest = None  # JPEG byte moi nhat
 _seq = 0  # tang moi khung — de client biet co khung moi chua
+_in = _out = _bytes = 0  # dem cho dong thong ke, xem _stats_loop()
+_raw = None  # khung BGR moi nhat cho luong YOLO — xem _yolo_loop()
+
+
+def _luu(jpg):
+    """Dat JPEG moi nhat vao cho chung. CA HAI nguon deu di qua day.
+
+    Gop lai mot ham vi cai dem thong ke phai dem DU: de moi nguon tu tang _seq
+    thi them nguon thu ba la lai quen dem, va so lieu sai im lang con te hon
+    khong co so lieu.
+    """
+    global _latest, _seq, _out, _bytes
+    with _lock:
+        _latest = jpg
+        _seq += 1
+        _out += 1
+        _bytes += len(jpg)
+
+
+def _stats_loop(period, tracker=None):
+    """In nhip that moi `period` giay: nguon dua vao bao nhieu, minh nen ra bao nhieu.
+
+    Hai con so PHAI tach nhau. Gop lam mot thi tut fps khong noi duoc la camera
+    chet hay minh nghen: nguon 30 Hz ma ra 8 fps la loi ben nay; nguon 8 Hz thi
+    loi o camera/USB, sua ben nay vo ich.
+    """
+    global _in, _out, _bytes
+    while True:
+        time.sleep(period)
+        with _lock:
+            i, o, b = _in, _out, _bytes
+            _in = _out = _bytes = 0
+        yolo = f", yolo {tracker.ms:.0f} ms" if tracker is not None else ""
+        print(f"[mjpeg] nguon {i / period:5.1f} Hz  ->  nen {o / period:5.1f} fps, "
+              f"{b / period / 1024:6.0f} KB/s{yolo}", flush=True)
+
+
+def _yolo_loop(tracker):
+    """Chay model tren khung MOI NHAT, mai mai, o nhip rieng cua no.
+
+    Vi sao mot luong rieng: do tren Pi5, yolov8n-640 mat ~410 ms mot khung, con
+    camera ra khung moi ~67 ms. Suy dien ngay trong duong nen JPEG thi CA LUONG
+    VIDEO tut xuong 2,4 fps — nguoi lai mat hinh de doi cai hop. Tach ra thi
+    video giu nguyen nhip, hop cap nhat cham hon va tre toi ~410 ms.
+
+    KHONG xep hang khung: lay xong thi xoa cho. YOLO cham hon camera nen hang
+    doi se chi day len mai, va hop ve theo khung tu 5 giay truoc con te hon hop
+    cu 0,4 giay.
+    """
+    global _raw
+    while True:
+        with _lock:
+            img, _raw = _raw, None
+        if img is None:
+            time.sleep(0.005)
+            continue
+        try:
+            tracker.infer(img)
+        except Exception as e:  # noqa: BLE001
+            # Model hong hay anh la kich thuoc: keu roi chay tiep. Chet luong nay
+            # thi hop dung im mai ma video van chay — khong ai biet vi sao.
+            print(f"[track] loi suy dien: {type(e).__name__}: {e}", flush=True)
+            time.sleep(1.0)
 
 
 def _ve_hop(tracker, img):
@@ -80,7 +143,11 @@ def _ve_hop(tracker, img):
     if tracker is None:
         return img
     img = np.ascontiguousarray(img)
-    tracker.draw(img)
+    global _raw
+    with _lock:
+        if _raw is None:  # luong YOLO chua lay khung truoc — dung de no lai
+            _raw = img.copy()
+    tracker.draw_cached(img)
     return img
 
 
@@ -128,15 +195,15 @@ def grab(device, width, height, every, quality, tracker=None):
         #
         # Dem khung thi khoang cach luon la boi so cua chu ky camera, khong the co
         # phach. `cap.read()` chan theo driver nen vong nay cung khong quay tit.
+        global _in
+        _in += 1
         idx += 1
         if idx % every:
             continue
 
         ok, jpg = cv2.imencode(".jpg", _ve_hop(tracker, frame), params)
         if ok:
-            with _lock:
-                _latest = jpg.tobytes()
-                _seq += 1
+            _luu(jpg.tobytes())
 
 
 def _imgmsg_to_bgr(msg):
@@ -184,6 +251,8 @@ def grab_ros(topic, every, quality, tracker=None):
     state = {"idx": 0, "warned": False}
 
     def on_image(msg):
+        global _in
+        _in += 1
         state["idx"] += 1
         if state["idx"] % every:
             return
@@ -195,10 +264,7 @@ def grab_ros(topic, every, quality, tracker=None):
             return
         ok, jpg = cv2.imencode(".jpg", _ve_hop(tracker, img), params)
         if ok:
-            global _latest, _seq
-            with _lock:
-                _latest = jpg.tobytes()
-                _seq += 1
+            _luu(jpg.tobytes())  # _luu tu khoa lay — `_lock` KHONG tai nhap duoc
 
     rclpy.init(args=None)
     node = rclpy.create_node("mjpeg_server")
@@ -267,6 +333,8 @@ def main():
                         "Vd: --detect ~/firedrop_sim/tracking/best_nano_111_640.onnx")
     p.add_argument("--conf", type=float, default=0.35,
                    help="nguong diem cua --detect (mac dinh 0.35)")
+    p.add_argument("--stats", type=float, default=5.0,
+                   help="in nhip khung moi N giay (0 = tat)")
     a = p.parse_args()
 
     # Nap model TRUOC khi mo cong: file hong hay thieu onnxruntime thi phai chet
@@ -276,7 +344,11 @@ def main():
     if a.detect:
         from fire_tracker import FireTracker
 
-        tracker = FireTracker(a.detect, conf=a.conf)
+        # confirm_hits=1, max_miss=2: o nhip ~2,4 fps cua luong YOLO, day la
+        # "hien ngay khi thay, xoa sau ~0,8 giay khong thay". Giu mac dinh (2/5)
+        # thi phai 0,8 giay hop moi hien va 2 giay sau khi vat di hop van con.
+        tracker = FireTracker(a.detect, conf=a.conf, threads=2,
+                              confirm_hits=1, max_miss=2)
         print(f"[mjpeg] bam vet bang {a.detect} - lop {list(tracker.names.values())}",
               flush=True)
 
@@ -286,6 +358,11 @@ def main():
         target, args = grab, (a.device, a.width, a.height, max(1, a.every), a.quality,
                               tracker)
     threading.Thread(target=target, args=args, daemon=True).start()
+
+    if tracker is not None:
+        threading.Thread(target=_yolo_loop, args=(tracker,), daemon=True).start()
+    if a.stats > 0:
+        threading.Thread(target=_stats_loop, args=(a.stats, tracker), daemon=True).start()
 
     srv = ThreadingHTTPServer(("0.0.0.0", a.port), Handler)
     print(f"[mjpeg] http://0.0.0.0:{a.port}/stream", flush=True)

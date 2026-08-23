@@ -18,6 +18,7 @@ Khac tile o ba cho, va ca ba deu la cho de sai:
    khung hinh cu ma tuong drone dang o do la kieu nguy hiem nhat cua giao dien.
 """
 
+import collections
 import threading
 import time
 import urllib.error
@@ -29,6 +30,7 @@ from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from core.i18n import t
+from laptop import theme
 
 # Cong rieng cho video, khong dung chung 8765 cua duong lenh (nguyen tac 2.1).
 VIDEO_PORT = 8080
@@ -90,6 +92,7 @@ class VideoSource(QObject):
         self.note = ("vid.not_connected", {})
         self._gen = 0  # doi doi thi thread cu tu biet minh het viec
         self._last = 0.0
+        self._stamps = collections.deque(maxlen=30)  # moc thoi gian 30 khung gan nhat
 
         self._arrived.connect(self._decode)
         self._watch = QTimer(self)
@@ -111,6 +114,7 @@ class VideoSource(QObject):
         self.pixmap = None
         self.alive = False
         self.note = ("vid.not_connected", {})
+        self._stamps.clear()
         self.updated.emit()
 
     # ------------------------------------------------------------------ main thread
@@ -121,13 +125,27 @@ class VideoSource(QObject):
             self.pixmap = pm
             self.alive = True
             self._last = time.monotonic()
+            self._stamps.append(self._last)
             self.updated.emit()
+
+    @property
+    def fps(self):
+        """Nhip khung THUC SU toi noi, do ben nay chu khong hoi server.
+
+        Server bao no gui 15 fps khong noi len duoc gi: cai quyet dinh nguoi lai
+        nhin thay muot hay giat la so khung ve DEN GUI sau khi qua WiFi.
+        """
+        s = self._stamps
+        if len(s) < 2 or time.monotonic() - s[-1] > STALE_S:
+            return 0.0
+        return (len(s) - 1) / (s[-1] - s[0])
 
     def _check_stale(self):
         if self.alive and time.monotonic() - self._last > STALE_S:
             # Het khung moi. Bo khung cu di chu khong giu lai cho dep man hinh.
             self.alive = False
             self.pixmap = None
+            self._stamps.clear()
             self.note = ("vid.lost", {})
             self.updated.emit()
 
@@ -174,8 +192,8 @@ class VideoView(QWidget):
         src = self.source
 
         if src is None or not src.alive or src.pixmap is None:
-            p.fillRect(0, 0, w, h, QColor("#25292c"))
-            p.setPen(QColor("#8a939b"))
+            p.fillRect(0, 0, w, h, QColor(theme.BG))
+            p.setPen(QColor(theme.MUTED))
             # `note` la (key, kwargs), dich luc VE chu khong luc dat: khung ve lai
             # deu dan nen doi ngon ngu la dong chu tu doi theo, khoi dang ky hook.
             text = t(src.note[0], **src.note[1]) if src is not None else t("vid.no_source")
@@ -183,9 +201,15 @@ class VideoView(QWidget):
                 text += f"\n{src.url}"
             p.drawText(0, 0, w, h, Qt.AlignCenter | Qt.TextWordWrap, text)
         else:
-            p.fillRect(0, 0, w, h, QColor("#101214"))
+            p.fillRect(0, 0, w, h, QColor(theme.BG_DEEP))
             pm = src.pixmap.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             p.drawPixmap((w - pm.width()) // 2, (h - pm.height()) // 2, pm)
 
-        p.setPen(QColor("#3a3f44"))
+            # Ghi nhip khung LEN khung hinh. Video dep ma 3 fps thi van la video
+            # hong — con so phai nam ngay canh anh, khong nam o tab khac.
+            fps = src.fps
+            p.setPen(QColor(theme.WARN) if fps < 8 else QColor(theme.OK))
+            p.drawText(6, 4, w - 12, 18, Qt.AlignLeft | Qt.AlignTop, f"{fps:.1f} fps")
+
+        p.setPen(QColor(theme.BORDER))
         p.drawRect(0, 0, w - 1, h - 1)
