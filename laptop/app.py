@@ -25,27 +25,15 @@ from laptop.connection import ROOT, ConnectionPanel, ModeBanner, load_profiles
 from laptop.link_faults import LinkFaults
 from laptop.link_status import LinkStatus
 from laptop.replay_bar import ReplayBar
+from laptop.tabs.analysis import AnalysisTab
 from laptop.tabs.control import ControlTab
 from laptop.tabs.flight import FlightTab
 from laptop.tabs.messages import MessagesTab
 from laptop.tabs.settings import SettingsTab
 from laptop.tabs.status import StatusTab
 from laptop.widgets.video import VideoSource, VideoView, url_for
+from laptop.theme import QSS
 from laptop.ui.main_window_ui import Ui_MainWindow
-
-# Nen toi la chuan de facto cua GCS: ngoai nang do choi, nhin lau do moi.
-DARK = """
-QWidget { background:#232629; color:#dcdcdc; }
-QTabWidget::pane { border:1px solid #3a3f44; }
-QTabBar::tab { background:#2b2f33; padding:6px 14px; border:1px solid #3a3f44; }
-QTabBar::tab:selected { background:#3a4048; }
-QListWidget, QTableView, QTextEdit { background:#1b1e20; border:1px solid #3a3f44; }
-QPushButton { background:#3a4048; border:1px solid #4a5058; padding:5px 12px; }
-QPushButton:hover { background:#454c55; }
-QPushButton:disabled { background:#2b2f33; color:#6b7279; }
-QStatusBar { background:#1b1e20; }
-QDockWidget::title { background:#2b2f33; padding:5px; }
-"""
 
 TITLE = "GCS — ArduCopter"
 
@@ -110,6 +98,11 @@ class MainWindow(QMainWindow):
         self.ui.tabWidget.addTab(self.camera_tab, "")
         self.flight_tab.set_video_source(self.video)
 
+        # Tab Phan tich doc log tu dia, khong dinh gi toi ket noi dang chay —
+        # xem lai chuyen truoc trong luc dang cam FC cung khong sao.
+        self.analysis_tab = AnalysisTab()
+        self.ui.tabWidget.addTab(self.analysis_tab, "")
+
         self.settings_tab = SettingsTab()
         self.ui.tabWidget.addTab(self.settings_tab, "")
 
@@ -153,7 +146,9 @@ class MainWindow(QMainWindow):
         tabs = self.ui.tabWidget
         for w, key in ((self.ui.Flight, "tab.flight"), (self.ui.Status, "tab.status"),
                        (self.ui.Control, "tab.control"), (self.ui.Messages, "tab.messages"),
-                       (self.camera_tab, "tab.camera"), (self.settings_tab, "tab.settings")):
+                       (self.camera_tab, "tab.camera"),
+                       (self.analysis_tab, "tab.analysis"),
+                       (self.settings_tab, "tab.settings")):
             tabs.setTabText(tabs.indexOf(w), t(key))
         self._show_unread(self._unread)  # doi ngon ngu khong duoc nuot mat con so
         self.conn_dock.setWindowTitle(t("dock.conn"))
@@ -336,7 +331,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyleSheet(DARK)
+    app.setStyleSheet(QSS)
     i18n.load()  # phai truoc MainWindow: widget lay chu ngay trong __init__
     win = MainWindow(load_profiles())
     win.show()

@@ -94,6 +94,7 @@ STR = {
     "tab.messages": ("Thông báo", "Messages"),
     "tab.camera": ("Camera", "Camera"),
     "tab.settings": ("Cài đặt", "Settings"),
+    "tab.analysis": ("Phân tích", "Analysis"),
     "dock.conn": ("Kết nối", "Connection"),
     "dock.faults": ("Mô phỏng đứt đường truyền", "Link-loss simulation"),
 
@@ -417,4 +418,42 @@ STR = {
     "map.home_dist": ("về nhà {m:.0f} m", "{m:.0f} m to home"),
     "map.draft": ("đang đặt {n} điểm @{alt:.0f}m — CHƯA NẠP",
                   "drafting {n} point(s) @{alt:.0f}m — NOT UPLOADED"),
+
+    # --- tab Phan tich (doc .tlog) ----------------------------------------
+    "an.browse": ("Mở file...", "Open file..."),
+    "an.load": ("Đọc log", "Read log"),
+    "an.loading": ("đang đọc log...", "reading log..."),
+    "an.nothing": ("chưa đọc log nào — chọn một file rồi bấm Đọc log",
+                   "no log read yet — pick a file and press Read log"),
+    "an.summary": ("{name} — {msgs} gói · {mins:.1f} phút · {fields} field · đọc mất {sec:.1f}s",
+                   "{name} — {msgs} packets · {mins:.1f} min · {fields} fields · read in {sec:.1f}s"),
+    "an.err": ("không đọc được log: {err}", "cannot read log: {err}"),
+    "an.filter": ("lọc field, vd: BATTERY hoặc PARAM.ATC",
+                  "filter fields, e.g. BATTERY or PARAM.ATC"),
+    "an.pick_field": ("chọn một hoặc vài field bên trái để vẽ",
+                      "pick one or more fields on the left to plot"),
+    "an.normalize": ("Chuẩn hoá 0–1", "Normalise 0–1"),
+    "an.normalize_tip": (
+        "Kéo mọi đường về cùng thang 0–1 để so HÌNH DẠNG với nhau.\n"
+        "Cần khi vẽ chung các đại lượng khác đơn vị — điện áp 12 V và độ cao 30 m\n"
+        "trên cùng một trục thì đường điện áp bẹp thành một vạch.\n"
+        "Giá trị thật vẫn hiện trong chú giải.",
+        "Rescale every series to 0–1 to compare SHAPES.\n"
+        "Needed when plotting different units together — 12 V and 30 m on one axis\n"
+        "flattens the voltage into a straight line.\n"
+        "The real range still shows in the legend."),
+    "an.series_norm": ("{name}  [{lo:.6g} … {hi:.6g}]", "{name}  [{lo:.6g} … {hi:.6g}]"),
+    "an.axis_time": ("thời gian (giây từ đầu log)", "time (s from start of log)"),
+    "an.axis_value": ("giá trị", "value"),
+    "an.axis_norm": ("đã chuẩn hoá (0–1)", "normalised (0–1)"),
+
+    # --- quy dao 3D --------------------------------------------------------
+    "an.no_track": ("chưa có quỹ đạo", "no trajectory yet"),
+    "an.no_fix": ("Log này không có định vị GPS — chỉ có độ cao.\n"
+                  "FC báo lat=lon=0 khi chưa bắt được fix; vẽ ra sẽ là một\n"
+                  "đường thẳng đứng chứ không phải đường bay thật.",
+                  "This log has no GPS fix — altitude only.\n"
+                  "The FC reports lat=lon=0 before it gets a fix; drawing that\n"
+                  "would be a vertical line, not a real flight path."),
+    "an.alt_range": ("cao {lo:.1f} … {hi:.1f} m", "alt {lo:.1f} … {hi:.1f} m"),
 }

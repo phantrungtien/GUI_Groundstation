@@ -2237,6 +2237,163 @@ def check_fence_follows_fc(app):
           "ve khong do; hien rao GAN NHAT; vung cam noi nguoc lai")
 
 
+def _make_tlog():
+    """Ghi mot .tlog tam: duong xoan oc ban kinh 40 m, cao 3->25 m, kem vai PARAM.
+
+    Dinh dang .tlog dung y het cai SikAdapter ghi ra (xem sik.py): 8 byte moc
+    thoi gian micro-giay big-endian dat truoc moi khung MAVLink tho.
+    """
+    import math
+    import struct
+    import tempfile
+
+    from pymavlink.dialects.v20 import ardupilotmega as mavlink
+
+    class _Sink:
+        def __init__(self):
+            self.buf = bytearray()
+
+        def write(self, b):
+            self.buf += b
+
+    sink = _Sink()
+    mav = mavlink.MAVLink(sink, srcSystem=1, srcComponent=1)
+    path = Path(tempfile.mkdtemp()) / "xoanoc.tlog"
+    lat0, lon0 = int(10.7620 * 1e7), int(106.6600 * 1e7)
+    # 40 m theo vi do va kinh do o vi do 10.76 — chi can dung xap xi, phep thu
+    # kiem tra be ngang trong khoang 60..100 m chu khong doi tung met.
+    d_lat = 40.0 / 111320.0 * 1e7
+    d_lon = 40.0 / (111320.0 * math.cos(math.radians(10.762))) * 1e7
+
+    with open(path, "wb") as f:
+        def put(msg, t):
+            f.write(struct.pack(">Q", int(t * 1e6)) + msg.pack(mav))
+
+        t0 = 1_700_000_000.0
+        for i, name in enumerate((b"ATC_RAT_RLL_P", b"WPNAV_SPEED")):
+            put(mavlink.MAVLink_param_value_message(
+                name, 0.135 + i, mavlink.MAV_PARAM_TYPE_REAL32, 2, i), t0 + i * 0.1)
+
+        for k in range(300):
+            a = 2 * math.pi * k / 60.0
+            t = t0 + 1.0 + k * 0.1
+            put(mavlink.MAVLink_global_position_int_message(
+                int(k * 100), int(lat0 + d_lat * math.sin(a)),
+                int(lon0 + d_lon * math.cos(a)), 100000,
+                int((3.0 + 22.0 * k / 299) * 1000), 0, 0, 0, 0), t)
+            put(mavlink.MAVLink_vfr_hud_message(
+                5.0, 5.2, int(math.degrees(a)) % 360, 40,
+                3.0 + 22.0 * k / 299, 0.5), t)
+    return path
+
+
+def check_analysis(app):
+    """Tab Phan tich: doc .tlog ra chuoi thoi gian, ve do thi va quy dao 3D.
+
+    Diem dang de mat nhat khong phai viec ve, ma la log KHONG co dinh vi GPS.
+    FC bao lat=lon=0 khi chua bat duoc fix; moi log `real` trong logs/ deu vay.
+    Tron cai (0,0) do vao quy dao thi ra mot duong keo tu san bay toi giua Dai
+    Tay Duong — do that: logs/20260807-150529-sim.tlog tung ra "trai rong 16.605
+    km" cho mot chuyen bay quanh san.
+
+    Chi doc VAI log chu khong quet ca thu muc: logs/ dang co hon 120 file, doc
+    het mat vai phut va bien mot phep thu thanh mot bai chay.
+    """
+    import math
+
+    from core import logdata
+    from laptop.tabs.analysis import AnalysisTab
+
+    # --- 1. Loc lat=lon=0, kiem tra thang tren du lieu dung san ---
+    # Khong can file: dung cai bay o day la phep loc, ma phep loc thi dung mot
+    # dam diem gia la do duoc, lai khong phu thuoc vao logs/ dang co gi.
+    fake = logdata.LogData("khong-co-that.tlog")
+    fake.track = [(0.0, 0.0, 0.0, 0.0),          # chua co fix
+                  (1.0, 10.7620, 106.6600, 0.0),  # bat duoc fix
+                  (2.0, 10.7621, 106.6601, 5.0),
+                  (3.0, 0.0, 0.0, 6.0),           # mat fix giua chung
+                  (4.0, 10.7622, 106.6602, 7.0)]
+    t, e, n, u = fake.local_track()
+    assert len(e) == 3, f"loc (0,0) sai: con {len(e)} diem, cho 3"
+    assert max(max(e) - min(e), max(n) - min(n)) < 100, "van con diem (0,0) lot vao"
+    assert fake.has_fix
+
+    empty = logdata.LogData("rong.tlog")
+    empty.track = [(0.0, 0.0, 0.0, 1.0), (1.0, 0.0, 0.0, 2.0)]
+    assert not empty.has_fix, "toan diem (0,0) ma van bao co dinh vi"
+    assert empty.local_track()[1] == [], "log khong fix ma van tra ra quy dao"
+
+    # --- 2. Tu sinh mot .tlog co quy dao BIET TRUOC roi doc lai ---
+    # Khong lay file trong logs/: thu muc do dang co 295 file va phinh them sau
+    # moi chuyen bay, ma cai co quy dao ngang lai nam trong nhom file lon — quet
+    # tim thi vua cham vua phu thuoc vao hom nay may co log gi. Tu ghi mot duong
+    # xoan oc thi biet truoc dap an, va van di qua dung duong doc that.
+    made = _make_tlog()
+    d = logdata.load(made)
+    _, e, n, u = d.local_track()
+    assert len(e) > 100, f"doc lai .tlog tu sinh chi ra {len(e)} diem"
+    # Xoan oc ban kinh 40 m -> be ngang ~80 m ca hai truc, cao 3..25 m.
+    assert 60 < max(e) - min(e) < 100, f"be ngang dong sai: {max(e) - min(e):.0f} m"
+    assert 60 < max(n) - min(n) < 100, f"be ngang bac sai: {max(n) - min(n):.0f} m"
+    assert 20 < max(u) - min(u) < 25, f"do cao sai: {max(u) - min(u):.1f} m"
+    # PARAM_VALUE phai tach theo TEN tham so, khong gop chung mot duong.
+    assert "PARAM.ATC_RAT_RLL_P" in d.names(), [n for n in d.names() if "PARAM" in n]
+    assert "PARAM.WPNAV_SPEED" in d.names()
+    assert "PARAM_VALUE.param_value" not in d.names(), "tham so bi gop chung mot duong"
+    assert "VFR_HUD.alt" in d.names()
+    with_fix = d
+
+    # Doc mot file that lam phep thu khoi: dinh dang tlog cua chinh app ghi ra.
+    real = sorted((Path(__file__).resolve().parent.parent / "logs").glob("*.tlog"),
+                  key=lambda q: q.stat().st_size)
+    if real:
+        smoke = logdata.load(real[len(real) // 2], limit_seconds=30)
+        assert smoke.parsed > 0, f"khong doc noi goi nao tu {real[len(real) // 2]}"
+
+    # --- 3. Tab ve duoc that, khong chi la khong bao loi ---
+    tab = AnalysisTab()
+    tab.resize(1000, 700)
+    tab.show()
+    app.processEvents()
+    tab._loaded(with_fix)
+    app.processEvents()
+    assert tab.fields.count() > 0, "doc log xong ma danh sach field van rong"
+    assert len(tab.traj._e) > 50, "quy dao khong toi duoc widget 3D"
+
+    # Goc nhin ban dau phai xoay theo huong bay: bay thang ma nhin doc theo duong
+    # bay thi 132 m bep con vai pixel — do that tren 20260729-104857-sim.tlog.
+    ang = abs(math.degrees(tab.traj._yaw)) % 180
+    assert 5 < ang < 175, f"goc nhin ban dau nhin doc duong bay: {ang:.0f} do"
+
+    name = with_fix.names()[0]
+    for i in range(tab.fields.count()):
+        tab.fields.item(i).setSelected(tab.fields.item(i).text() == name)
+    app.processEvents()
+    assert len(tab.chart.series()) == 1, "chon mot field ma khong ra mot duong"
+
+    # Chuan hoa: hang so khong duoc chia cho 0, truc phai ve dung 0..1.
+    tab.norm.setChecked(True)
+    app.processEvents()
+    assert tab.ay.min() < 0.1 and tab.ay.max() > 0.9, (tab.ay.min(), tab.ay.max())
+
+    # Ve lai nhieu lan KHONG duoc de lai truc cu chong len truc moi.
+    for _ in range(3):
+        tab._replot()
+    app.processEvents()
+    assert len(tab.chart.axes()) == 2, f"truc bi nhan doi: {len(tab.chart.axes())}"
+
+    assert tab.traj.grab().toImage().width() > 10, "widget quy dao khong ve ra gi"
+
+    # Log khong fix: phai NOI RA chu khong ve mot duong thang dung.
+    tab._loaded(empty)
+    app.processEvents()
+    assert tab.traj._e == [] and tab.traj._note, "log khong fix ma van ve quy dao"
+
+    tab.close()
+    print(f"  ok  tab Phan tich: {len(with_fix.fields)} field tu .tlog, PARAM tach theo "
+          "ten, diem lat=lon=0 bi loc, log khong fix thi noi ra chu khong ve bua")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -2278,4 +2435,5 @@ if __name__ == "__main__":
     check_drone_marker(app)
     check_preflight_reads(app)
     check_fence_follows_fc(app)
+    check_analysis(app)
     print("selfcheck: PASS")
