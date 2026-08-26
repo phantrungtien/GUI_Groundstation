@@ -12,6 +12,7 @@ MAVROS va MAVProxy phat len cung mot duong, khong loc thi do thi tron ba nguon
 vao nhau va khong con doi chieu duoc voi tai lieu ArduPilot.
 """
 
+import bisect
 import time
 
 from pymavlink import mavutil
@@ -27,6 +28,12 @@ MAX_POINTS = 20000
 # Nhung field khong co nghia khi ve: co bit, ma so, dau thoi gian.
 SKIP_SUFFIX = ("_id", "type", "seq", "mavtype", "autopilot", "base_mode",
                "custom_mode", "time_boot_ms", "time_usec", "time_unix_usec")
+
+
+# Cua so cua che do truc tiep. Giu ca chuyen bay trong RAM thi 300 field x 50 Hz
+# se phinh khong gioi han; mot phut du de nhin mot dao dong hay mot cu sut ap, con
+# muon xem lai ca chuyen thi log da nam san trong logs/ roi.
+LIVE_WINDOW = 60.0
 
 
 def _numeric(v):
@@ -138,6 +145,96 @@ class LogData:
             n.append((lat - lat0) * m_per_deg_lat)
             u.append(alt)
         return t, e, n, u
+
+
+class LiveData(LogData):
+    """Chuoi thoi gian DANG chay, gom tu bus topic "status".
+
+    Cung names()/series()/local_track() nhu LogData, nen ben ve khong can biet
+    nguon la file hay duong truyen — do la ly do ke thua chu khong viet lop moi.
+
+    Khac LogData o hai cho: du lieu vao la dict da trai phang ("MSG.field" ->
+    so, xem flatten_status trong core/adapters/sik.py) chu khong phai msg thô,
+    va chi giu `window` giay gan nhat.
+    """
+
+    def __init__(self, window=LIVE_WINDOW):
+        super().__init__("live")
+        self.window = window
+        self.feeds = 0  # so envelope da nhan — de do nhip goi ve
+        self._rate_mark = (time.monotonic(), 0, 0.0)  # (luc do, so goi luc do, hz)
+        self._names = None  # cache cua names(), None = phai sap xep lai
+
+    def feed(self, env):
+        """Nhan mot envelope topic "status". Goi o main thread, phai re."""
+        ts = env["ts"]
+        if self.t0 is None:
+            self.t0 = ts
+        t = ts - self.t0
+        # Dong ho FC va dong ho laptop khong dong bo tuyet doi; goi den muon hon
+        # goi truoc thi t lui lai, ma chuoi lui thi bisect trong trim() sai va do
+        # thi ve nguoc. Kep lai la du: sai so vai ms, khong doc ra duoc tren man.
+        t = max(t, self.duration)
+        self.duration = t
+        self.feeds += 1
+        self.parsed += 1
+
+        for k, v in env["data"].items():
+            if k.endswith(SKIP_SUFFIX) or not _numeric(v):
+                continue
+            if k not in self.fields:
+                self._names = None  # co ten moi -> danh sach phai sap xep lai
+            self._put(k, t, float(v))
+
+        lat = env["data"].get("GLOBAL_POSITION_INT.lat")
+        lon = env["data"].get("GLOBAL_POSITION_INT.lon")
+        alt = env["data"].get("GLOBAL_POSITION_INT.relative_alt")
+        if lat is not None and lon is not None and alt is not None:
+            self.track.append((t, lat / 1e7, lon / 1e7, alt / 1000.0))
+
+    def names(self):
+        """Nhu LogData.names() nhung dung lai ket qua.
+
+        Ben ve hoi moi nhip (20 Hz), con danh sach thi hau nhu khong bao gio doi:
+        ten moi chi xuat hien khi FC bat dau gui mot message chua tung gui. sorted()
+        tren 254 ten moi 50 ms la tra tien cho mot cau tra loi khong doi.
+        """
+        if self._names is None:
+            self._names = sorted(self.fields)
+        return self._names
+
+    def trim(self):
+        """Bo diem cu hon cua so.
+
+        Goi o NHIP VE chu khong goi moi goi: mot goi cham vao vai field, con trim
+        thi phai duyet ca ~300 field — lam moi goi la 50 lan/giay duyet thua.
+        """
+        cut = self.duration - self.window
+        if cut <= 0:
+            return
+        for ts, vs in self.fields.values():
+            i = bisect.bisect_left(ts, cut)
+            if i:
+                del ts[:i]
+                del vs[:i]
+        if self.track and self.track[0][0] < cut:
+            self.track = [p for p in self.track if p[0] >= cut]
+
+    def rate(self):
+        """Goi/giay, do tren cua so it nhat 0.5 giay. 0 = duong truyen da im.
+
+        Hoi hai lan sat nhau phai ra CUNG mot so, khong duoc ra 0: hoi hai lan
+        trong mot khung hinh (ve lai + doi ngon ngu) tung lam cua so do bang ~0
+        va man hinh bao "0 goi/s" mau canh bao trong luc FC van dang gui 60 goi
+        moi giay. Nen giu lai tri da tinh chu khong tinh lai tren dt ti hon.
+        """
+        now = time.monotonic()
+        last_t, last_n, hz = self._rate_mark
+        dt = now - last_t
+        if dt >= 0.5:
+            hz = (self.feeds - last_n) / dt
+            self._rate_mark = (now, self.feeds, hz)
+        return hz
 
 
 def load(path, limit_seconds=None):

@@ -63,11 +63,19 @@ class Trajectory3D(QWidget):
 
     # ------------------------------------------------------------------ du lieu
 
-    def set_track(self, e, n, u, note=""):
-        """note: chu hien giua khung khi khong co gi de ve (vd: log khong co fix)."""
+    def set_track(self, e, n, u, note="", keep_view=False):
+        """note: chu hien giua khung khi khong co gi de ve (vd: log khong co fix).
+
+        keep_view: giu nguyen goc nhin dang co. Che do truc tiep dat lai quy dao
+        vai lan mot giay — reset_view() moi lan thi nguoi dung khong xoay noi hinh,
+        cu tha chuot ra la no bat ve goc mac dinh.
+        """
         self._e, self._n, self._u = list(e), list(n), list(u)
         self._note = note
-        self.reset_view()
+        if keep_view:
+            self.update()
+        else:
+            self.reset_view()
 
     def reset_view(self):
         self._yaw, self._pitch, self._zoom = self._auto_yaw(), math.radians(28.0), 1.0

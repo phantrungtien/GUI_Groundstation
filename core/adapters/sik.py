@@ -116,6 +116,48 @@ STREAMS = [
     (mavutil.mavlink.MAV_DATA_STREAM_EXTRA3, 1),  # AHRS, EKF, rung, pin chi tiet
 ]
 
+# Cung bay luong, nhung cho duong KHONG phai radio: cong USB CDC cua chinh FC, va
+# SITL qua tcp/udp. Ca hai deu khong bi 57600 baud chan.
+#
+# Do that 26/08/2026 tren MicoAir743 cam USB: bang STREAMS o tren cho 61 goi/s va
+# 1.8 kB/s, bang nay cho 382 goi/s va 11.8 kB/s — FC gui du dung cai duoc xin,
+# khong sut goi nao. Cai mua duoc la DO TRE: mot mau ATTITUDE tu 100 ms xuong
+# 20 ms, GLOBAL_POSITION_INT tu 333 ms xuong 50 ms.
+#
+# ponytail: van la bang co dinh chu khong do bang thong roi tu chinh. Duong USB
+# thua gap tram lan nen khong co gi de do; ngay nao chay qua duong hep hon 57600
+# thi moi can vong dieu chinh.
+STREAMS_FAST = [
+    (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 10),
+    (mavutil.mavlink.MAV_DATA_STREAM_POSITION, 20),
+    (mavutil.mavlink.MAV_DATA_STREAM_EXTRA1, 50),   # ATTITUDE
+    (mavutil.mavlink.MAV_DATA_STREAM_EXTRA2, 25),   # VFR_HUD
+    (mavutil.mavlink.MAV_DATA_STREAM_RAW_SENSORS, 10),
+    (mavutil.mavlink.MAV_DATA_STREAM_RC_CHANNELS, 10),
+    (mavutil.mavlink.MAV_DATA_STREAM_EXTRA3, 10),
+]
+
+
+def stream_table(profile):
+    """Bang stream hop voi bang thong THAT cua duong dang dung.
+
+    Truoc day chi co mot bang, chinh cho radio SiK 57600 (~4-5 kB/s). Cam thang
+    USB vao FC thi van 10 Hz ATTITUDE trong khi duong tai duoc gap tram lan — tuc
+    la tra 100 ms do tre cho mot cai chat khong ton tai tren duong do.
+
+    Khong doan tu `baud`: khuon "SiK radio" trong config/connections.yaml ep baud
+    57600 cho MOI cong quet ra, con USB CDC thi bo qua baud hoan toan. Co that de
+    doc la `bridge`, do luc quet cong theo VID cua chip cau USB-serial.
+
+    Chua biet chac thi giu bang HEP: doan nham theo huong nhanh la lam nghen mot
+    duong radio giua chuyen bay, doan nham theo huong cham thi chi la cham.
+    """
+    if ":" in str(profile.get("conn", "")):   # tcp:/udp: — SITL, khong qua radio
+        return STREAMS_FAST
+    if profile.get("bridge") is False:        # cong CDC cua chinh FC
+        return STREAMS_FAST
+    return STREAMS
+
 # Nhip xin EXTENDED_SYS_STATE. 2 Hz la du: no chi doi trang thai khi cat/ha canh,
 # va cang thua thi cang ton bang thong tren duong SiK 57600.
 LANDED_HZ = 2
@@ -773,7 +815,7 @@ class SikAdapter(QThread):
                 or now - self._stream_rx < STREAM_REARM):
             return
         self._stream_rx = now  # dat lai truoc khi gui: hong cach may cung khong ban
-        for sid, hz in STREAMS:
+        for sid, hz in stream_table(self.profile):
             master.mav.request_data_stream_send(master.target_system, AUTOPILOT, sid, hz, 1)
 
     def _wp_up_tick(self, master, now):
@@ -928,7 +970,7 @@ class SikAdapter(QThread):
                     # Xin stream rate ngay sau heartbeat dau tien (luc do moi biet
                     # target_system). REPLAY khong gui gi ca.
                     if name == "HEARTBEAT" and not streams_sent and self.mode != "REPLAY":
-                        for sid, hz in STREAMS:
+                        for sid, hz in stream_table(self.profile):
                             master.mav.request_data_stream_send(
                                 master.target_system, AUTOPILOT, sid, hz, 1
                             )

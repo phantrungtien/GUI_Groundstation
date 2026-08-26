@@ -75,6 +75,12 @@ def detect_serial(template=None):
             "mode": "REAL",
             "conn": p.device,
             "baud": template.get("baud", 57600 if bridge else 115200),
+            # Chip cau USB-serial (radio SiK) hay cong CDC cua chinh FC? Hai thu
+            # cach nhau hai bac ve bang thong, va adapter xin stream theo do —
+            # xem stream_table() trong core/adapters/sik.py. Baud KHONG noi len
+            # dieu nay: khuon "SiK radio" ep baud 57600 cho moi cong quet ra, con
+            # USB CDC thi bo qua baud hoan toan.
+            "bridge": bridge,
             "detected": True,
             # Bay 2 cua ke hoach: khong o nhom `dialout` thi mo cong that bai voi
             # mot dong loi kho hieu. Bat o day de con noi thang phai lam gi.

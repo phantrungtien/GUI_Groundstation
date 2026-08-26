@@ -1359,7 +1359,7 @@ def check_stream_rearm(app):
     ho. Khong dat thi dieu kien con dung o MOI vong lap, tuc ban 7 goi moi vong —
     hang nghin goi mot giay vao dung cai duong truyen dang co van de.
     """
-    from core.adapters.sik import STREAM_REARM, STREAMS, SikAdapter
+    from core.adapters.sik import STREAM_REARM, SikAdapter, stream_table
 
     class FakeMav:
         def __init__(self):
@@ -1383,10 +1383,14 @@ def check_stream_rearm(app):
     ad._stream_tick(master, now)
     assert master.mav.asks == [], "stream dang song ma van xin lai"
 
-    # im qua nguong -> xin lai DU ca bo, khong thieu luong nao
+    # im qua nguong -> xin lai DU ca bo, khong thieu luong nao. Doi chieu voi
+    # stream_table() chu khong voi mot bang ghim cung: profile nay la SIM qua udp
+    # nen no dung bang nhanh, va cai dang kiem o day la "xin lai du bo", khong
+    # phai "bang nao".
+    want = stream_table(ad.profile)
     ad._stream_rx = now - STREAM_REARM - 0.1
     ad._stream_tick(master, now)
-    assert master.mav.asks == [(sid, hz, 1) for sid, hz in STREAMS], master.mav.asks
+    assert master.mav.asks == [(sid, hz, 1) for sid, hz in want], master.mav.asks
 
     # goi lai ngay -> im, vi dong ho da dat lai
     master.mav.asks.clear()
@@ -1407,7 +1411,7 @@ def check_stream_rearm(app):
     assert master.mav.asks == [], "REPLAY ma van gui lenh"
 
     print(f"  ok  FC ngung stream: xin lai sau {STREAM_REARM:g}s im lang, "
-          f"{len(STREAMS)} luong, khong ban lap")
+          f"{len(want)} luong, khong ban lap")
 
 
 def check_replay(app):
@@ -2377,7 +2381,7 @@ def check_analysis(app):
     """
     import math
 
-    from core import logdata
+    from core import i18n, logdata
     from laptop.tabs.analysis import AnalysisTab
 
     # --- 1. Loc lat=lon=0, kiem tra thang tren du lieu dung san ---
@@ -2442,11 +2446,21 @@ def check_analysis(app):
     ang = abs(math.degrees(tab.traj._yaw)) % 180
     assert 5 < ang < 175, f"goc nhin ban dau nhin doc duong bay: {ang:.0f} do"
 
+    from PySide6.QtCore import Qt
+
+    def tick(text, on=True):
+        """Bam o tick cua mot field, y nhu nguoi dung."""
+        for i in range(tab.fields.count()):
+            it = tab.fields.item(i)
+            if it.text() == text:
+                it.setCheckState(Qt.Checked if on else Qt.Unchecked)
+                app.processEvents()
+                return it
+        raise AssertionError(f"khong thay field {text} trong danh sach")
+
     name = with_fix.names()[0]
-    for i in range(tab.fields.count()):
-        tab.fields.item(i).setSelected(tab.fields.item(i).text() == name)
-    app.processEvents()
-    assert len(tab.chart.series()) == 1, "chon mot field ma khong ra mot duong"
+    tick(name)
+    assert len(tab.chart.series()) == 1, "tick mot field ma khong ra mot duong"
 
     # Chuan hoa: hang so khong duoc chia cho 0, truc phai ve dung 0..1.
     tab.norm.setChecked(True)
@@ -2463,6 +2477,61 @@ def check_analysis(app):
 
     # Bo loc KHONG duoc lam mat cai dang ve: go vao o loc de tim them mot field
     # thi nhung field da chon bi an di, ma an di khong co nghia la bo chon.
+    # --- 3b. Nhieu do thi: moi cai mot danh sach field RIENG -----------------
+    # Ca cai dat de hong nhat cua tinh nang nay: tick vao do thi nay lai hien ra
+    # o do thi kia. Do la ly do co vien sang, va la ly do phep thu duoi day do
+    # tung do thi mot chu khong chi dem tong so duong.
+    tab.norm.setChecked(False)
+    app.processEvents()
+    assert len(tab.plots) == 1, "mo tab ra ma khong co san mot do thi"
+    one = tab.plot
+    tab.add_plot()
+    app.processEvents()
+    two = tab.plot
+    assert two is not one, "them do thi ma cai moi khong duoc chon"
+    assert len(one.picked) == 1 and not two.picked, (one.picked, two.picked)
+    # O tick phai the hien do thi VUA chon, khong phai cai cu.
+    assert all(tab.fields.item(i).checkState() == Qt.Unchecked
+               for i in range(tab.fields.count())), "o tick con giu field cua do thi cu"
+
+    other = [n for n in with_fix.names() if n != name][:2]
+    for n in other:
+        tick(n)
+    assert two.picked == other, two.picked
+    assert one.picked == [name], f"tick vao do thi 2 lam doi do thi 1: {one.picked}"
+    assert len(one.chart.series()) == 1 and len(two.chart.series()) == 2
+
+    # Tran duong: tick qua MAX_SERIES phai BO TICK lai va noi ra, khong duoc am
+    # tham nuot — nuot thi nguoi dung tuong minh bam hut roi bam mai.
+    from laptop.tabs.analysis import MAX_PLOTS, MAX_SERIES
+    spare = [n for n in with_fix.names() if n not in two.picked][:MAX_SERIES]
+    for n in spare:
+        tick(n)
+    assert len(two.picked) == MAX_SERIES, two.picked
+    it = tick(spare[-1] if len(spare) < MAX_SERIES else
+              [n for n in with_fix.names() if n not in two.picked][0])
+    assert it.checkState() == Qt.Unchecked, "tick qua tran ma o tick van sang"
+    assert len(two.picked) == MAX_SERIES, "tran duong khong chan duoc"
+    assert str(MAX_SERIES) in tab.where.text(), f"tran duong ma khong noi gi: {tab.where.text()}"
+
+    # Bo tick thi duong phai bien mat khoi dung do thi do.
+    tick(two.picked[0], on=False)
+    assert len(two.picked) == MAX_SERIES - 1
+    assert len(one.chart.series()) == 1, "bo tick o do thi 2 lam mat duong cua do thi 1"
+
+    # Tran so do thi, va luon con lai it nhat mot cai.
+    for _ in range(MAX_PLOTS + 3):
+        tab.add_plot()
+    app.processEvents()
+    assert len(tab.plots) == MAX_PLOTS, len(tab.plots)
+    assert not tab.btn_add.isEnabled(), "day tran roi ma nut them van bam duoc"
+    for _ in range(MAX_PLOTS + 3):
+        tab.del_plot()
+    app.processEvents()
+    assert len(tab.plots) == 1, "bot het sach do thi"
+    assert not tab.btn_del.isEnabled(), "con mot do thi ma nut bot van bam duoc"
+    assert tab.plot is tab.plots[0] and tab.plot.picked == [name], tab.plot.picked
+
     tab.filter.setText("khong-co-field-nao-ten-nhu-vay")
     app.processEvents()
     assert tab.fields.count() == 0, "bo loc rac ma van con field"
@@ -2489,10 +2558,102 @@ def check_analysis(app):
     assert tab.traj._note and "GPS" not in tab.traj._note, (
         f"file rac ma do loi cho GPS: {tab.traj._note}")
 
+    # Bang stream phai bam theo bang thong THAT cua duong, khong theo baud: khuon
+    # "SiK radio" ep baud 57600 cho moi cong quet ra, ke ca cong CDC cua FC von
+    # bo qua baud hoan toan. Doan nham theo huong nhanh = lam nghen mot duong
+    # radio giua chuyen bay, nen chua biet chac thi phai giu bang HEP.
+    from pymavlink import mavutil
+
+    from core.adapters.sik import STREAMS, STREAMS_FAST, stream_table
+    hz = dict(STREAMS)
+    hz_fast = dict(STREAMS_FAST)
+    extra1 = mavutil.mavlink.MAV_DATA_STREAM_EXTRA1
+    assert hz_fast[extra1] > hz[extra1], "bang nhanh khong nhanh hon bang hep"
+    usb = {"mode": "REAL", "conn": "/dev/ttyACM0", "baud": 57600, "bridge": False}
+    sik = {"mode": "REAL", "conn": "/dev/ttyUSB0", "baud": 57600, "bridge": True}
+    assert stream_table(usb) is STREAMS_FAST, "cong CDC cua FC van bi bop theo ngan sach SiK"
+    assert stream_table(sik) is STREAMS, "radio SiK bi xin stream nhanh -> nghen duong"
+    assert stream_table({"mode": "SIM", "conn": "tcp:127.0.0.1:5763"}) is STREAMS_FAST
+    assert stream_table({"mode": "REAL", "conn": "/dev/ttyS0"}) is STREAMS, (
+        "cong serial chua ro loai ma da xin nhanh")
+    assert stream_table({"mode": "REPLAY", "path": "x.tlog"}) is STREAMS
+
+    # Quet cong phai mang co `bridge` sang profile, khong thi stream_table() mu.
+    from laptop.connection import detect_serial
+    for prof in detect_serial({"baud": 57600, "sysid": 254}):
+        assert "bridge" in prof, f"profile quet ra thieu co bridge: {prof['name']}"
+
+    # --- 4. Che do TRUC TIEP: cung bo do thi, nguon la bus dang chay ---------
+    # Kiem lop LiveData truoc, khong qua giao dien: cua so truot va dong ho lui
+    # la hai cho de hong nhat, ma ca hai deu do duoc bang so.
+    live = logdata.LiveData(window=10.0)
+    base = time.time()
+    for i in range(300):  # 30 giay o 10 Hz, cua so 10 giay
+        bus_env = {"src": "sik", "topic": "status", "ts": base + i * 0.1,
+                   "data": {"VFR_HUD.alt": float(i),
+                            "VFR_HUD.time_boot_ms": i * 100,  # phai bi bo qua
+                            "SENSOR.gps": "ok",               # chuoi, phai bi bo qua
+                            "GLOBAL_POSITION_INT.lat": int((10.762 + i * 1e-5) * 1e7),
+                            "GLOBAL_POSITION_INT.lon": int(106.66 * 1e7),
+                            "GLOBAL_POSITION_INT.relative_alt": i * 100}}
+        live.feed(bus_env)
+    live.trim()
+
+    ts, vs = live.series("VFR_HUD.alt")
+    assert ts, "truc tiep khong giu duoc field nao"
+    span = ts[-1] - ts[0]
+    assert 9.0 <= span <= 11.0, f"cua so truot sai: giu {span:.1f}s, cho ~10s"
+    assert vs[-1] == 299.0, f"diem moi nhat khong phai diem cuoi: {vs[-1]}"
+    assert "VFR_HUD.time_boot_ms" not in live.names(), "dau thoi gian lot vao danh sach ve"
+    assert "SENSOR.gps" not in live.names(), "field chuoi lot vao danh sach ve"
+    assert live.track and live.track[0][0] >= span - 0.2, "quy dao khong bi cat theo cua so"
+    assert len(live.local_track()[1]) > 50, "truc tiep khong ra duoc quy dao"
+
+    # Nhip goi: hoi hai lan sat nhau phai ra cung mot so. Hoi hai lan trong mot
+    # khung hinh (ve lai + doi ngon ngu) tung lam cua so do bang ~0 va man hinh
+    # bao "0 goi/s" mau canh bao trong luc FC van dang gui deu.
+    live._rate_mark = (time.monotonic() - 1.0, 0, 0.0)
+    hz1 = live.rate()
+    assert hz1 > 0, f"nhan 300 goi ma bao {hz1} goi/s"
+    assert live.rate() == hz1, "hoi hai lan sat nhau ra hai so khac nhau"
+
+    # Dong ho FC va dong ho laptop khong dong bo: goi den muon hon goi truoc thi
+    # thoi gian lui lai. Chuoi lui thi bisect trong trim() cat nham va do thi ve
+    # nguoc — phai kep lai chu khong duoc tin dau thoi gian.
+    live.feed({"src": "sik", "topic": "status", "ts": base - 5.0,
+               "data": {"VFR_HUD.alt": 1000.0}})
+    ts, _ = live.series("VFR_HUD.alt")
+    assert all(a <= b for a, b in zip(ts, ts[1:])), "dong ho lui lam chuoi thoi gian lui theo"
+
+    # Qua giao dien: bat cong tac, bom vai goi qua bus THAT, roi doi mot nhip.
+    tab._loaded(with_fix)
+    app.processEvents()
+    tab.live.setChecked(True)
+    now = time.time()
+    for i in range(40):
+        bus.emit("sik", "status", {"VFR_HUD.alt": float(i % 7)}, ts=now + i * 0.1)
+    tab.plot.picked = ["VFR_HUD.alt"]
+    tab._live_tick()
+    app.processEvents()
+    assert "VFR_HUD.alt" in tab.src.names(), "goi tren bus khong toi duoc tab Phan tich"
+    assert len(tab.chart.series()) == 1, "che do truc tiep khong ve ra duong nao"
+    # `t` o day la bien cuc bo cua phep thu quy dao ben tren, khong phai i18n.t
+    assert tab.summary.text() != i18n.t("an.nothing"), "truc tiep ma van bao chua doc log"
+
+    # Doc mot file thi phai QUAY VE file do — bam "Doc log" la muon xem cai file
+    # vua chon, khong phai ngoi nhin do thi dang chay.
+    tab._loaded(with_fix)
+    app.processEvents()
+    assert not tab.live.isChecked(), "doc log xong ma van ket o che do truc tiep"
+    assert tab.src is with_fix, "doc log xong ma nguon ve khong phai file vua doc"
+
     tab.close()
     print(f"  ok  tab Phan tich: {len(with_fix.fields)} field tu .tlog, PARAM tach theo "
           "ten, diem lat=lon=0 bi loc, bo loc khong lam mat duong dang ve, log "
-          "khong fix va file khong doc duoc noi ra hai cau khac nhau")
+          "khong fix va file khong doc duoc noi ra hai cau khac nhau; che do truc "
+          f"tiep giu {span:.0f}s gan nhat tu bus va khong bi dong ho lui lam hong; "
+          f"toi {MAX_PLOTS} do thi, moi cai mot danh sach tick rieng, tran "
+          f"{MAX_SERIES} duong chan duoc va noi ra")
 
 
 if __name__ == "__main__":

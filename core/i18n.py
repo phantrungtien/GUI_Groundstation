@@ -442,8 +442,24 @@ STR = {
                       "Pick another .tlog file."),
     "an.filter": ("lọc field, vd: BATTERY hoặc PARAM.ATC",
                   "filter fields, e.g. BATTERY or PARAM.ATC"),
-    "an.pick_field": ("chọn một hoặc vài field bên trái để vẽ",
-                      "pick one or more fields on the left to plot"),
+    "an.plot_empty": ("Biểu đồ {n} — tick field bên trái để vẽ",
+                      "Chart {n} — tick fields on the left to plot"),
+    "an.where": ("Biểu đồ {n} · {k}/{max} đường", "Chart {n} · {k}/{max} series"),
+    "an.plot_full": ("Biểu đồ này đã đủ {max} đường. Bỏ tick một cái, hoặc "
+                     "thêm biểu đồ mới.",
+                     "This chart already has {max} series. Untick one, or add "
+                     "another chart."),
+    "an.add_plot": ("+ Biểu đồ", "+ Chart"),
+    "an.add_plot_tip": ("Thêm một biểu đồ nữa, tối đa {max}.\n"
+                        "Dùng khi các đại lượng khác đơn vị: điện áp 12 V vẽ chung\n"
+                        "với độ cao 30 m thì đường điện áp bẹp thành một vạch.",
+                        "Add another chart, up to {max}.\n"
+                        "Use it for different units: 12 V plotted with 30 m\n"
+                        "flattens the voltage into a straight line."),
+    "an.del_plot": ("− Biểu đồ", "− Chart"),
+    "an.del_plot_tip": ("Bỏ biểu đồ đang chọn (viền sáng). Luôn còn lại ít nhất một.",
+                        "Remove the selected chart (highlighted border). "
+                        "At least one always remains."),
     "an.normalize": ("Chuẩn hoá 0–1", "Normalise 0–1"),
     "an.normalize_tip": (
         "Kéo mọi đường về cùng thang 0–1 để so HÌNH DẠNG với nhau.\n"
@@ -455,6 +471,22 @@ STR = {
         "flattens the voltage into a straight line.\n"
         "The real range still shows in the legend."),
     "an.series_norm": ("{name}  [{lo:.6g} … {hi:.6g}]", "{name}  [{lo:.6g} … {hi:.6g}]"),
+    "an.live": ("Trực tiếp", "Live"),
+    "an.live_tip": (
+        "Vẽ thẳng từ đường truyền đang chạy thay vì từ file.\n"
+        "Giữ {sec:.0f} giây gần nhất — muốn xem lại cả chuyến thì tắt đi\n"
+        "rồi đọc file .tlog, app ghi log cho mọi chế độ.\n"
+        "Tab vẫn nghe sẵn khi đang xem file, nên bật lên là có ngay {sec:.0f} giây vừa rồi.",
+        "Plot straight from the running link instead of a file.\n"
+        "Keeps the last {sec:.0f} seconds — to review a whole flight, switch this off\n"
+        "and read the .tlog; the app logs every mode.\n"
+        "The tab listens even while showing a file, so switching on gives you\n"
+        "the last {sec:.0f} seconds right away."),
+    "an.live_summary": ("trực tiếp — {fields} field · {sec:.0f}s gần nhất · {hz:.0f} gói/s",
+                        "live — {fields} fields · last {sec:.0f}s · {hz:.0f} packets/s"),
+    "an.live_none": ("trực tiếp — chưa có gói nào: chưa kết nối, hoặc đường truyền im",
+                     "live — no packet yet: not connected, or the link is silent"),
+    "an.axis_time_live": ("thời gian (giây từ lúc mở app)", "time (s since app start)"),
     "an.axis_time": ("thời gian (giây từ đầu log)", "time (s from start of log)"),
     "an.axis_value": ("giá trị", "value"),
     "an.axis_norm": ("đã chuẩn hoá (0–1)", "normalised (0–1)"),
