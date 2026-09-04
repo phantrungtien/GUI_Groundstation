@@ -264,7 +264,21 @@ class TileFetcher(QObject):
                 self._fails = 0
                 continue
             if self._get(z, x, y):
-                self.fetched.emit()
+                # stop() chi ha co; luc no duoc ha thi thread nay co the dang nam
+                # trong _get() — urlopen cho toi 10 giay. Trong 10 giay do widget
+                # bi huy la `fetched.emit()` ban vao mot QObject da chet: PySide
+                # nem RuntimeError trong thread phu, va tien trinh do CORE DUMP,
+                # dung cai ma chu thich dau lop the la se khong xay ra.
+                #
+                # Bat duoc luc chay selfcheck 27/08/2026: mot phep thu dai o cuoi
+                # bo cho event loop chay ~2 giay, du de mot TileFetcher mo coi tu
+                # phep thu truoc ban len va giet ca bo kiem tra (exit 139).
+                if not self._running:
+                    return
+                try:
+                    self.fetched.emit()
+                except RuntimeError:
+                    return  # widget da bi huy — thread nay khong con viec gi
                 time.sleep(FETCH_PAUSE)
 
     def _get(self, z, x, y):
