@@ -48,6 +48,7 @@ Nho co `src`, UI hien `Lat 10.762 (sik)` canh `Lat 10.763 (remote)` ma khong nha
 | `status` | `{"MSG.field": so}` — moi field so cua **moi** message | tat ca |
 | `cmd` | `action` `args` — lenh vua gui di | adapter tu sinh |
 | `link` | `bps` `mode`, va `eof` khi het file REPLAY | adapter tu sinh |
+| `log` | `list` (log tren the SD cua FC), `get` (`got`/`size`/`path`/`err` — tien trinh tai) | LOG_ENTRY + LOG_DATA |
 
 Nua ROS2 (`src: "remote"`) gui envelope JSON y het dinh dang tren qua WebSocket.
 Truong `src` cua no bi ghi de thanh `"remote"` khi vao app: companion khong duoc

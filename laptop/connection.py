@@ -302,15 +302,24 @@ class ConnectionPanel(QWidget):
             if given.is_file():
                 profile["path"] = str(given)
             else:
-                path = self._pick_tlog(profile.get("path", "*.tlog"))
+                path = self._pick_tlog(profile.get("path", "logs/*.tlog"))
                 if not path:
                     return
                 profile["path"] = path
         self.connect_requested.emit(profile)
 
     def _pick_tlog(self, pattern):
+        """Hop thoai chon log de phat lai: .tlog cua app hay .bin cua the SD.
+
+        `pattern` chi dung de doan THU MUC mo ra dau tien. Quet ca hai duoi vi
+        profile trong connections.yaml ghi "logs/*.tlog", ma keo mot .bin ve day
+        thi van phai nhin thay no.
+        """
         pattern = str(ROOT / pattern) if not Path(pattern).is_absolute() else pattern
         matches = sorted(glob.glob(pattern))
+        if not matches:  # thu muc do co the chi co .bin
+            base = str(Path(pattern).parent)
+            matches = sorted(glob.glob(f"{base}/*.bin") + glob.glob(f"{base}/*.BIN"))
         start = str(Path(matches[-1]).parent) if matches else str(ROOT)
         path, _ = QFileDialog.getOpenFileName(self, t("conn.pick_tlog"), start,
                                               t("conn.tlog_filter"))

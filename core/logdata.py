@@ -1,4 +1,15 @@
-"""Doc mot file .tlog thanh chuoi thoi gian de ve do thi va quy dao.
+"""Doc mot file log thanh chuoi thoi gian de ve do thi va quy dao.
+
+Hai dinh dang, cung mot ket qua:
+
+  * .tlog — luong MAVLink laptop ghi lai. Chi co cai da CHAY QUA SONG.
+  * .bin  — log FC tu ghi ra the SD (dataflash). Nhip vong lap, day du cac thu
+    khong bao gio len duoc duong truyen: OF, RATE, PID*, XKF*, PSC*, CTUN.
+
+Ten field khac nhau vi hai ben dat ten khac nhau — ATTITUDE.roll (MAVLink) va
+ATT.Roll (dataflash), OPTICAL_FLOW.flow_rate_x va OF.flowX. KHONG doi ten cho
+giong nhau: doi la bia ra mot bang tra cuu phai nuoi, va la cat duong ve tai
+lieu ArduPilot ma nguoi dung dang doc song song.
 
 Khong import Qt: doc log la viec tinh toan thuan, tach ra day thi selfcheck goi
 duoc truc tiep khong can dung mot QApplication nao.
@@ -9,7 +20,8 @@ lich su, ma lich su thi chi nam trong file.
 
 Loc `from_autopilot` giong het duong live (nguyen tac 2.4): tren SITL co ca
 MAVROS va MAVProxy phat len cung mot duong, khong loc thi do thi tron ba nguon
-vao nhau va khong con doi chieu duoc voi tai lieu ArduPilot.
+vao nhau va khong con doi chieu duoc voi tai lieu ArduPilot. Ban .bin khong qua
+bo loc do — xem _wanted().
 """
 
 import bisect
@@ -27,13 +39,36 @@ MAX_POINTS = 20000
 
 # Nhung field khong co nghia khi ve: co bit, ma so, dau thoi gian.
 SKIP_SUFFIX = ("_id", "type", "seq", "mavtype", "autopilot", "base_mode",
-               "custom_mode", "time_boot_ms", "time_usec", "time_unix_usec")
+               "custom_mode", "time_boot_ms", "time_usec", "time_unix_usec",
+               "TimeUS")  # TimeUS: dau thoi gian cua .bin — ve ra la mot duong doc
 
 
 # Cua so cua che do truc tiep. Giu ca chuyen bay trong RAM thi 300 field x 50 Hz
 # se phinh khong gioi han; mot phut du de nhin mot dao dong hay mot cu sut ap, con
 # muon xem lai ca chuyen thi log da nam san trong logs/ roi.
 LIVE_WINDOW = 60.0
+
+
+def _wanted(msg, name):
+    """Goi nay co dua vao do thi khong?
+
+    .tlog la mot luong MAVLink dung chung: tren SITL co ca MAVROS va MAVProxy
+    phat len cung duong, phai loc bang from_autopilot (nguyen tac 2.4).
+
+    .bin thi khong. No la log FC TU ghi ra the SD, theo dinh nghia chi co du lieu
+    cua chinh no — khong co nguon thu hai nao de ma loc. Va DFMessage khong co
+    `get_srcComponent`: goi from_autopilot vao no la AttributeError ngay ban ghi
+    dau tien, tuc ca file bi bao "khong doc duoc log" trong khi no doc duoc tron
+    ven. `hasattr` chinh la cau hoi "day co phai goi MAVLink khong".
+    """
+    if name == "BAD_DATA" or name.startswith("UNKNOWN_"):
+        return False
+    if name == "LOG_DATA":
+        # Mot file .bin dang duoc keo ve qua duong truyen, khong phai telemetry.
+        # De lot vao thi 90 field "LOG_DATA.data[i]", moi field hang tram nghin
+        # diem — vai GB RAM cho mot thu khong ai ve do thi bao gio.
+        return False
+    return not hasattr(msg, "get_srcComponent") or from_autopilot(msg)
 
 
 def _numeric(v):
@@ -66,13 +101,17 @@ class LogData:
         # PARAM_VALUE: gop chung mot duong thi vo nghia — mot duong nhay lung
         # tung qua 1400 tham so khac nhau. Tach theo TEN tham so moi ra duoc cai
         # ArduPilot goi la "do thi tham so".
-        if name == "PARAM_VALUE":
-            pid = d.get("param_id")
+        # Ban .bin goi la PARM, ten/gia tri o "Name"/"Value" — cung mot thu, cung
+        # phai tach. Do that tren "20 1-1-1980 7-00-00 AM.bin": de mac dinh thi
+        # 1078 tham so do chung vao mot duong "PARM.Value" nhay tu 120 xuong 0.
+        if name in ("PARAM_VALUE", "PARM"):
+            pid = d.get("param_id", d.get("Name"))
+            val = d.get("param_value", d.get("Value"))
             if isinstance(pid, bytes):
                 pid = pid.decode("ascii", "ignore")
             pid = str(pid or "").strip("\x00").strip()
-            if pid and _numeric(d.get("param_value")):
-                self._put(f"PARAM.{pid}", t, float(d["param_value"]))
+            if pid and _numeric(val):
+                self._put(f"PARAM.{pid}", t, float(val))
             return
 
         for k, v in d.items():
@@ -83,6 +122,15 @@ class LogData:
         if name == "GLOBAL_POSITION_INT":
             self.track.append((t, d["lat"] / 1e7, d["lon"] / 1e7,
                                d["relative_alt"] / 1000.0))
+        elif name == "POS":
+            # Ban .bin. POS la vi tri EKF da hop nhat — cung thu Mission Planner
+            # ve len ban do, khong phai GPS tho. DFReader da nhan he so san nen
+            # Lat/Lng ra thang do va RelHomeAlt ra thang met, khong chia 1e7.
+            #
+            # Log bay trong nha khong co POS (do that tren file 30 MB o Downloads:
+            # 0 ban ghi POS, chi co OF/RFND/SURF). `has_fix` bat duoc chuyen do va
+            # tab noi "log nay khong co dinh vi" — dung duong da co san cho .tlog.
+            self.track.append((t, d["Lat"], d["Lng"], d.get("RelHomeAlt", 0.0)))
 
     def _put(self, key, t, v):
         ts, vs = self.fields.setdefault(key, ([], []))
@@ -238,7 +286,14 @@ class LiveData(LogData):
 
 
 def load(path, limit_seconds=None):
-    """Doc het mot .tlog. limit_seconds: chi doc phan dau, dung cho kiem tra."""
+    """Doc het mot file log (.tlog hay .bin). limit_seconds: chi doc phan dau.
+
+    ponytail: nap ca file vao RAM roi moi thua diem ra (_decimate o cuoi). Do that
+    26/08/2026 tren .bin 30 MB / 632k ban ghi: 12,9 s va vai tram MB dinh. Du cho
+    log bay that, va _Loader chay o thread rieng nen giao dien khong dong bang.
+    Ngay nao mo mot .bin hang tram MB (log SITL de chay qua dem) thi phai thua
+    diem NGAY TRONG vong doc — khong phai truoc do.
+    """
     log = LogData(path)
     started = time.monotonic()
     master = mavutil.mavlink_connection(str(path))
@@ -248,7 +303,7 @@ def load(path, limit_seconds=None):
         if msg is None:
             break
         name = msg.get_type()
-        if name == "BAD_DATA" or name.startswith("UNKNOWN_") or not from_autopilot(msg):
+        if not _wanted(msg, name):
             continue
         ts = getattr(msg, "_timestamp", None)
         if ts is None:

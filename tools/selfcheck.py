@@ -1731,6 +1731,19 @@ def check_video(app):
 
     src.stop()
     srv.shutdown()
+
+    # Huy DUT DIEM ngay tai day, tren main thread. VideoSource so huu mot QTimer
+    # chay suot (`_watch`); tha cho no roi khoi tam vuc thi Python thu gom luc
+    # nao khong biet — va neu luc do la mot thread khac thi Qt keu "Timers cannot
+    # be stopped from another thread" roi GIET ca tien trinh.
+    #
+    # Truoc day khong lo vi khong phep thu nao phia sau cho event loop chay lau.
+    # check_bin_log() phat lai mot .bin trong ~2 giay thi lo ra ngay: bo kiem tra
+    # dumped core o exit 139, khong kem mot dong Python nao.
+    view.close()
+    view.deleteLater()
+    src.deleteLater()
+    app.processEvents()
     print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu")
 
 
@@ -2656,6 +2669,357 @@ def check_analysis(app):
           f"{MAX_SERIES} duong chan duoc va noi ra")
 
 
+def _make_bin():
+    """Ghi mot .bin dataflash tam: OF (quang luu) + POS (vi tri), gia tri biet truoc.
+
+    Khong lay file that trong Downloads/ hay tren the SD: phep thu phai chay duoc
+    tren may chua bao gio cam FC vao. Ma dinh dang .bin thi tu ghi duoc — no chi
+    la 0xA3 0x95 <kieu> <than>, kem may ban ghi FMT khai bao truoc cac kieu do.
+
+    Vi sao ghi that chu khong gia lap DFMessage: cai de vo nhat khong phai logic
+    cua minh ma la duong `mavutil.mavlink_connection()` -> DFReader_binary. Doi
+    ban pymavlink ma duong do doi thi chi mot file that moi bat duoc.
+    """
+    import struct
+    import tempfile
+
+    HEAD = b"\xa3\x95"
+    FMT_TYPE = 0x80
+
+    def fmt_rec(typ, length, name, fmt, cols):
+        return HEAD + bytes([FMT_TYPE]) + struct.pack(
+            "<BB4s16s64s", typ, length, name.encode(), fmt.encode(), cols.encode())
+
+    OF_T, POS_T, ATT_T, GPS_T, BAT_T, MODE_T, ARM_T, MSG_T, ORGN_T, PARM_T = range(10, 20)
+    path = Path(tempfile.mkdtemp()) / "quangluu.bin"
+    with open(path, "wb") as f:
+        # FMT ta chinh no truoc: 3 byte dau + B+B+4+16+64 = 89
+        f.write(fmt_rec(FMT_TYPE, 89, "FMT", "BBnNZ", "Type,Length,Name,Format,Columns"))
+        # Do dai = 3 byte dau + than. L = int32 nhan 1e-7, Z = chuoi 64 byte.
+        f.write(fmt_rec(OF_T, 28, "OF", "QBffff", "TimeUS,Qual,flowX,flowY,bodyX,bodyY"))
+        f.write(fmt_rec(POS_T, 31, "POS", "QLLfff",
+                        "TimeUS,Lat,Lng,Alt,RelHomeAlt,RelOriginAlt"))
+        f.write(fmt_rec(ATT_T, 36, "ATT", "QffffffB",
+                        "TimeUS,DesRoll,Roll,DesPitch,Pitch,DesYaw,Yaw,AEKF"))
+        # GWk/GMS bat buoc phai co: DFReader dung hai truong nay de dung DONG HO
+        # cua ca file (_find_time_base). Thieu chung thi _set_time() nhan voi None
+        # va MOI ban ghi phia sau ra "bad msg" — file van doc duoc mot phan, nen
+        # kieu hong nay rat de tuong la binh thuong.
+        f.write(fmt_rec(GPS_T, 39, "GPS", "QBIHBfLLff",
+                        "TimeUS,Status,GMS,GWk,NSats,HDop,Lat,Lng,Alt,Spd"))
+        f.write(fmt_rec(BAT_T, 21, "BAT", "QBffB", "TimeUS,Inst,Volt,Curr,RemPct"))
+        f.write(fmt_rec(MODE_T, 14, "MODE", "QBBB", "TimeUS,Mode,ModeNum,Rsn"))
+        f.write(fmt_rec(ARM_T, 15, "ARM", "QBBBB",
+                        "TimeUS,ArmState,ArmChecks,Forced,Method"))
+        f.write(fmt_rec(MSG_T, 75, "MSG", "QZ", "TimeUS,Message"))
+        f.write(fmt_rec(ORGN_T, 24, "ORGN", "QBLLf", "TimeUS,Type,Lat,Lng,Alt"))
+        # N = char[16]: ten tham so nam TRONG ban ghi, khong phai mot ma so
+        f.write(fmt_rec(PARM_T, 35, "PARM", "QNff", "TimeUS,Name,Value,Default"))
+
+        lat0, lon0 = int(10.7620 * 1e7), int(106.6600 * 1e7)
+        # MODE 4 = GUIDED, ARM 1 = da arm. Dat o dau file nhu FC that.
+        f.write(HEAD + bytes([MSG_T]) + struct.pack("<QZ".replace("Z", "64s"),
+                0, b"ArduCopter V4.6.3 (selfcheck)"))
+        f.write(HEAD + bytes([ORGN_T]) + struct.pack("<QBiif", 0, 1, lat0, lon0, 100.0))
+        f.write(HEAD + bytes([MODE_T]) + struct.pack("<QBBB", 0, 4, 4, 2))
+        f.write(HEAD + bytes([ARM_T]) + struct.pack("<QBBBB", 0, 1, 1, 0, 1))
+        for nm, val in (("WP_SPD", 500.0), ("RTL_ALT_M", 15.0)):
+            f.write(HEAD + bytes([PARM_T]) + struct.pack(
+                "<Q16sff", 0, nm.encode(), val, val))
+        for i in range(300):
+            # 200 Hz: phat lai bam dung nhip goc, thua ra thi phep thu ngoi ngu.
+            us = int(i * 5_000)
+            # bodyX chay hinh rang cua trong [-1, 1] — de con doi chieu bien do
+            body = (i % 100) / 50.0 - 1.0
+            f.write(HEAD + bytes([OF_T]) + struct.pack(
+                "<QBffff", us, 128, body * 2, -body, body, body / 2))
+            # ATT ghi bang DO (dataflash), khong phai radian
+            f.write(HEAD + bytes([ATT_T]) + struct.pack(
+                "<QffffffB", us, 0.0, 30.0, 0.0, -15.0, 90.0, 90.0, 1))
+            if i % 5 == 0:  # POS/GPS/BAT 40 Hz, di thang ve huong dong
+                f.write(HEAD + bytes([POS_T]) + struct.pack(
+                    "<QLLfff", us, lat0, lon0 + i * 900, 100.0, i * 0.1, i * 0.1))
+                f.write(HEAD + bytes([GPS_T]) + struct.pack(
+                    "<QBIHBfiiff", us, 3, 400_000_000 + us // 1000, 2300,
+                    12, 0.9, lat0, lon0 + i * 900, 100.0, 4.5))
+                f.write(HEAD + bytes([BAT_T]) + struct.pack(
+                    "<QBffB", us, 0, 12.6, 8.0, 77))
+    return path
+
+
+def check_log_download(app):
+    """Keo mot log .bin tu FC ve qua MAVLink, co lam rot mot khoi giua duong.
+
+    Kiem dung cai de hong nhat: mot khoi 90 byte rot o giua. Khong co bang
+    `have` thi phan sau khoi do hoac bi vut di (tai lai tu dau — 45 phut nua qua
+    SiK), hoac bi ghi lech mot khoi va ca file thanh rac ma van bao "xong".
+
+    FC gia o day tra loi dung ba goi cua giao thuc: LOG_ENTRY, LOG_DATA,
+    LOG_REQUEST_END. Khong gia lap SikAdapter — cai de vo la doan ghep file lai
+    tu cac manh den khong dung thu tu.
+    """
+    import random
+    import tempfile
+
+    from PySide6.QtCore import QTimer
+    from pymavlink import mavutil
+
+    from core.adapters.sik import LOG_BLOCK
+
+    port = 14563
+    blob = random.Random(7).randbytes(200 * LOG_BLOCK + 37)  # khoi cuoi le 37 byte
+    DROP = 10  # khoi FC "danh roi" o luot dau
+    served = {"passes": 0, "ended": False}
+    stop = threading.Event()
+
+    def fc():
+        out = mavutil.mavlink_connection(f"udpout:127.0.0.1:{port}", source_system=1)
+        last_beat = 0.0
+        while not stop.is_set():
+            now = time.time()
+            if now - last_beat > 0.2:
+                last_beat = now
+                out.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_QUADROTOR,
+                                       mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA,
+                                       0, 0, 0)
+            msg = out.recv_match(blocking=False)
+            if msg is None:
+                time.sleep(0.01)
+                continue
+            name = msg.get_type()
+            if name == "LOG_REQUEST_LIST":
+                out.mav.log_entry_send(1, 1, 1, 0, len(blob))
+            elif name == "LOG_REQUEST_END":
+                served["ended"] = True
+            elif name == "LOG_REQUEST_DATA":
+                served["passes"] += 1
+                first = served["passes"] == 1
+                ofs = msg.ofs
+                while ofs < len(blob) and not stop.is_set():
+                    idx = ofs // LOG_BLOCK
+                    chunk = blob[ofs:ofs + LOG_BLOCK]
+                    if not (first and idx == DROP):
+                        out.mav.log_data_send(
+                            1, ofs, len(chunk),
+                            list(chunk) + [0] * (LOG_BLOCK - len(chunk)))
+                    ofs += LOG_BLOCK
+                    if idx % 20 == 0:
+                        time.sleep(0.01)  # dung lam ngheo socket phia nhan
+
+    logdir = Path(tempfile.mkdtemp())
+    adapter = SikAdapter({"name": "selfcheck", "mode": "SIM",
+                          "conn": f"udp:127.0.0.1:{port}"}, logdir=logdir)
+    done = []
+    listed = []
+    adapter.envelope.connect(
+        lambda e: (listed.append(e["data"]["list"]) if "list" in e["data"]
+                   else done.append(e["data"]["get"]) if e["data"].get("get", {}).get("done")
+                   else None) if e["topic"] == "log" else None)
+    adapter.envelope.connect(lambda e: app.quit() if done else None)
+    adapter.start()
+    threading.Thread(target=fc, daemon=True).start()
+
+    # Doi heartbeat dau tien (co target_system) roi hoi danh sach log
+    QTimer.singleShot(800, lambda: adapter.send("log_list", {}))
+    QTimer.singleShot(1600, lambda: adapter.send(
+        "log_get", {"id": 1, "size": len(blob)}))
+    guard = deadline(app, 20000)
+    app.exec()
+    guard.stop()
+    # LOG_REQUEST_END di sau goi cuoi vai mili giay; cho FC gia doc no roi moi
+    # ha co, khong thi phep thu bao thieu trong khi app gui dung.
+    for _ in range(100):
+        if served["ended"]:
+            break
+        time.sleep(0.01)
+    stop.set()
+    adapter.stop()
+
+    assert listed and listed[-1] and listed[-1][0]["size"] == len(blob), \
+        f"danh sach log tu FC khong ve toi noi: {listed}"
+    assert done, "khong nhan duoc bao tai xong (hay tai qua 20s)"
+    g = done[-1]
+    assert not g["err"], f"tai loi: {g['err']}"
+    got = Path(g["path"]).read_bytes()
+    assert got == blob, \
+        f"file tai ve khac ban goc: {len(got)}/{len(blob)} byte, giong nhau den byte {next((i for i, (a, b) in enumerate(zip(got, blob)) if a != b), len(got))}"
+    assert served["passes"] >= 2, \
+        "FC chi phuc vu mot luot — phep thu khong he lam rot khoi nao"
+    assert served["ended"], "tai xong ma khong bao LOG_REQUEST_END: FC se bom tiep"
+
+    # LOG_DATA khong duoc do vao bang Trang thai (90 hang moi goi) hay vao do thi
+    from core import logdata as _ld
+    from core.adapters.sik import flatten_status as _fs
+    assert _fs("LOG_DATA", {"id": 1, "ofs": 0, "count": 90, "data": [1] * 90}) == {}, \
+        "LOG_DATA do vao bang Trang thai"
+
+    class _M:  # goi MAVLink gia: co get_srcComponent nhu that
+        def get_srcComponent(self):
+            return 1
+
+        def get_srcSystem(self):
+            return 1
+
+    assert not _ld._wanted(_M(), "LOG_DATA"), "LOG_DATA lot vao do thi tab Phan tich"
+
+    print(f"  ok  tai log .bin tu FC qua MAVLink: {len(blob)} byte khop tung byte, "
+          f"khoi {DROP} bi roi duoc hoi lai ({served['passes']} luot), co LOG_REQUEST_END; "
+          f"LOG_DATA khong do vao bang Trang thai/do thi")
+
+
+def check_bin_log(app):
+    """Doc log dataflash .bin cua FC, giu nguyen ten ArduPilot (OF.bodyX, ATT.Roll).
+
+    Vi sao phai co ca hai dinh dang: .tlog chi chua cai DA CHAY QUA SONG, ma
+    duong SiK 57600 thi khong cho noi RATE/PID*/XKF*/OF o nhip vong lap. Muon
+    nhin nhung cai do thi phai keo the SD ra, va cho toi truoc hom nay thi tab
+    Phan tich tu choi thang: `from_autopilot()` goi `msg.get_srcComponent()`,
+    DFMessage khong co ham do nen nem AttributeError ngay ban ghi dau — ca file
+    bao "khong doc duoc log" trong khi no doc duoc tron ven.
+
+    KHONG doi ten cho giong MAVLink: nguoi bay doc tai lieu ArduPilot song song
+    voi do thi nay, doi ten la cat mat duong doi chieu do.
+    """
+    import math
+
+    from core import i18n, logdata
+    from laptop.tabs.analysis import AnalysisTab
+
+    # --- 1. Bo loc nguon: goi MAVLink phai qua from_autopilot, ban ghi .bin thi khong ---
+    class FakeDF:  # DFMessage: co get_type/to_dict, KHONG co get_srcComponent
+        def get_type(self):
+            return "OF"
+
+    assert logdata._wanted(FakeDF(), "OF"), \
+        "ban ghi .bin bi loc mat — day dung la loi AttributeError cu"
+    assert not logdata._wanted(FakeDF(), "BAD_DATA"), "BAD_DATA lot qua bo loc"
+    assert not logdata._wanted(FakeDF(), "UNKNOWN_42"), "UNKNOWN_* lot qua bo loc"
+
+    # --- 2. Doc that mot file .bin ---
+    log = logdata.load(_make_bin())
+    assert log.parsed > 300, f".bin chi doc ra {log.parsed} ban ghi"
+
+    names = set(log.names())
+    for want in ("OF.bodyX", "OF.bodyY", "OF.flowX", "OF.Qual"):
+        assert want in names, f"thieu {want} — ten ArduPilot bi doi hoac bi nuot"
+    assert "OF.TimeUS" not in names, "TimeUS vao do thi: no la dau thoi gian, ve ra mot duong doc"
+
+    ts, vs = log.series("OF.bodyX")
+    assert len(ts) == 300, f"OF.bodyX co {len(ts)} diem, cho 300"
+    assert -1.05 < min(vs) < -0.95 and 0.95 < max(vs) < 1.05, \
+        f"OF.bodyX bien do sai: [{min(vs):.3g} .. {max(vs):.3g}], cho [-1 .. 1]"
+
+    # Tham so tach theo TEN. .bin goi la PARM chu khong PARAM_VALUE: do that tren
+    # log 13 MB o Downloads, de mac dinh thi 1078 tham so do chung vao mot duong
+    # "PARM.Value" nhay lung tung, dung cai ma nhanh PARAM_VALUE sinh ra de tranh.
+    assert "PARAM.WP_SPD" in names and "PARAM.RTL_ALT_M" in names, \
+        "PARM cua .bin khong tach theo ten tham so"
+    assert "PARM.Value" not in names, "PARM.Value gop chung moi tham so vao mot duong"
+    assert log.series("PARAM.WP_SPD")[1] == [500.0], "PARM.Value doc ra sai gia tri"
+
+    # --- 3. POS -> quy dao 3D (GLOBAL_POSITION_INT khong co trong .bin) ---
+    assert log.has_fix, "POS co toa do that ma has_fix van bao khong"
+    _, e, n, u = log.local_track()
+    assert len(e) == 60, f"quy dao tu POS ra {len(e)} diem, cho 60"
+    assert max(e) > 500, f"POS di thang dong 900e-7 do x 60 ma be ngang chi {max(e):.0f} m"
+    assert abs(max(n)) < 5, "POS khong doi vi do ma quy dao lai lech bac"
+
+    # --- 4. Ca hai hop thoai deu nhan .bin ---
+    assert ".bin" in i18n.t("an.log_filter"), "hop thoai tab Phan tich khong nhan .bin"
+    assert ".bin" in i18n.t("conn.tlog_filter"), "hop thoai REPLAY khong nhan .bin"
+
+    # --- 5. Bang dich dataflash -> topic, kiem tung cai mot ---
+    from core.adapters.sik import normalize_df
+
+    att = dict(normalize_df("ATT", {"Roll": 30.0, "Pitch": -15.0, "Yaw": 90.0}))
+    assert abs(att["attitude"]["roll"] - math.radians(30.0)) < 1e-9, \
+        "ATT.Roll khong doi tu DO sang RADIAN — chan troi se nam ngang o moi tu the"
+    assert abs(att["attitude"]["pitch"] - math.radians(-15.0)) < 1e-9
+    assert abs(att["attitude"]["heading"] - 90.0) < 1e-6, "heading phai giu don vi DO"
+
+    gps = dict(normalize_df("GPS", {"Status": 3, "NSats": 12, "HDop": 0.9, "Spd": 4.5}))
+    assert gps["gps"] == {"fix_type": 3, "sats": 12, "hdop": 0.9}
+    assert gps["vfr"]["groundspeed"] == 4.5, "GPS phai nuoi ca toc do mat dat"
+
+    assert dict(normalize_df("ARM", {"ArmState": 1}))["heartbeat"]["armed"] is True
+    assert dict(normalize_df("ARM", {"ArmState": 0}))["heartbeat"]["armed"] is False
+    assert dict(normalize_df("MODE", {"Mode": 4}))["heartbeat"]["mode"] == "GUIDED"
+    assert normalize_df("BAT", {"Inst": 1, "Volt": 9.9}) == [], \
+        "pin thu hai lot vao: dai chu se nhay qua lai giua hai dien ap"
+    assert normalize_df("RATE", {"R": 1.0}) == [], "message la ma van sinh topic"
+
+    # --- 6. Phat lai THAT mot .bin qua SikAdapter ---
+    # Day moi la phep thu co gia tri: no di qua dung vong lap ma ngay bay that
+    # dung, ke ca cho DFReader.recv_match() KHONG nhan tham so `timeout` — truyen
+    # vao la TypeError ngay ban ghi dau va ca phien chet im lang.
+    from core import bus
+    from core.adapters.sik import SikAdapter
+    from core.field import REGISTRY
+
+    # bus giu subscriber o bien module-level, va cac phep thu phia truoc dang ky
+    # widget cua chung vao "*" roi dong widget ma khong go dang ky. Ban 800
+    # envelope qua do la goi vao mot dam QObject da chet — tien trinh segfault
+    # ngay trong processEvents(), khong kem mot dong Python nao.
+    #
+    # Trong app that khong co chuyen do: widget dang ky mot lan luc khoi dong va
+    # song bang doi cua tien trinh. Day thuan tuy la ve sinh cua bo kiem tra, nen
+    # phep thu nay muon mot bus SACH rieng cho no roi tra lai nguyen trang.
+    saved_subs = dict(bus._subs)
+    bus._subs.clear()
+
+    got, failed = {}, []
+    tap = lambda env: got.__setitem__(env["topic"], got.get(env["topic"], 0) + 1)
+    bus.on("*", tap)
+    bus.on("*", REGISTRY.feed)
+
+    a = SikAdapter({"name": "bin", "mode": "REPLAY", "path": str(_make_bin())},
+                   logdir=None)
+    a.envelope.connect(bus.emit_envelope)
+    a.failed.connect(failed.append)
+    a.start()
+    t0 = time.time()
+    while time.time() - t0 < 20 and a.isRunning():
+        app.processEvents()
+        time.sleep(0.01)
+    a.stop()
+    app.processEvents()
+    bus._subs.clear()
+    bus._subs.update(saved_subs)
+
+    assert not failed, f"phat lai .bin bao loi: {failed}"
+    for topic in ("attitude", "position", "gps", "battery", "heartbeat", "vfr", "home"):
+        assert got.get(topic), f"phat lai .bin ma khong co topic {topic}: {got}"
+    assert a.tlog is None, ".bin phat lai ma van ghi ra .tlog — file do khong ai doc duoc"
+
+    # Dung 14 field nuoi giao dien phai co mat, khong thieu cai nao.
+    for f in ("attitude.roll", "attitude.pitch", "attitude.heading",
+              "position.lat", "position.lon", "position.alt_rel",
+              "vfr.groundspeed", "battery.voltage", "battery.remaining",
+              "gps.fix_type", "gps.sats", "gps.hdop",
+              "heartbeat.armed", "heartbeat.mode"):
+        assert REGISTRY.value(f) is not None, f"phat lai .bin ma {f} van trong"
+    # .bin ghi MODE/ARM MOT lan luc doi, con Field het tuoi sau STALE=2s. Adapter
+    # phai nhac lai moi giay giong HEARTBEAT that, neu khong nhan che do bay tat
+    # ngom giua chuyen phat lai. Hai ban ghi nay nam o dau file, con vong phat lai
+    # o tren chay vai giay — doc duoc tuc la da co nhac lai.
+    assert REGISTRY.value("heartbeat.mode") == "GUIDED", \
+        "che do bay het tuoi: .bin chi ghi MODE luc doi, adapter phai nhac lai"
+    assert REGISTRY.value("heartbeat.armed") is True, "trang thai ARM het tuoi"
+
+    # --- 5. Vao that trong tab ---
+    tab = AnalysisTab()
+    tab._loaded(log)
+    app.processEvents()
+    assert tab.src is log
+    of = [n for n in tab.src.names() if n.startswith("OF.")]
+    tab.close()
+
+    print(f"  ok  log .bin cua FC: {len(names)} field giu nguyen ten ArduPilot "
+          f"({', '.join(sorted(of))}), TimeUS bi loai, quy dao tu POS; REPLAY phat "
+          f"lai duoc ({len(got)} topic), goc doi DO->RADIAN, 14 field nuoi giao dien "
+          "deu co, khong ghi de ra .tlog")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -2699,4 +3063,6 @@ if __name__ == "__main__":
     check_fence_follows_fc(app)
     check_mavlink2_upgrade(app)
     check_analysis(app)
+    check_bin_log(app)
+    check_log_download(app)
     print("selfcheck: PASS")

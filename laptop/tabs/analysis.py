@@ -1,9 +1,10 @@
-"""Tab Phan tich: ve do thi field va quy dao 3D — tu mot .tlog, hoac truc tiep.
+"""Tab Phan tich: ve do thi field va quy dao 3D — tu file log, hoac truc tiep.
 
 Hai nguon, mot bo do thi:
 
-  * FILE (mac dinh): doc THANG tu .tlog. bus chi mang gia tri dang chay va
-    core/field.py chi giu gia tri moi nhat, ma do thi thi can ca lich su.
+  * FILE (mac dinh): doc THANG tu .tlog HAY .bin (xem core/logdata.py). bus chi
+    mang gia tri dang chay va core/field.py chi giu gia tri moi nhat, ma do thi
+    thi can ca lich su.
   * TRUC TIEP: nghe topic "status" tren bus, giu LIVE_WINDOW giay gan nhat trong
     core/logdata.LiveData. Cung names()/series() nen phan ve khong doi mot dong.
 
@@ -21,6 +22,7 @@ pymavlink). Dung o day de khoi phai roi app khi muon xem lai chuyen bay vua roi;
 can dao sau — FFT, so hai log, loc theo che do bay — thi van nen mo MAVExplorer.
 """
 
+import time
 from pathlib import Path
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -29,12 +31,14 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QProgressBar,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -42,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import bus, i18n, logdata
+from core.field import REGISTRY
 from core.i18n import t
 from laptop import theme
 from laptop.widgets.trajectory3d import Trajectory3D
@@ -247,6 +252,144 @@ class Plot(QChartView):
         self.ay.setRange(ymin - pad, ymax + pad)
 
 
+class LogDownload(QDialog):
+    """Hop thoai keo mot log .bin tu the SD cua FC ve, qua chinh duong telemetry.
+
+    Vi sao khong bao gio tu dong tai: 13 MB qua SiK 57600 la gan 45 phut va gan
+    het bang thong trong suot thoi gian do — tuc HUD dung hinh. Nguoi bay phai la
+    nguoi quyet dinh danh duong truyen cho viec nay, va phai dung lai duoc.
+
+    Dang ARM thi khoa: dang bay ma keo log la tu bit mat duong so lieu cua chinh
+    minh. Khoa o day chu khong o adapter — adapter khong theo doi trang thai bay,
+    con cho nay thi REGISTRY co san.
+    """
+
+    def __init__(self, adapter, parent=None):
+        super().__init__(parent)
+        self.adapter = adapter
+        self.path = None  # duong dan file vua tai xong, None neu chua/khong xong
+
+        self.list = QListWidget()
+        self.list.itemSelectionChanged.connect(self._retext)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.note = QLabel()
+        self.note.setStyleSheet(f"color:{theme.MUTED};")
+        self.btn_scan = QPushButton()
+        self.btn_scan.clicked.connect(self._scan)
+        self.btn_get = QPushButton()
+        # Mot nut lam ca hai viec: dang tai thi no la nut Huy. Hai nut thi mot
+        # cai luon xam, va nut Huy phai o dung cho mat vua nhin luc bam Tai.
+        self.btn_get.clicked.connect(lambda: self._cancel() if self._getting else self._get())
+        self.btn_close = QPushButton()
+        self.btn_close.clicked.connect(self.close)
+
+        row = QHBoxLayout()
+        row.addWidget(self.btn_scan)
+        row.addWidget(self.btn_get)
+        row.addStretch(1)
+        row.addWidget(self.btn_close)
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.list, 1)
+        lay.addWidget(self.bar)
+        lay.addWidget(self.note)
+        lay.addLayout(row)
+        self.resize(460, 380)
+
+        self._getting = False
+        bus.on("log", self._on_log)
+        i18n.on_change(self._retext)
+        self._retext()
+        self._scan()
+
+    # ---- gui di
+
+    def _scan(self):
+        self.list.clear()
+        self.note.setText(t("an.fc_scanning"))
+        self.adapter.send("log_list", {})
+
+    def _get(self):
+        it = self.list.currentItem()
+        if not it or self._getting:
+            return
+        if REGISTRY.value("heartbeat.armed") is True:
+            self.note.setText(t("an.fc_armed"))
+            return
+        log = it.data(Qt.UserRole)
+        self._getting = True
+        self.bar.setValue(0)
+        self.note.setText(t("an.fc_getting", mb=log["size"] / 1e6))
+        self.adapter.send("log_get", {"id": log["id"], "size": log["size"]})
+        self._retext()
+
+    def _cancel(self):
+        self.adapter.send("log_cancel", {})
+        self._getting = False
+        self._retext()
+
+    # ---- nhan ve
+
+    def _on_log(self, env):
+        d = env["data"]
+        if "list" in d:
+            self._show_list(d["list"], d.get("n", 0))
+        got = d.get("get")
+        if got:
+            self._show_progress(got)
+
+    def _show_list(self, logs, n):
+        keep = self.list.currentRow()
+        self.list.clear()
+        for g in sorted(logs, key=lambda g: g["id"], reverse=True):
+            # time_utc = 0 tren FC khong co pin RTC — do that tren MicoAir743:
+            # ca hai file trong Downloads deu ten "1-1-1980". Khong bia ngay gia
+            # o day, de trong con hon de mot ngay sai.
+            when = (time.strftime("%d/%m/%Y %H:%M", time.localtime(g["time_utc"]))
+                    if g["time_utc"] else "")
+            self.list.addItem(t("an.fc_row", id=g["id"], mb=g["size"] / 1e6, when=when))
+            self.list.item(self.list.count() - 1).setData(Qt.UserRole, g)
+        if not logs:
+            self.note.setText(t("an.fc_none") if n == 0 else t("an.fc_scanning"))
+        else:
+            self.note.setText(t("an.fc_found", n=len(logs), all=n))
+            self.list.setCurrentRow(max(keep, 0))
+
+    def _show_progress(self, g):
+        size = max(g["size"], 1)
+        self.bar.setValue(int(100 * g["got"] / size))
+        if not g.get("done"):
+            self.note.setText(t("an.fc_progress", mb=g["got"] / 1e6,
+                                total=size / 1e6))
+            return
+        self._getting = False
+        self._retext()
+        if g.get("err"):
+            # File do dang VAN nam tren dia va van doc duoc — noi ca hai ve.
+            self.note.setText(t("an.fc_partial", err=g["err"], mb=g["got"] / 1e6))
+            self.path = g.get("path")
+            return
+        self.path = g.get("path")
+        self.note.setText(t("an.fc_done", name=Path(self.path).name))
+        self.accept()
+
+    def _retext(self):
+        self.setWindowTitle(t("an.fc_title"))
+        self.btn_scan.setText(t("an.fc_scan"))
+        self.btn_get.setText(t("an.fc_cancel") if self._getting else t("an.fc_get"))
+        self.btn_close.setText(t("an.fc_close"))
+        self.btn_scan.setEnabled(not self._getting)
+        self.btn_get.setEnabled(self._getting or self.list.currentItem() is not None)
+
+    def closeEvent(self, ev):
+        # Dong cua so giua chung thi phai BAO FC dung gui, khong thi no bom tiep
+        # 13 MB vao duong truyen ma khong con ai doc.
+        if self._getting:
+            self._cancel()
+        bus.off("log", self._on_log)
+        super().closeEvent(ev)
+
+
 class AnalysisTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -266,6 +409,10 @@ class AnalysisTab(QWidget):
         self.btn_browse.clicked.connect(self._browse)
         self.btn_load = QPushButton()
         self.btn_load.clicked.connect(self._load)
+        self.btn_fc = QPushButton()
+        self.btn_fc.clicked.connect(self._from_fc)
+        self.btn_fc.setEnabled(False)  # bat len o attach(), khi da co adapter
+        self.adapter = None
         self.live = QCheckBox()
         self.live.toggled.connect(self._on_live)
         self.summary = QLabel()
@@ -274,6 +421,7 @@ class AnalysisTab(QWidget):
         top = QHBoxLayout()
         top.addWidget(self.picker, 1)
         top.addWidget(self.btn_browse)
+        top.addWidget(self.btn_fc)
         top.addWidget(self.btn_load)
         top.addWidget(self.live)
         top.addWidget(self.summary, 2)
@@ -438,6 +586,8 @@ class AnalysisTab(QWidget):
 
     def _retext(self):
         self.btn_browse.setText(t("an.browse"))
+        self.btn_fc.setText(t("an.from_fc"))
+        self.btn_fc.setToolTip(t("an.from_fc_tip"))
         self.btn_load.setText(t("an.load"))
         self.filter.setPlaceholderText(t("an.filter"))
         self.norm.setText(t("an.normalize"))
@@ -490,20 +640,49 @@ class AnalysisTab(QWidget):
         self._scan_logs()
 
     def _scan_logs(self):
-        """Liet ke logs/*.tlog, moi nhat len dau — thu hay mo lai nhat la chuyen vua bay."""
+        """Liet ke log trong logs/, moi nhat len dau — thu hay mo lai nhat la chuyen vua bay.
+
+        Ca .tlog (app tu ghi) lan .bin (keo tu the SD cua FC sang). Bam "Mo file..."
+        thi doc duoc .bin o bat ky dau; day chi la danh sach cho tien.
+        """
         keep = self.picker.currentData()
         self.picker.clear()
-        for p in sorted((ROOT / "logs").glob("*.tlog"),
-                        key=lambda q: q.stat().st_mtime, reverse=True):
+        files = [q for pat in ("*.tlog", "*.bin", "*.BIN")
+                 for q in (ROOT / "logs").glob(pat)]
+        for p in sorted(files, key=lambda q: q.stat().st_mtime, reverse=True):
             self.picker.addItem(f"{p.name}  ({p.stat().st_size // 1024} KB)", str(p))
         if keep:  # dang chon file nao thi giu nguyen, khong nhay ve dau danh sach
             i = self.picker.findData(keep)
             if i >= 0:
                 self.picker.setCurrentIndex(i)
 
+    def attach(self, adapter):
+        """app.py goi khi ket noi/ngat. REPLAY thi khong co FC de ma hoi."""
+        self.adapter = adapter
+        self.btn_fc.setEnabled(adapter is not None and adapter.mode != "REPLAY")
+
+    def _from_fc(self):
+        """Keo log .bin tu the SD cua FC ve qua duong telemetry.
+
+        Vi sao dang o day chu khong o tab Ket noi: file tai ve xong la doc len
+        do thi ngay, cung mot cho, khong phai di tim lai trong thu muc.
+        """
+        if not self.adapter:
+            return
+        dlg = LogDownload(self.adapter, self)
+        dlg.exec()
+        if dlg.path:
+            self._scan_logs()
+            i = self.picker.findData(dlg.path)
+            if i < 0:
+                self.picker.insertItem(0, Path(dlg.path).name, dlg.path)
+                i = 0
+            self.picker.setCurrentIndex(i)
+            self._load()
+
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, t("conn.pick_tlog"), str(ROOT / "logs"), t("conn.tlog_filter"))
+            self, t("an.pick_log"), str(ROOT / "logs"), t("an.log_filter"))
         if path:
             self.picker.insertItem(0, Path(path).name, path)
             self.picker.setCurrentIndex(0)

@@ -146,9 +146,10 @@ STR = {
         "sudo usermod -aG dialout $USER\nrồi ĐĂNG XUẤT / ĐĂNG NHẬP lại.",
         "USB port found but NO PERMISSION to open it. Run:\n"
         "sudo usermod -aG dialout $USER\nthen LOG OUT / LOG BACK IN."),
-    "conn.pick_tlog": ("Chọn file .tlog", "Pick a .tlog file"),
-    "conn.tlog_filter": ("Telemetry log (*.tlog)", "Telemetry log (*.tlog)"),
-    "conn.no_tlog": ("Chưa chọn file .tlog nào.", "No .tlog file selected."),
+    "conn.pick_tlog": ("Chọn file log (.tlog hoặc .bin)",
+                       "Pick a log file (.tlog or .bin)"),
+    "conn.tlog_filter": ("Log bay (*.tlog *.bin *.BIN)", "Flight log (*.tlog *.bin *.BIN)"),
+    "conn.no_tlog": ("Chưa chọn file log nào.", "No log file selected."),
     "conn.opening_msg": ("Đang nối {target}", "Connecting to {target}"),
     "conn.fail_title": ("Không kết nối được", "Cannot connect"),
     "conn.sik_lost": ("Mất kết nối SiK: {why}", "SiK link lost: {why}"),
@@ -425,7 +426,39 @@ STR = {
 
     # --- tab Phan tich (doc .tlog) ----------------------------------------
     "an.browse": ("Mở file...", "Open file..."),
+    # Rieng cua tab Phan tich, KHONG dung chung voi conn.pick_tlog: che do REPLAY
+    # phat lai qua SikAdapter nen chi nhan .tlog, con doc de ve do thi thi nhan
+    # ca .bin. Dung chung mot chuoi la mo duong cho .bin vao thang REPLAY.
+    "an.pick_log": ("Chọn file log (.tlog hoặc .bin)", "Pick a log file (.tlog or .bin)"),
+    "an.log_filter": ("Log bay (*.tlog *.bin *.BIN)", "Flight log (*.tlog *.bin *.BIN)"),
     "an.load": ("Đọc log", "Read log"),
+    # Keo log .bin tu the SD cua FC ve qua duong telemetry — xem LogDownload.
+    "an.from_fc": ("Tải từ FC", "Get from FC"),
+    "an.from_fc_tip": (
+        "Kéo log .bin từ thẻ SD của FC về qua đường telemetry. "
+        "Log của FC đầy đủ hơn hẳn .tlog (1606 field so với 313), nhưng "
+        "13 MB qua SiK 57600 mất gần 45 phút và chiếm gần hết đường truyền.",
+        "Pull a .bin log off the FC's SD card over the telemetry link. The FC's "
+        "own log is far richer than a .tlog (1606 fields vs 313), but 13 MB over "
+        "a 57600 SiK link takes nearly 45 minutes and eats most of the bandwidth."),
+    "an.fc_title": ("Log trên FC", "Logs on the FC"),
+    "an.fc_scan": ("Hỏi lại danh sách", "Refresh list"),
+    "an.fc_get": ("Tải về", "Download"),
+    "an.fc_cancel": ("Hủy tải", "Cancel"),
+    "an.fc_close": ("Đóng", "Close"),
+    "an.fc_scanning": ("đang hỏi FC có những log nào...", "asking the FC what logs it has..."),
+    "an.fc_none": ("FC báo không có log nào — thẻ SD trống hoặc chưa cắm.",
+                   "FC reports no logs — the SD card is empty or missing."),
+    "an.fc_found": ("{n}/{all} log", "{n} of {all} logs"),
+    "an.fc_row": ("Log {id} — {mb:.1f} MB  {when}", "Log {id} — {mb:.1f} MB  {when}"),
+    "an.fc_armed": ("Đang ARM: tải log lúc này là tự bịt mất đường số liệu của chính mình.",
+                    "Armed: downloading now would choke your own telemetry link."),
+    "an.fc_getting": ("đang tải {mb:.1f} MB — cứ để cửa sổ này mở",
+                      "downloading {mb:.1f} MB — leave this window open"),
+    "an.fc_progress": ("{mb:.2f} / {total:.1f} MB", "{mb:.2f} / {total:.1f} MB"),
+    "an.fc_done": ("xong: {name}", "done: {name}"),
+    "an.fc_partial": ("tải dở: {err}. {mb:.2f} MB đã lưu vẫn đọc được.",
+                      "incomplete: {err}. The {mb:.2f} MB saved is still readable."),
     "an.loading": ("đang đọc log...", "reading log..."),
     "an.nothing": ("chưa đọc log nào — chọn một file rồi bấm Đọc log",
                    "no log read yet — pick a file and press Read log"),

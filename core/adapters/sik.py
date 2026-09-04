@@ -47,6 +47,25 @@ FENCE_PARAMS = ("FENCE_ENABLE", "FENCE_TYPE", "FENCE_RADIUS", "FENCE_ALT_MAX")
 ASK_EVERY = 3.0  # giay giua hai lan hoi lai cai con thieu (rao + duong bay)
 ASK_MAX = 8      # bo cuoc sau ~24s: firmware khong co rao thi hoi mai vo ich
 
+# --- tai log dataflash tu FC ---
+# FC cat log thanh khoi 90 byte (do la kich thuoc truong `data` cua LOG_DATA,
+# khong phai con so tu chon). Chi hoi lai o boi cua 90 de moi khoi ve deu roi
+# dung mot o trong bang `have` — hoi lech mot byte la ca phan sau lech theo.
+LOG_BLOCK = 90
+LOG_STALL = 2.0   # giay im lang truoc khi hoi lai tu cho con thieu
+LOG_TRIES = 10    # bo cuoc sau ~20s im lang; SiK rot goi la chuyen thuong
+
+
+def _is_df(master):
+    """Duong dang mo la log dataflash (.bin) chu khong phai luong MAVLink?
+
+    `mav` la bo dong/giai goi MAVLink. DFReader doc ban ghi dataflash da giai
+    san nen khong co no — va do cung la thu vong lap doc dung de biet minh phai
+    di nhanh nao. Hoi bang `hasattr` chu khong bang duoi file: mot ngay nao do
+    pymavlink nhan them duoi khac thi cau hoi nay van dung.
+    """
+    return not hasattr(master, "mav")
+
 
 def _upgrade_v2(master, msg):
     """Thay khung MAVLink2 dau tien thi nang ca chieu GUI len v2.
@@ -329,6 +348,70 @@ def normalize(name, d):
     return None
 
 
+# Ten trong log dataflash (.bin) khac han ten MAVLink: ATT chu khong phai
+# ATTITUDE, POS chu khong phai GLOBAL_POSITION_INT. Bang duoi chi dich dung
+# nhung thu NUOI GIAO DIEN — 16 field ma REGISTRY thuc su duoc doc ra. Con lai
+# (RATE, XKF*, OF, CTUN, VIBE...) van vao bang Trang thai qua flatten_status y
+# nhu cu, khong hardcode gi ca.
+#
+# Mot ban ghi co the sinh HAI topic (GPS nuoi ca `gps` lan toc do mat dat cua
+# `vfr`), nen ham nay tra ve DANH SACH chu khong mot cap nhu normalize().
+def normalize_df(name, d):
+    """Ban ghi dataflash -> [(topic, data)] dung chuan cua docs/protocol.md."""
+    if name == "ATT":
+        # Dataflash ghi goc bang DO, con topic `attitude` cua app la RADIAN (dung
+        # quy uoc cua ATTITUDE trong MAVLink). Quen doi don vi thi chan troi nam
+        # ngang o moi tu the — hong ma trong nhu chay dung.
+        yaw_ned = math.radians(d["Yaw"])
+        return [("attitude", {
+            "roll": math.radians(d["Roll"]),
+            "pitch": math.radians(d["Pitch"]),
+            "yaw": (math.pi / 2 - yaw_ned + math.pi) % (2 * math.pi) - math.pi,
+            "heading": d["Yaw"] % 360.0,
+        })]
+
+    if name == "POS":
+        # Vi tri EKF da hop nhat — cung thu Mission Planner ve len ban do, khong
+        # phai GPS tho. DFReader nhan he so san nen do va met ra thang, khong /1e7.
+        return [("position", {
+            "lat": d["Lat"], "lon": d["Lng"],
+            "alt_msl": d["Alt"], "alt_rel": d["RelHomeAlt"],
+        })]
+
+    if name == "GPS":
+        return [("gps", {"fix_type": d["Status"], "sats": d["NSats"],
+                         "hdop": d["HDop"]}),
+                ("vfr", {"groundspeed": d["Spd"]})]
+
+    if name == "BAT":
+        if d.get("Inst", 0) != 0:
+            return []  # chi pin thu nhat: nhieu pin thi dai chu nhay qua lai
+        return [("battery", {"voltage": d["Volt"], "current": d.get("Curr"),
+                             "remaining": d.get("RemPct")})]
+
+    if name == "MODE":
+        return [("heartbeat", {"mode": mavutil.mode_string_acm(d["Mode"])})]
+
+    if name == "ARM":
+        # ArduPilot ghi hai thu: ARM (kem ca `Forced` lan ly do) va EV Id=10/11.
+        # Lay ARM vi no noi THANG trang thai, khong phai mot ma su kien phai tra.
+        return [("heartbeat", {"armed": bool(d["ArmState"])})]
+
+    if name == "MSG":
+        # Chu FC in ra: phien ban firmware, canh bao truoc cat canh, ly do
+        # failsafe. Dataflash KHONG ghi muc do nghiem trong nen de INFO — doan
+        # muc do bang cach bat chu trong dong log la loi da go bo o app.py.
+        return [("text", {"severity": 6, "text": d["Message"]})]
+
+    if name == "ORGN":
+        # Type 0 = goc EKF, 1 = home cua AHRS. Nhan ca hai: ArduPilot ghi goc
+        # truoc roi ghi home sau, nen ban ghi sau de len va cuoi cung ra dung
+        # home. Hai diem nay cach nhau vai met o ngay cho cat canh.
+        return [("home", {"lat": d["Lat"], "lon": d["Lng"], "alt_msl": d["Alt"]})]
+
+    return []
+
+
 def flatten_status(name, d):
     """Moi field cua moi message -> STATUS["MSG.field"]. Khong hardcode gi ca.
 
@@ -336,11 +419,20 @@ def flatten_status(name, d):
     trong BATTERY_STATUS.voltages, tung kenh RC), chuoi (ten firmware, STATUSTEXT),
     va cac bitmask cam bien. "Doc duoc het trang thai" thi khong duoc bo thu nao.
     """
+    if name == "LOG_DATA":
+        # 90 byte noi dung log tho. Do vao bang Trang thai la 90 hang moi goi,
+        # ~4500 hang mot giay trong suot phien tai — bang treo, ma khong hang
+        # nao doc duoc. Tien trinh tai di bang topic "log" rieng.
+        return {}
     d = dict(d)
     d.pop("mavpackettype", None)
     out = {}
     if name == "SYS_STATUS":
         out.update(decode_sensors(d))
+    if name == "PARM":
+        # Ban .bin: PARM la PARAM_VALUE cua ben kia. Tach theo ten vi cung ly do
+        # — gop chung mot hang thi 1400 tham so de len nhau.
+        return {f"PARAM.{d['Name']}": d.get("Value")}
     if name == "PARAM_VALUE":
         # Moi tham so mot hang rieng. De mac dinh thi ca 1431 tham so deu do vao
         # dung mot hang "PARAM_VALUE.param_value", cai sau de len cai truoc — nhin
@@ -413,6 +505,9 @@ class SikAdapter(QThread):
         self._up_tries = 0
         self._up_n = 0  # so waypoint nguoi bay dat trong phien nap dang chay
         self._stream_rx = 0.0  # lan cuoi nhan goi CUA STREAM — xem _stream_tick()
+        self._df_beat = {}  # .bin: mode/armed biet gan nhat — xem run()
+        self._log = None       # phien tai log dataflash dang chay — xem _log_start()
+        self._log_list = []    # LOG_ENTRY da nhan: [{id, size, time_utc}]
 
     def stop(self):
         self._running = False
@@ -457,9 +552,12 @@ class SikAdapter(QThread):
         frac, self._seek = self._seek, None
         try:
             master.offset = int(frac * master.data_len)
-            master.f.seek(master.offset)
+            master.f.seek(master.offset)  # .tlog: phai keo ca file object theo
         except AttributeError:
-            return  # dinh dang log khong ho tro tua
+            # .bin: DFReader doc bang mmap, dat `offset` la du — no tu quet toi
+            # ranh gioi ban ghi ke tiep. Do that tren 00000074.BIN: tua toi 50%
+            # thi bo "9 bad bytes" roi doc tiep binh thuong, `percent` ra 50.0.
+            pass
 
     def _run_commands(self, master):
         while True:
@@ -510,6 +608,14 @@ class SikAdapter(QThread):
             # ArduCopter doi mode bang set_mode la duong chac an nhat
             name = {"rtl": "RTL", "land": "LAND"}.get(action) or args["name"]
             master.set_mode(name)
+        elif action == "log_list":
+            # FC tra ve num_logs goi LOG_ENTRY, moi goi mot log tren the SD.
+            self._log_list = []
+            m.log_request_list_send(sysid, compid, 0, 0xFFFF)
+        elif action == "log_get":
+            self._log_start(master, int(args["id"]), int(args["size"]))
+        elif action == "log_cancel":
+            self._log_end(master, err="nguoi dung huy")
         elif action == "wp_write":
             self._wp_upload(master, args.get("items") or [])
         elif action == "wp_clear":
@@ -548,6 +654,136 @@ class SikAdapter(QThread):
         else:
             raise ValueError(f"khong biet lenh {action!r}")
         self._emit("cmd", {"action": action, "args": args})
+
+    # ---- tai log dataflash tu the SD cua FC -------------------------------
+
+    def _log_start(self, master, log_id, size):
+        """Bat dau keo mot log .bin tu FC ve `logdir`.
+
+        Vi sao phai co: .tlog laptop tu ghi chi chua cai DA CHAY QUA SONG — do
+        that 04/09/2026, .tlog bay that lon nhat co 313 field / 57 ban ghi mot
+        giay, con .bin cung chuyen bay do co 1606 field / 682 ban ghi. Nhung thu
+        chi co trong .bin (OF, RATE, XKF*, PID*) la thu can nhat khi di tim vi
+        sao no bay la, va chung khong bao gio du cho tren duong SiK 57600.
+
+        Gia phai tra: dung chinh duong truyen do. 13 MB qua SiK ~4,5 kB/s la gan
+        45 phut va gan het bang thong — nen day la mot nut bam co thanh tien
+        trinh va nut huy, khong phai viec tu dong lam luc ket noi.
+        """
+        if self._log:
+            raise RuntimeError("dang tai mot log khac roi")
+        if not self.logdir:
+            raise RuntimeError("khong co thu muc log de ghi")
+        d = Path(self.logdir)
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{time.strftime('%Y%m%d-%H%M%S')}-fc{log_id}.bin"
+        nblocks = (size + LOG_BLOCK - 1) // LOG_BLOCK
+        self._log = {
+            "id": log_id, "size": size, "path": path, "f": open(path, "wb"),
+            "have": bytearray(nblocks), "got": 0, "scan": 0,
+            "at": time.time(), "tries": 0, "said": 0.0,
+        }
+        self._log_ask(master, 0)
+
+    def _log_ask(self, master, ofs):
+        """Xin FC gui tu `ofs` den het file.
+
+        count = 0xFFFFFFFF nghia la "gui tiep cho toi het": FC tu bom lien tuc
+        chu khong doi hoi tung khoi. Hoi tung khoi mot thi moi khoi mat mot vong
+        di-ve (~130 ms qua SiK) — 145 nghin khoi thanh 5 tieng thay vi 45 phut.
+        """
+        master.mav.log_request_data_send(
+            master.target_system, AUTOPILOT, self._log["id"], ofs, 0xFFFFFFFF)
+        self._log["at"] = time.time()
+
+    def _log_missing(self):
+        """Offset cua khoi con thieu dau tien, hay None neu da du."""
+        g = self._log
+        have = g["have"]
+        i = g["scan"]
+        while i < len(have) and have[i]:
+            i += 1
+        g["scan"] = i
+        return None if i >= len(have) else i * LOG_BLOCK
+
+    def _log_rx(self, master, name, d):
+        """LOG_ENTRY (danh sach) va LOG_DATA (noi dung). True neu da nuot goi."""
+        if name == "LOG_ENTRY":
+            # num_logs = 0: the SD trong hay chua cam. FC van gui dung mot goi
+            # de tra loi, nen phai phat len de giao dien thoi quay vong.
+            if d.get("num_logs"):
+                self._log_list.append(
+                    {"id": d["id"], "size": d["size"], "time_utc": d.get("time_utc", 0)})
+            self._emit("log", {"list": list(self._log_list), "n": d.get("num_logs", 0)})
+            return True
+
+        if name != "LOG_DATA" or not self._log:
+            return False
+        g = self._log
+        if d["id"] != g["id"]:
+            return True  # con sot cua phien truoc — khong ghi de len file dang mo
+
+        ofs, count = d["ofs"], d["count"]
+        # Chi hoi o boi cua 90 nen goi ve cung o boi cua 90; goi lech la dau hieu
+        # firmware la, bo di con hon ghi lech ca file.
+        idx, rem = divmod(ofs, LOG_BLOCK)
+        if rem or idx >= len(g["have"]):
+            return True
+        g["at"], g["tries"] = time.time(), 0
+        if not g["have"][idx]:
+            g["have"][idx] = 1
+            g["got"] += count
+            g["f"].seek(ofs)
+            g["f"].write(bytes(d["data"][:count]))
+
+        now = time.time()
+        if now - g["said"] >= 0.5:  # 2 Hz: thanh tien trinh khong can hon
+            g["said"] = now
+            self._emit("log", {"get": {"id": g["id"], "got": g["got"],
+                                       "size": g["size"], "done": False}})
+        if self._log_missing() is None:
+            self._log_end(master)
+        return True
+
+    def _log_tick(self, master, now):
+        """FC im giua chung -> hoi lai TU CHO CON THIEU, roi bo cuoc va noi ra.
+
+        Khong hoi lai tu 0: mot goi rot o giua ma keo lai ca file thi qua SiK la
+        them 45 phut. Bang `have` giu dung cho thung nen hoi tiep tu do.
+        """
+        g = self._log
+        if not g or now - g["at"] < LOG_STALL:
+            return
+        if g["tries"] >= LOG_TRIES:
+            self._log_end(master, err=f"FC im lang sau {LOG_TRIES} lan hoi lai")
+            return
+        g["tries"] += 1
+        ofs = self._log_missing()
+        if ofs is None:
+            self._log_end(master)
+        else:
+            self._log_ask(master, ofs)
+
+    def _log_end(self, master, err=None):
+        """Dong file va bao ket qua. Thieu byte thi NOI RA, khong lang le giu file.
+
+        File tai do dang van de lai tren dia: 90% cua mot log 13 MB van doc ra
+        do thi duoc, va bat nguoi bay tai lai tu dau qua SiK la 45 phut nua.
+        """
+        g, self._log = self._log, None
+        if not g:
+            return
+        g["f"].close()
+        try:
+            master.mav.log_request_end_send(master.target_system, AUTOPILOT)
+        except Exception:
+            pass  # link vua dut — file da dong roi, khong con gi de mat
+        if err is None and g["got"] < g["size"]:
+            err = f"thieu {g['size'] - g['got']} byte"
+        self._emit("log", {"get": {
+            "id": g["id"], "got": g["got"], "size": g["size"],
+            "path": str(g["path"]), "done": True, "err": err,
+        }})
 
     # ---- geofence --------------------------------------------------------
 
@@ -870,7 +1106,10 @@ class SikAdapter(QThread):
         # KHONG dung master.setup_logfile(): mavudp.recv_msg ghi de ham goc va bo
         # mat doan ghi log, nen link UDP tao ra file 0 byte ma khong bao gi. Tu ghi
         # o vong lap thi serial/UDP/TCP deu giong nhau.
-        if self.logdir:
+        # Ban .bin phat lai thi KHONG ghi .tlog: `msg.get_msgbuf()` cua DFMessage
+        # la ban ghi dataflash tho, nhet vao khuon .tlog se ra mot file khong ai
+        # doc duoc — ke ca chinh app nay.
+        if self.logdir and not _is_df(master):
             d = Path(self.logdir)
             d.mkdir(parents=True, exist_ok=True)
             self.tlog = d / f"{time.strftime('%Y%m%d-%H%M%S')}-{p['mode'].lower()}.tlog"
@@ -884,6 +1123,9 @@ class SikAdapter(QThread):
             self.failed.emit(f"{self.profile['name']}: {e}")
             return
 
+        # Log dataflash: ten message khac, khong co lop MAVLink, khong xin stream.
+        # Chot mot lan o day chu khong hoi lai moi goi.
+        df = _is_df(master)
         streams_sent = False
         last_bps_at = time.time()
         last_bytes = 0
@@ -904,18 +1146,29 @@ class SikAdapter(QThread):
                     continue
                 self._maybe_seek(master)
 
-                msg = master.recv_match(blocking=blocking, timeout=0.5 if blocking else None)
+                if df:
+                    # DFReader.recv_match() KHONG co tham so `timeout` — truyen
+                    # vao la TypeError ngay ban ghi dau, va ca phien phat lai chet
+                    # im lang truoc khi kip ve mot pixel nao.
+                    msg = master.recv_match(blocking=False)
+                else:
+                    msg = master.recv_match(
+                        blocking=blocking, timeout=0.5 if blocking else None)
                 self._run_commands(master)
 
                 if msg is not None:
-                    _upgrade_v2(master, msg)
+                    if not df:
+                        _upgrade_v2(master, msg)
                     name = msg.get_type()
                     # UNKNOWN_*: msgid khong co trong dialect. Khung nhieu trung CRC
                     # ra kieu nay, va no la thu duy nhat lam mot duong truyen hong
                     # trong giong duong truyen song — bo di thi sai baud/nhieu nang
                     # thanh IM LANG, dung kieu hong ma banner bat duoc.
+                    # Ban .bin la log FC TU ghi: chi co du lieu cua chinh no,
+                    # khong co nguon thu hai nao de loc — va DFMessage khong co
+                    # `get_srcComponent` de ma hoi (giong core/logdata._wanted).
                     if (name == "BAD_DATA" or name.startswith("UNKNOWN_")
-                            or not from_autopilot(msg)):
+                            or (not df and not from_autopilot(msg))):
                         continue
 
                     # REPLAY: phat lai dung nhip goc. Khoang trong > 1 s thi
@@ -935,12 +1188,22 @@ class SikAdapter(QThread):
                     if name not in ("HEARTBEAT", "TIMESYNC"):
                         self._stream_rx = ts
 
-                    if self._tlog_f:
+                    if self._tlog_f and name != "LOG_DATA":
                         # dinh dang .tlog: 8 byte timestamp micro-giay big-endian
                         # + goi MAVLink tho. Doc duoc bang Mission Planner.
+                        #
+                        # Tru LOG_DATA: tai mot log 13 MB ve la nhet dung 13 MB
+                        # do vao .tlog cua chuyen bay dang ghi. No khong phai
+                        # telemetry, chi la mot file dang di qua day.
                         self._tlog_f.write(struct.pack(">Q", int(ts * 1e6)) + msg.get_msgbuf())
 
-                    out = normalize(name, d)
+                    if df:
+                        for topic, data in normalize_df(name, d):
+                            if topic == "heartbeat":
+                                self._df_beat.update(data)
+                            self._emit(topic, data, ts)
+
+                    out = None if df else normalize(name, d)
                     if out:
                         topic, data = out
                         # Dieu kien phai bam theo TEN MESSAGE, khong theo topic:
@@ -959,31 +1222,43 @@ class SikAdapter(QThread):
 
                     self._emit("status", flatten_status(name, d), ts)
 
-                    if self._fence_rx(master, name, d):
-                        self._fence_emit(master)
+                    # Rao, duong bay va viec xin stream deu la doi thoai MAVLink
+                    # hai chieu. Ban .bin khong co dau kia de ma noi chuyen — va
+                    # `master.mav` cung khong ton tai de goi. KHONG dung `continue`
+                    # o day: duoi con khoi do byte/s, bo qua no thi dai trang thai
+                    # trong tron trong suot phien phat lai .bin.
+                    if not df:
+                        # Tai log di truoc: giua phien tai, LOG_DATA la phan lon
+                        # goi tren duong truyen.
+                        self._log_rx(master, name, d)
 
-                    # Phien nap di truoc: dang nap thi MISSION_ACK la cua no,
-                    # khong phai cua mot phien tai ve nao.
-                    if not self._wp_up_rx(master, name, d) and self._wp_rx(master, name, d):
-                        self._wp_emit(master)
+                        if self._fence_rx(master, name, d):
+                            self._fence_emit(master)
 
-                    # Xin stream rate ngay sau heartbeat dau tien (luc do moi biet
-                    # target_system). REPLAY khong gui gi ca.
-                    if name == "HEARTBEAT" and not streams_sent and self.mode != "REPLAY":
-                        for sid, hz in stream_table(self.profile):
-                            master.mav.request_data_stream_send(
-                                master.target_system, AUTOPILOT, sid, hz, 1
+                        # Phien nap di truoc: dang nap thi MISSION_ACK la cua no,
+                        # khong phai cua mot phien tai ve nao.
+                        if (not self._wp_up_rx(master, name, d)
+                                and self._wp_rx(master, name, d)):
+                            self._wp_emit(master)
+
+                        # Xin stream rate ngay sau heartbeat dau tien (luc do moi
+                        # biet target_system). REPLAY khong gui gi ca.
+                        if (name == "HEARTBEAT" and not streams_sent
+                                and self.mode != "REPLAY"):
+                            for sid, hz in stream_table(self.profile):
+                                master.mav.request_data_stream_send(
+                                    master.target_system, AUTOPILOT, sid, hz, 1
+                                )
+                            # EXTENDED_SYS_STATE khong nam trong bo stream cu nao
+                            # — phai xin rieng, neu khong FC khong gui goi nao (do
+                            # that: 0 goi trong 8s truoc khi xin, 17 goi sau).
+                            master.mav.command_long_send(
+                                master.target_system, AUTOPILOT,
+                                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                                mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE,
+                                int(1e6 / LANDED_HZ), 0, 0, 0, 0, 0,
                             )
-                        # EXTENDED_SYS_STATE khong nam trong bo stream cu nao —
-                        # phai xin rieng, neu khong FC khong gui goi nao (do that:
-                        # 0 goi trong 8s truoc khi xin, 17 goi sau khi xin).
-                        master.mav.command_long_send(
-                            master.target_system, AUTOPILOT,
-                            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
-                            mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE,
-                            int(1e6 / LANDED_HZ), 0, 0, 0, 0, 0,
-                        )
-                        streams_sent = True
+                            streams_sent = True
 
                 elif self.mode == "REPLAY":
                     self._emit("link", {"bps": 0, "eof": True})
@@ -993,6 +1268,7 @@ class SikAdapter(QThread):
 
                 if self.mode != "REPLAY":
                     self._wp_up_tick(master, now)
+                    self._log_tick(master, now)
                     if streams_sent:
                         self._stream_tick(master, now)
 
@@ -1011,7 +1287,11 @@ class SikAdapter(QThread):
 
                 # Byte/s + ti le mat goi, 1 Hz — nguon cho widget Link status
                 if now - last_bps_at >= 1.0:
-                    total = master.mav.total_bytes_received
+                    # Ban .bin khong co lop MAVLink de hoi so byte va so goi mat.
+                    # `offset` la vi tri dang doc trong file — dung no lam dong ho
+                    # byte thi dai trang thai van chay, va ti le mat goi la 0 that
+                    # (doc file thi khong mat goi nao, khac han duong truyen).
+                    total = master.offset if df else master.mav.total_bytes_received
                     # Radio SiK nay KHONG chen RADIO_STATUS (do 13/08/2026: 0 goi
                     # trong 30s, va quet byte tho thay 0 khung mang chu ky 51/68).
                     # Firmware no chi nhan biet khung MAVLink1 nen khong tim duoc
@@ -1021,8 +1301,8 @@ class SikAdapter(QThread):
                     # nhan: MAVLink danh so thu tu tung goi, thung so la mat goi.
                     # Khong bang RSSI o cho bao truoc, nhung hon o cho no do dung
                     # thu can biet — bao nhieu phan tram KHONG toi noi.
-                    lost = master.mav_loss - last_loss
-                    good = master.mav_count - last_count
+                    lost = 0 if df else master.mav_loss - last_loss
+                    good = 0 if df else master.mav_count - last_count
                     self._emit(
                         "link",
                         {"bps": int((total - last_bytes) / (now - last_bps_at)),
@@ -1031,7 +1311,19 @@ class SikAdapter(QThread):
                         now,
                     )
                     last_bytes, last_bps_at = total, now
-                    last_loss, last_count = master.mav_loss, master.mav_count
+                    if not df:
+                        last_loss, last_count = master.mav_loss, master.mav_count
+                    elif self._df_beat:
+                        # Ban .bin ghi MODE/ARM khi CO DOI, con duong that thi
+                        # HEARTBEAT nhac lai moi giay. Khong nhac lai thi Field
+                        # het tuoi sau STALE=2s va nhan che do bay tat ngom giua
+                        # chuyen — trong khi FC luc do van dang o dung che do do.
+                        # Do that tren log bay trong nha 30/08: ca file 17 phut
+                        # chi co DUNG MOT ban ghi MODE, o giay 9,5.
+                        #
+                        # Day khong phai bia du lieu: no phat lai dung cai ma
+                        # duong truyen SE gui neu luc do co radio cam vao.
+                        self._emit("heartbeat", dict(self._df_beat), now)
                     if self._tlog_f:
                         # App crash thi phan con nam trong buffer se mat — ma do
                         # dung la doan cuoi truoc su co, doan quan trong nhat.
@@ -1039,6 +1331,10 @@ class SikAdapter(QThread):
         except Exception as e:
             self.failed.emit(f"{self.profile['name']}: {e}")
         finally:
+            if self._log:
+                # Ngat giua chung: file dang tai phai duoc DONG, khong bo cho GC
+                # nhat — phan cuoi con trong buffer la phan vua tai xong.
+                self._log_end(master, err="ngat ket noi giua luc tai")
             if self._tlog_f:
                 # Mo nguon xong ma khong nhan duoc goi nao (cong sai, radio chua
                 # bat) thi de lai mot file 0 byte: no khong phai chuyen bay, chi

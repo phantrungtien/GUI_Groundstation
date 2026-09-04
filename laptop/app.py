@@ -209,6 +209,7 @@ class MainWindow(QMainWindow):
         self.control_tab.set_mode(self.mode)
         self.flight_tab.set_mode(self.mode)
         self.status_tab.attach(self.adapter)
+        self.analysis_tab.attach(self.adapter)
         self.replay_bar.attach(self.adapter if self.mode == "REPLAY" else None)
         self.link_faults.attach(self.adapter if self.mode == "SIM" else None,
                                 self.remote if self.mode == "SIM" else None)
@@ -266,6 +267,7 @@ class MainWindow(QMainWindow):
         self.control_tab.set_mode(None)
         self.flight_tab.set_mode(None)
         self.status_tab.attach(None)
+        self.analysis_tab.attach(None)
         self.replay_bar.attach(None)
         self.link_faults.attach(None, None)
         self.faults_dock.hide()
