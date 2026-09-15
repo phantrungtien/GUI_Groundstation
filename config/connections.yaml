@@ -26,7 +26,7 @@
   #
   # IP nay do DHCP cap nen co the doi sau khi khoi dong lai router. Muon co dinh
   # that thi dat DHCP reservation theo MAC cua Pi tren router — 0 dong code.
-  remote: "ws://192.168.1.72:8765"
+  remote: "ws://192.168.1.40:8765"
 
 # Mo phong. Can hai thu chay truoc:
 #   1. ros2 launch simtofly_mavros_sitl sitl_mission.launch.py
@@ -51,4 +51,4 @@
   mode: REAL
   conn: "udp:127.0.0.1:14550"   # cong trong — chi de profile hien ra, khong co FC
   sysid: 254
-  remote: "ws://192.168.1.72:8765"
+  remote: "ws://192.168.1.40:8765"

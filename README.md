@@ -506,6 +506,18 @@ RC override: ArduPilot sẽ từ chối arm với `"Throttle (RC3) is not neutra
 | `logs/*.tlog` | MAVLink thô mọi chuyến, đọc được bằng Mission Planner |
 | `logs/commands.log` | Mọi lần bấm nút và kết quả — nơi trả lời "sao nó không arm được" |
 | `logs/gui.log` | stdout của app |
+| `logs/video.log` | Nhịp khung video **tới GUI** mỗi 5 s + mốc start/connected/lost/error/stop |
+
+Số fps trên khung video chỉ nói *lúc này*; video giật lúc 13:40 thì phải có dòng
+log lúc 13:40. `tools/video_timeline.sh` ghép `logs/video.log` với journal
+`mjpeg-stream.service` của Pi (qua ssh, IP lấy từ `connections.yaml`) lên một
+trục thời gian: Pi nén cao mà GUI nhận thấp là mất trên WiFi, cả hai cùng tụt là
+camera/Pi.
+
+```bash
+tools/video_timeline.sh              # tu luc GUI bat dau ghi log
+tools/video_timeline.sh 13:00        # tu moc khac — cu phap `date -d`
+```
 
 ---
 
@@ -541,6 +553,7 @@ tools/
   fetch_tiles.py   # tai tile ban do offline
   mjpeg_server.py  # chay tren COMPANION: /dev/video* hoac topic anh ROS2 -> MJPEG
   fire_tracker.py  # bam vet lua/khoi YOLO ONNX, ve len khung MJPEG
+  video_timeline.sh  # ghep nhip video Pi + GUI len mot truc thoi gian
   soak.py          # bai chay lien tuc
 ```
 

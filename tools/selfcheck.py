@@ -1734,6 +1734,12 @@ def check_video(app):
         sig.disconnect(on)
         t.stop()
 
+    # Log nhip ra file tam, khong lan vao logs/video.log cua phien bay that.
+    import tempfile
+    import laptop.widgets.video as video_mod
+    log_path = Path(tempfile.mkdtemp()) / "video.log"
+    video_mod.LOG_PATH, video_mod.REPORT_S = log_path, 0.2
+
     src = VideoSource()
     view = VideoView(src)
     view.resize(160, 120)
@@ -1763,6 +1769,11 @@ def check_video(app):
 
     src.stop()
     srv.shutdown()
+
+    # Du ca vong doi tren log: tools/video_timeline.sh ghep dung cac chu nay.
+    log = log_path.read_text()
+    for word in ("gui start", "gui connected", "gui fps", "gui lost", "gui stop"):
+        assert word in log, f"log video thieu '{word}':\n{log}"
 
     # Huy DUT DIEM ngay tai day, tren main thread. VideoSource so huu mot QTimer
     # chay suot (`_watch`); tha cho no roi khoi tam vuc thi Python thu gom luc

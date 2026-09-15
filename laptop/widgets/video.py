@@ -24,6 +24,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
@@ -41,6 +42,22 @@ READ_TIMEOUT_S = 4.0  # khong co byte nao trong ngan nay -> coi nhu dut, noi lai
 RETRY_S = 2.0
 STALE_S = 2.0  # khong co khung moi qua ngan nay -> o xam
 MAX_FRAME_B = 8_000_000  # chan may chu hong bao Content-Length khong lo
+
+# Nhip khung toi GUI ghi ra file suot phien chay, de ghep voi journal cua Pi bang
+# tools/video_timeline.sh. So fps ve tren khung chi cho biet LUC NAY; video giat
+# luc 13:40 thi phai co dong log luc 13:40.
+REPORT_S = 5.0  # cung chu ky voi dong `[mjpeg] nguon ...` ben Pi
+LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "video.log"
+
+
+def _log(msg):
+    """Mot dong co moc gio dia phuong, cung dang voi `journalctl -o short-iso`."""
+    try:
+        LOG_PATH.parent.mkdir(exist_ok=True)
+        with open(LOG_PATH, "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} gui {msg}\n")
+    except OSError:
+        pass  # khong ghi duoc log thi video van phai chay
 
 
 def url_for(remote_url):
@@ -96,6 +113,8 @@ class VideoSource(QObject):
         self._gen = 0  # doi doi thi thread cu tu biet minh het viec
         self._last = 0.0
         self._stamps = collections.deque(maxlen=30)  # moc thoi gian 30 khung gan nhat
+        self._n = self._bytes = 0  # dem trong chu ky REPORT_S hien tai
+        self._rep_t = time.monotonic()
 
         self._arrived.connect(self._decode)
         self._watch = QTimer(self)
@@ -108,11 +127,16 @@ class VideoSource(QObject):
         self.stop()
         self.url = url
         self.note = ("vid.connecting", {})
+        self._n = self._bytes = 0
+        self._rep_t = time.monotonic()
+        _log(f"start {url}")
         self._gen += 1
         threading.Thread(target=self._run, args=(url, self._gen), daemon=True).start()
 
     def stop(self):
         self._gen += 1  # thread dang chay se thay _gen lech va tu thoat
+        if self.url:
+            _log("stop")
         self.url = None
         self.pixmap = None
         self.alive = False
@@ -129,6 +153,8 @@ class VideoSource(QObject):
             self.alive = True
             self._last = time.monotonic()
             self._stamps.append(self._last)
+            self._n += 1
+            self._bytes += len(jpeg)
             self.updated.emit()
 
     @property
@@ -144,22 +170,32 @@ class VideoSource(QObject):
         return (len(s) - 1) / (s[-1] - s[0])
 
     def _check_stale(self):
-        if self.alive and time.monotonic() - self._last > STALE_S:
+        now = time.monotonic()
+        if self.url and now - self._rep_t >= REPORT_S:
+            dt = now - self._rep_t
+            _log(f"fps {self._n / dt:5.1f}  {self._bytes / dt / 1000:4.0f} KB/s")
+            self._n = self._bytes = 0
+            self._rep_t = now
+        if self.alive and now - self._last > STALE_S:
             # Het khung moi. Bo khung cu di chu khong giu lai cho dep man hinh.
             self.alive = False
             self.pixmap = None
             self._stamps.clear()
             self.note = ("vid.lost", {})
+            _log(f"lost — khong co khung moi qua {STALE_S:.0f} s")
             self.updated.emit()
 
     # ------------------------------------------------------------------ thread phu
 
     def _run(self, url, gen):
+        last_err = None  # Pi tat thi loi lap lai moi RETRY_S — chi ghi lan dau
         while gen == self._gen:
             try:
                 # timeout nay di theo socket nen ap cho ca cac lan read() sau,
                 # khong chi rieng luc bat tay.
                 resp = urllib.request.urlopen(url, timeout=READ_TIMEOUT_S)
+                _log("connected")
+                last_err = None
                 while gen == self._gen:
                     self._arrived.emit(_read_frame(resp))
                 resp.close()
@@ -167,6 +203,9 @@ class VideoSource(QObject):
                 # Rot WiFi, Pi chua bat server, camera rut ra — deu la chuyen
                 # binh thuong ngoai bai bay. Cho roi thu lai, khong keu ca.
                 if gen == self._gen:
+                    if type(e) is not last_err:
+                        _log(f"error {type(e).__name__}: {e}")
+                    last_err = type(e)
                     self.note = ("vid.error", {"err": type(e).__name__})
                     time.sleep(RETRY_S)
 
