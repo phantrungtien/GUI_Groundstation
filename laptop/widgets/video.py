@@ -19,6 +19,7 @@ Khac tile o ba cho, va ca ba deu la cho de sai:
 """
 
 import collections
+import os
 import threading
 import time
 import urllib.error
@@ -33,7 +34,9 @@ from core.i18n import t
 from laptop import theme
 
 # Cong rieng cho video, khong dung chung 8765 cua duong lenh (nguyen tac 2.1).
-VIDEO_PORT = 8080
+# GCS_VIDEO_PORT chi de CHIA LUONG luc thu nghiem (chay stream thu hai o cong khac
+# trong khi 8080 van la stream that). Khong phai key config: mac dinh van la 8080.
+VIDEO_PORT = int(os.environ.get("GCS_VIDEO_PORT", 8080))
 READ_TIMEOUT_S = 4.0  # khong co byte nao trong ngan nay -> coi nhu dut, noi lai
 RETRY_S = 2.0
 STALE_S = 2.0  # khong co khung moi qua ngan nay -> o xam
