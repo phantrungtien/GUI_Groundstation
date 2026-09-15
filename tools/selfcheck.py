@@ -1953,6 +1953,52 @@ def check_flight_alerts(app):
           f"tu tat sau {TTL_WARN:g}/{TTL_ERR:g}s, ngat ket noi la xoa")
 
 
+def check_cam_swap(app):
+    """Bam o camera tren tab Bay -> camera phong ca tab, ban do thu vao goc.
+
+    Ba cho de hong: ban do nho van an click (keo/cuon lech khung nhin, va click
+    khong bao gio roi xuong camera de doi lai), bam nham giua anh lon ma doi lai,
+    va ngat ket noi xong van ket o camera chet.
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    from laptop.tabs.flight import FlightTab
+
+    ft = FlightTab()
+    ft.resize(900, 600)
+    ft.grab()
+    ft.video.show()
+    try:
+        pip = ft.video.geometry()
+        assert pip.width() < 300 and ft.map.geometry() == ft.rect(), (pip, ft.map.geometry())
+        assert not ft.video.testAttribute(Qt.WA_TransparentForMouseEvents), \
+            "o camera xuyen click — bam vao khong bao gio toi"
+
+        QTest.mouseClick(ft.video, Qt.LeftButton, pos=QPoint(20, 20))
+        assert ft.cam_big and ft.video.geometry() == ft.rect(), ft.video.geometry()
+        assert ft.map.geometry() == pip, f"ban do nho khong vao dung goc PiP: {ft.map.geometry()}"
+        assert ft.map.testAttribute(Qt.WA_TransparentForMouseEvents)
+        # ban do nho phai NAM TREN camera lon, khong thi no bi che mat
+        kids = ft.children()
+        assert kids.index(ft.map) > kids.index(ft.video), "ban do nho nam duoi camera"
+
+        QTest.mouseClick(ft.video, Qt.LeftButton, pos=ft.rect().center())
+        assert ft.cam_big, "bam giua anh lon ma doi lai"
+
+        QTest.mouseClick(ft.video, Qt.LeftButton, pos=pip.center())
+        assert not ft.cam_big and ft.map.geometry() == ft.rect() and ft.video.geometry() == pip
+        assert not ft.map.testAttribute(Qt.WA_TransparentForMouseEvents), \
+            "ve lai ban do lon ma van xuyen click — het keo, het menu chuot phai"
+
+        QTest.mouseClick(ft.video, Qt.LeftButton, pos=QPoint(20, 20))
+        ft.set_mode(None)
+        assert not ft.cam_big and ft.map.geometry() == ft.rect(), "ngat ket noi ma van ket o camera"
+    finally:
+        ft.close()
+    print("  ok  bam o camera tab Bay: phong ca tab, ban do vao goc; bam ban do nho la doi lai")
+
+
 def check_telemetry_warn(app):
     """Thanh telemetry: da ARM chua, va pin/GPS phai TU KEO MAT khi xau.
 
@@ -3156,6 +3202,7 @@ if __name__ == "__main__":
     check_param_doc(app)
     check_telemetry_warn(app)
     check_flight_alerts(app)
+    check_cam_swap(app)
     check_close_guard(app)
     check_home_note(app)
     check_drone_marker(app)

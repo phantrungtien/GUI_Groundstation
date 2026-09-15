@@ -101,12 +101,18 @@ class FlightTab(QWidget):
         # ai can video thi bat, con man hinh bay mac dinh phai la ban do.
         self.video = VideoView(parent=self)
         self.video.hide()
+        # Bam o camera -> camera phong ra ca tab, ban do thu vao dung goc do (kieu
+        # DJI): xem camera ma van con thay drone o dau, rao o dau. Bam ban do nho
+        # thi doi lai. O camera vi vay NHAN click, khong xuyen xuong map nhu truoc.
+        self.cam_big = False
+        self.video.setCursor(Qt.PointingHandCursor)
+        self.video.clicked.connect(self._cam_clicked)
 
-        for w in (self.compass, self.attitude, self.telemetry, self.warn, self.alerts,
-                  self.video):
+        for w in (self.compass, self.attitude, self.telemetry, self.warn, self.alerts):
             w.raise_()
             # Click xuyen qua overlay xuong map (de con click-to-goto).
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.video.raise_()
 
         self.map.setContextMenuPolicy(Qt.CustomContextMenu)
         self.map.customContextMenuRequested.connect(self._menu)
@@ -131,10 +137,30 @@ class FlightTab(QWidget):
         if mode is None:
             self.map.reset()
             self.alerts.clear()  # loi cua drone cu khong duoc treo sang ket noi sau
+            self.set_cam_big(False)  # het ket noi thi video chet, tra ban do ve
 
     def set_video_source(self, source):
         """Dung chung mot `VideoSource` voi tab Camera — mot ket noi, hai cho ve."""
         self.video.set_source(source)
+
+    def _cam_clicked(self, pos):
+        # Camera lon: chi o ban do nho moi doi lai — bam nham giua anh thi thoi.
+        # Ban do nho xuyen click (xem set_cam_big) nen click cua no ve toi day.
+        if not self.cam_big or self.map.geometry().contains(self.video.mapTo(self, pos)):
+            self.set_cam_big(not self.cam_big)
+
+    def set_cam_big(self, big):
+        self.cam_big = big
+        # Ban do nho KHONG nhan chuot: keo/cuon tren o 256 px chi lam lech khung
+        # nhin, con click thi phai roi xuong camera ben duoi de doi lai.
+        self.map.setAttribute(Qt.WA_TransparentForMouseEvents, big)
+        if big:
+            self.video.lower()
+            self.map.raise_()
+        else:
+            self.map.lower()
+            self.video.raise_()
+        self.resizeEvent(None)
 
     # ------------------------------------------------------------------
 
@@ -425,8 +451,6 @@ class FlightTab(QWidget):
 
     def resizeEvent(self, e):
         w, h = self.width(), self.height()
-        self.map.setGeometry(0, 0, w, h)
-
         m = MARGIN
         self.compass.move(w - self.compass.width() - m, m)
         self.attitude.move(w - self.attitude.width() - m,
@@ -437,14 +461,17 @@ class FlightTab(QWidget):
         # Duoi cho thanh canh bao, KE CA khi no dang an: o camera dung yen mot
         # cho, khong nhay len nhay xuong theo luc hai nguon lech vi tri.
         pw = min(PIP_W, w // 3)
-        self.video.setGeometry(m, m + 28 + 6, pw, pw * PIP_H // PIP_W)
+        big, pip = (self.video, self.map) if self.cam_big else (self.map, self.video)
+        big.setGeometry(0, 0, w, h)
+        pip.setGeometry(m, m + 28 + 6, pw, pw * PIP_H // PIP_W)
 
         # Giua-tren, duoi hang canh bao lech vi tri, chua cho o camera ben trai va
         # la ban ben phai. Chieu cao AlertStack tu tinh theo so dong dang hien.
         aw = min(520, max(240, w - 2 * (max(pw, self.compass.width()) + 2 * m)))
         self.alerts.setGeometry((w - aw) // 2, m + 28 + 6, aw, self.alerts.height())
         self.alerts.tick()
-        super().resizeEvent(e)
+        if e is not None:
+            super().resizeEvent(e)
 
     def _place_telemetry(self):
         self.telemetry.adjustSize()

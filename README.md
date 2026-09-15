@@ -115,7 +115,7 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 
 | Tab | Nội dung |
 |---|---|
-| **Bay** | Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên |
+| **Bay** | Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên. Ô camera PiP bật bằng chuột phải; bấm vào nó là camera phóng cả tab |
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*`. Hai cột: `Field` và `Giá trị`. Field ngừng cập nhật quá `STALE` giây thì **giá trị xám đi** — đứng hình mà vẫn đen là nói dối |
 | **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`) |
@@ -245,6 +245,21 @@ thông báo không tới mà không có gì báo là nó không tới. STATUSTEX
 **qua FC** thì hiện **không** tới GUI: `from_autopilot()` bỏ mọi gói không phải
 component 1.
 
+### Bấm ô camera — camera phóng cả tab Bay, bản đồ thu vào góc
+
+Trước đây muốn xem camera to thì phải sang tab Camera, tức là rời bản đồ. Giờ
+bấm vào ô PiP (bật bằng chuột phải → hiện camera) là **đổi chỗ kiểu DJI**:
+camera chiếm cả tab, bản đồ thu vào đúng góc ô PiP cũ — vẫn thấy drone ở đâu,
+rào ở đâu. La bàn, chân trời, thanh telemetry và dòng lỗi vẫn nằm trên cùng.
+
+- **Bấm bản đồ nhỏ** để đổi lại. Bấm giữa ảnh camera lớn thì **không** đổi — bấm
+  nhầm giữa lúc đang xem không được đá mình về bản đồ.
+- Bản đồ nhỏ **không nhận chuột**: kéo/cuộn trên ô 256 px chỉ làm lệch khung
+  nhìn, và click phải rơi xuống camera bên dưới thì mới đổi lại được. Menu chuột
+  phải (waypoint, bay tới điểm) có lại khi bản đồ về lớn.
+- Chuột phải **ngay trên ô camera nhỏ** không mở menu nữa — ô đó giờ nhận click.
+- Ngắt kết nối thì tự trả bản đồ về lớn: không có link thì video đã chết.
+
 ### Tab Thông báo mang số cảnh báo chưa đọc
 
 Mục D.7 bắt đọc *"không có STATUSTEXT đỏ tồn đọng"* — nhưng phải chuyển tab mới
@@ -371,7 +386,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 43 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 44 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -581,7 +596,7 @@ laptop/
   widgets/       # map, compass, attitude, telemetry_bar, video, trajectory3d, alerts
 
 tools/
-  selfcheck.py     # 43 check, khong can SITL
+  selfcheck.py     # 44 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that

@@ -27,7 +27,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QWidget
 
@@ -213,6 +213,8 @@ class VideoSource(QObject):
 class VideoView(QWidget):
     """Ve khung moi nhat cua mot `VideoSource`. Nhieu view dung chung mot source."""
 
+    clicked = Signal(QPoint)  # tab Bay dung de doi cho ban do <-> camera
+
     def __init__(self, source=None, parent=None):
         super().__init__(parent)
         self.source = None
@@ -227,6 +229,10 @@ class VideoView(QWidget):
         if source is not None:
             source.updated.connect(self.update)
         self.update()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.clicked.emit(e.position().toPoint())
 
     def paintEvent(self, _e):
         p = QPainter(self)
