@@ -431,7 +431,7 @@ def check_arm_throttle_guard(app):
         assert sent == ["arm"], f"ga 993 la o min, phai gui duoc: {logs}"
 
         # Ga cu qua thi khong con la bang chung: gui, nhung phai noi ra
-        ct._thr = (1496, time.time() - 30)
+        ct.cmd._thr = (1496, time.time() - 30)
         sent.clear(); logs.clear()
         ct.btn_arm.click()
         assert sent == ["arm"] and "quá cũ" in logs[0], (sent, logs)
@@ -478,12 +478,12 @@ def check_disarm_hold(app):
     def landed(v, rng_cm=None):
         """Dat hai nguon: cai FC bao, va cam bien khoang cach (cm)."""
         REGISTRY.fields.clear()
-        ct._rng = None
+        ct.cmd._rng = None
         if v is not None:
             REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": {"landed": v},
                            "ts": time.time()})
         if rng_cm is not None:
-            ct._rng = (rng_cm, 5, 400, time.time())
+            ct.cmd._rng = (rng_cm, 5, 400, time.time())
 
     authority.register("sik", FakeAdapter())
     ct = ControlTab()
@@ -692,13 +692,13 @@ def check_takeoff_guard(app):
         assert sent == ["takeoff"], sent
         # Do cao khong nhuc nhich -> phai keu, du FC da tra CHAP NHAN
         logs.clear()
-        ct._check_climb(0.0)
+        ct.cmd.check_climb(0.0)
         assert "độ cao không đổi" in logs[-1], logs
         # Con leo len that thi im lang
         logs.clear()
         REGISTRY.feed({"src": "sik", "topic": "position", "data": {"alt_rel": 4.0},
                        "ts": time.time()})
-        ct._check_climb(0.0)
+        ct.cmd.check_climb(0.0)
         assert not logs, logs
 
         # O REAL phai xac nhan — nhung KHONG duoc xac nhan bang hop thoai chan.
@@ -972,11 +972,11 @@ def check_fence(app):
     ct.set_mode("SIM")
     logs = []
     ct.log.connect(lambda text, _sev: logs.append(text))
-    ct._pending = {"arm": time.time() + 3}
+    ct.cmd._pending = {"arm": time.time() + 3}
     bus.emit("sik", "ack", {"command": 512, "result": 0})
-    assert ct._pending and not logs, (ct._pending, logs)
+    assert ct.cmd._pending and not logs, (ct.cmd._pending, logs)
     bus.emit("sik", "ack", {"command": 400, "result": 0})  # ARM: cai nay moi la cua nut
-    assert not ct._pending and "chấp nhận" in logs[-1], logs
+    assert not ct.cmd._pending and "chấp nhận" in logs[-1], logs
     ct.close()
     print("  ok  geofence: vong tron quanh home + da giac, TAT thi ve dut net")
 
