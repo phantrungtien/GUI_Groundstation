@@ -17,6 +17,7 @@ from core.adapters.sik import WP_MAX
 from core.field import REGISTRY
 from core.i18n import t
 from laptop import theme
+from laptop.widgets.alerts import AlertStack
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
 from laptop.widgets.map_widget import MapWidget
@@ -90,12 +91,19 @@ class FlightTab(QWidget):
         )
         self.warn.hide()
 
+        # FC noi loi (PreArm, failsafe, crash) thi hien ngay tren man hinh bay —
+        # truoc day chi vao tab Thong bao, phai roi ban do moi doc duoc.
+        self.alerts = AlertStack(self)
+        bus.on("text", lambda e: self.alerts.push(
+            e["data"].get("text"), e["data"].get("severity", 6)))
+
         # O camera cho phi cong theo doi ma khong roi man hinh bay. Tat mac dinh:
         # ai can video thi bat, con man hinh bay mac dinh phai la ban do.
         self.video = VideoView(parent=self)
         self.video.hide()
 
-        for w in (self.compass, self.attitude, self.telemetry, self.warn, self.video):
+        for w in (self.compass, self.attitude, self.telemetry, self.warn, self.alerts,
+                  self.video):
             w.raise_()
             # Click xuyen qua overlay xuong map (de con click-to-goto).
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -122,6 +130,7 @@ class FlightTab(QWidget):
         self.mode = mode
         if mode is None:
             self.map.reset()
+            self.alerts.clear()  # loi cua drone cu khong duoc treo sang ket noi sau
 
     def set_video_source(self, source):
         """Dung chung mot `VideoSource` voi tab Camera — mot ket noi, hai cho ve."""
@@ -210,6 +219,7 @@ class FlightTab(QWidget):
             self.warn.show()
         else:
             self.warn.hide()
+        self.alerts.tick()
 
     def _on_wp(self, env):
         """Duong bay tu FC ve. Rieng ket qua NAP thi phai ra log, khong ve ban do."""
@@ -428,6 +438,12 @@ class FlightTab(QWidget):
         # cho, khong nhay len nhay xuong theo luc hai nguon lech vi tri.
         pw = min(PIP_W, w // 3)
         self.video.setGeometry(m, m + 28 + 6, pw, pw * PIP_H // PIP_W)
+
+        # Giua-tren, duoi hang canh bao lech vi tri, chua cho o camera ben trai va
+        # la ban ben phai. Chieu cao AlertStack tu tinh theo so dong dang hien.
+        aw = min(520, max(240, w - 2 * (max(pw, self.compass.width()) + 2 * m)))
+        self.alerts.setGeometry((w - aw) // 2, m + 28 + 6, aw, self.alerts.height())
+        self.alerts.tick()
         super().resizeEvent(e)
 
     def _place_telemetry(self):

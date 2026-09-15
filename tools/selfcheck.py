@@ -1898,6 +1898,61 @@ def check_param_doc(app):
           "viet tay), vao tooltip cua hang PARAM.*, doi theo ngon ngu")
 
 
+def check_flight_alerts(app):
+    """Loi FC noi len man hinh bay kieu DJI — ma khong nhay theo nhip PreArm.
+
+    So do thiet ke: log that 84 phut chi co 2 cau PreArm, moi cau 164 lan, cach
+    nhau ~30,7 s. Cau trung trong luc dong con song thi gop, khong chong dong.
+    """
+    from laptop import theme
+    from laptop.tabs.flight import FlightTab
+    from laptop.widgets.alerts import ROWS, TTL_ERR, TTL_WARN
+
+    ft = FlightTab()
+    ft.resize(900, 600)
+    ft.grab()  # widget chua show: grab() moi ep resizeEvent chay, dat vi tri overlay
+    a = ft.alerts
+
+    def shown():
+        return [r.text() for r in a.rows if not r.isHidden()]
+
+    try:
+        bus.emit("sik", "text", {"severity": 6, "text": "EKF3 IMU0 is using GPS"})
+        assert shown() == [], "INFO khong duoc len man bay"
+
+        for _ in range(3):  # nhip lap cua FC: cung mot cau, mot dong, co dem
+            bus.emit("sik", "text", {"severity": 2, "text": b"PreArm: RC not found\x00"})
+        assert shown() == ["PreArm: RC not found  ×3"], shown()
+
+        # WARNING den SAU van nam DUOI loi nang hon
+        bus.emit("sik", "text", {"severity": 4, "text": "GPS glitch"})
+        assert shown() == ["PreArm: RC not found  ×3", "GPS glitch"], shown()
+        assert theme.CRIT in a.rows[0].styleSheet() and theme.WARN in a.rows[1].styleSheet()
+
+        # Qua so dong: khong cat im lang
+        for i in range(3):
+            a.push(f"loi {i}", 3)
+        assert len(shown()) == ROWS and shown()[-1].endswith(f"(+{5 - ROWS})"), shown()
+
+        # Tu tat: WARNING truoc, loi sau
+        now = time.time()
+        a.tick(now + TTL_WARN + 0.1)
+        assert "GPS glitch" not in " ".join(shown()), shown()
+        assert any("PreArm" in s for s in shown()), "loi tat cung luc voi WARNING"
+        a.tick(now + TTL_ERR + 0.1)
+        assert shown() == [], shown()
+
+        a.push("PreArm: RC not found", 2)
+        ft.set_mode(None)
+        assert shown() == [], "ngat ket noi ma loi drone cu con treo"
+        g = a.geometry()  # QRect.center() lam tron xuong 1 px — tu tinh
+        assert 2 * g.x() + g.width() == ft.width(), g
+    finally:
+        ft.close()
+    print(f"  ok  loi FC noi tren man bay: >=WARNING, gop dong trung, nang len tren, "
+          f"tu tat sau {TTL_WARN:g}/{TTL_ERR:g}s, ngat ket noi la xoa")
+
+
 def check_telemetry_warn(app):
     """Thanh telemetry: da ARM chua, va pin/GPS phai TU KEO MAT khi xau.
 
@@ -3100,6 +3155,7 @@ if __name__ == "__main__":
     check_i18n(app)
     check_param_doc(app)
     check_telemetry_warn(app)
+    check_flight_alerts(app)
     check_close_guard(app)
     check_home_note(app)
     check_drone_marker(app)

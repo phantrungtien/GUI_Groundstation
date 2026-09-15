@@ -162,7 +162,8 @@ class MainWindow(QMainWindow):
         tabs.setTabText(i, t("tab.messages") + (f"  ({n})" if n else ""))
 
     def _on_cmd_log(self, text, sev=5):
-        """Ket qua moi lan bam nut: thanh trang thai + tab Thong bao + file.
+        """Ket qua moi lan bam nut: thanh trang thai + tab Thong bao + file
+        (loi thi them mot dong noi tren man bay — xem laptop/widgets/alerts.py).
 
         Ba cho vi ba muc dich khac nhau. Thanh trang thai de thay ngay; tab Thong
         bao de doc lai trong chuyen bay; file de sau chuyen bay con truy duoc vi
@@ -171,6 +172,7 @@ class MainWindow(QMainWindow):
         """
         self.ui.statusbar.showMessage(text, 6000)
         self.messages_tab.add_local(text, sev=sev)
+        self.flight_tab.alerts.push(text, sev)  # tu choi/ket hang thi noi len man bay
         try:
             line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  [{self.mode or '-'}]  {text}\n"
             (ROOT / "logs" / "commands.log").open("a", encoding="utf-8").write(line)

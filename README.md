@@ -115,7 +115,7 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 
 | Tab | Nội dung |
 |---|---|
-| **Bay** | Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên |
+| **Bay** | Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên |
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*`. Hai cột: `Field` và `Giá trị`. Field ngừng cập nhật quá `STALE` giây thì **giá trị xám đi** — đứng hình mà vẫn đen là nói dối |
 | **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`) |
@@ -208,6 +208,42 @@ bay vẫn phải tự so xem cái nào sắp chạm — đúng cái việc đang
 
 Số mét tới vòng tròn chỉ hiện khi home là home **thật** (xem mục trên): tâm vòng
 rào của ArduCopter là home của FC, đo từ một home đoán ra thì con số đó là bịa.
+
+### Lỗi hiện ngay trên màn bay — kiểu DJI
+
+Trước đây PreArm, failsafe, crash chỉ vào tab Thông báo: phải rời bản đồ mới
+đọc được. Giờ chúng nổi thành dòng màu ở giữa-trên tab Bay
+(`laptop/widgets/alerts.py`):
+
+| Mức `severity` | Màu | Tự tắt sau lần cuối thấy |
+|---|---|---|
+| 0–3 (EMERGENCY … ERROR) | đỏ | 10 s (`TTL_ERR`) |
+| 4 (WARNING) | vàng | 5 s (`TTL_WARN`) |
+| 5–7 | không lên màn bay, chỉ vào tab Thông báo | — |
+
+- **Câu trùng gộp thành một dòng `×n`.** Log thật 84 phút chỉ có đúng 2 câu
+  PreArm, mỗi câu 164 lần, cách nhau ~30,7 s. Vì thời gian tắt ngắn hơn nhịp lặp,
+  dòng PreArm hiện 10 s rồi tắt ~20 s tới lần FC nhắc lại — đó là lựa chọn, không
+  phải lỗi. Lịch sử đầy đủ vẫn ở tab Thông báo.
+- **Tối đa 3 dòng, nặng nhất ở trên.** Ba dòng vàng mới đến không đẩy được một
+  dòng đỏ ra khỏi màn hình. Thừa thì dòng cuối ghi `(+k)` — không cắt im lặng.
+- Nguồn: STATUSTEXT của FC, envelope `text` của companion, và kết quả lệnh của
+  chính app (từ chối = đỏ, gửi mà link câm = vàng). Ngắt kết nối là xoá sạch.
+- Click xuyên qua xuống bản đồ như mọi overlay khác — không bấm để tắt được.
+
+**Companion muốn đẩy thông báo lên đây** (phát hiện lửa, người, vật cản…) thì
+gửi qua WebSocket 8765 đúng khuôn này — GUI không phải sửa gì:
+
+```json
+{"topic": "text", "data": {"severity": 4, "text": "Phát hiện lửa #3"}}
+```
+
+Thiếu `severity` là bị coi như INFO: chỉ vào tab Thông báo, **không** lên màn
+bay. Gửi theo sự kiện (track mới), không theo từng khung hình; giữ nguyên câu chữ
+cho mỗi track thì mới gộp `×n` được. Đường này đi trên WiFi của Pi — mất WiFi là
+thông báo không tới mà không có gì báo là nó không tới. STATUSTEXT companion gửi
+**qua FC** thì hiện **không** tới GUI: `from_autopilot()` bỏ mọi gói không phải
+component 1.
 
 ### Tab Thông báo mang số cảnh báo chưa đọc
 
@@ -335,7 +371,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 38 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 43 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
@@ -542,10 +578,10 @@ laptop/
   link_faults.py # mo phong dut duong truyen (chi SIM)
   theme.py       # bang mau + QSS dung chung, widget khong tu che ma hex
   tabs/          # flight, status, control, messages, analysis, settings
-  widgets/       # map, compass, attitude, telemetry_bar, video, trajectory3d
+  widgets/       # map, compass, attitude, telemetry_bar, video, trajectory3d, alerts
 
 tools/
-  selfcheck.py     # 38 check, khong can SITL
+  selfcheck.py     # 43 check, khong can SITL
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that
@@ -557,5 +593,5 @@ tools/
   soak.py          # bai chay lien tuc
 ```
 
-Khoảng 4 970 dòng Python trong `core/` + `laptop/`, 4 490 nữa trong `tools/`.
+Khoảng 8 130 dòng Python trong `core/` + `laptop/`, 6 030 nữa trong `tools/`.
 (`find core laptop -name '*.py' | xargs wc -l`)
