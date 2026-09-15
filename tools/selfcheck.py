@@ -1456,6 +1456,37 @@ def check_replay(app):
     print(f"  ok  REPLAY dung o EOF sau {took:.1f}s")
 
 
+def check_slow_stop(app):
+    """stop() qua han ma thread chua thoat -> giu song, KHONG abort ca tien trinh.
+
+    Bay do duoc 15/09/2026: .tlog moi nhat trong logs/ nang 168 MB, rieng khau mo
+    mat 4,26 s; stop() doi 3 s roi tha, thread tu huy trong chinh no -> exit 134
+    giua check_tlog_roundtrip. Dung tren app that: ngat REPLAY file lon vai giay
+    dau la sap.
+    """
+    import weakref
+
+    from PySide6.QtCore import QThread
+
+    from core.adapters import join
+
+    class Slow(QThread):
+        def run(self):
+            time.sleep(0.5)
+
+    t = Slow()
+    t.start()
+    assert join(t, 100) is False, "thread ngu 0.5s ma doi 0.1s da xong?"
+    ref = weakref.ref(t)
+    del t  # nhu disconnect(): setattr(self, "adapter", None)
+    guard = deadline(app, 1000)
+    app.exec()  # song sot toi day la khong abort
+    guard.stop()
+    app.processEvents()
+    assert ref() is None, "thread cham da xong ma khong duoc giai phong (ro)"
+    print("  ok  stop() qua han: thread duoc giu toi luc xong roi moi giai phong")
+
+
 def check_tlog_roundtrip(app):
     """Ghi .tlog tren link UDP roi phat lai chinh file do.
 
@@ -3049,6 +3080,7 @@ if __name__ == "__main__":
     check_nudge_keys(app)
     check_stream_rearm(app)
     check_replay(app)
+    check_slow_stop(app)
     check_tlog_roundtrip(app)
     check_dead_socket(app)
     check_banner_health(app)

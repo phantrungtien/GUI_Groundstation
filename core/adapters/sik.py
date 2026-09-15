@@ -18,6 +18,8 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from pymavlink import mavutil
 
+from core.adapters import join
+
 STALE = 2.0  # giay — qua nguong nay coi nhu link chet (Phu luc 7.4)
 
 AUTOPILOT = mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1  # = 1
@@ -512,7 +514,7 @@ class SikAdapter(QThread):
     def stop(self):
         self._running = False
         self._paused.clear()  # dang tam dung ma bam thoat thi phai thoat duoc
-        self.wait(3000)
+        join(self)
 
     # ---- dieu khien ------------------------------------------------------
 

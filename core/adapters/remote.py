@@ -14,6 +14,8 @@ import time
 from PySide6.QtCore import QThread, Signal
 from websockets.sync.client import connect
 
+from core.adapters import join
+
 RETRY_S = 2.0  # noi lai deu dan: WiFi ngoai bai bay rot len rot xuong la binh thuong
 
 
@@ -40,7 +42,7 @@ class RemoteAdapter(QThread):
                 ws.close()
             except Exception:
                 pass
-        self.wait(3000)
+        join(self)  # connect() toi Pi mat WiFi treo toi open_timeout, sat nut 3 s
 
     def _emit(self, topic, data, ts=None):
         if self.muted:

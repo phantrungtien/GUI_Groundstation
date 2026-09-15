@@ -484,6 +484,16 @@ FC**, không phải vị trí hiện tại — nên app xin luôn `HOME_POSITION
 nhận gói v2 đầu tiên, nên chỉ khi FC bị ép MAVLink1 (`SERIALn_PROTOCOL=1`) mới
 mất phần đa giác — lúc đó dải chữ dưới bản đồ nói thẳng.
 
+**Thả một QThread còn chạy là Qt giết cả tiến trình.** `stop()` của adapter
+chờ 3 s rồi bỏ; thread chưa thoát kịp thì chính nó giữ tham chiếu cuối, `run()`
+trả về là nó tự huỷ trong thread của mình → `QThread: Destroyed while thread is
+still running`, exit 134. Đo 15/09: mở REPLAY một `.tlog` 168 MB mất **4,26 s**
+riêng khâu mở file — ngắt kết nối trong vài giây đầu là app sập (selfcheck sập
+theo, vì `check_replay_locks` phát `.tlog` mới nhất trong `logs/`). Giờ cả hai
+adapter đi qua `join()` ở `core/adapters/__init__.py`: quá hạn thì giữ thread
+sống tới `finished` rồi `deleteLater()` ở main thread. Đổi lại GUI vẫn đứng 3 s
+lúc ngắt giữa khâu mở file lớn.
+
 **Treo tại chỗ thì dùng BRAKE hoặc GUIDED**, đừng ép cần điều khiển về giữa bằng
 RC override: ArduPilot sẽ từ chối arm với `"Throttle (RC3) is not neutral"`.
 
@@ -510,6 +520,7 @@ core/            # DUNG CHUNG voi ban web
   field.py       # trong tai da nguon: best() tra ca gia tri lan nguon
   authority.py   # duong ra drone + nhanh ESCAPE cho nut do
   adapters/
+    __init__.py  # join(): dung QThread ma khong bao gio tha no khi con chay
     sik.py       # pymavlink trong QThread, chuan hoa NED -> ENU
     remote.py    # WebSocket client toi companion
 
