@@ -1436,10 +1436,16 @@ def check_replay(app):
             m = mav.attitude_encode(i * 100, 0.1, 0.2, 0.3, 0.0, 0.0, 0.0)
             m.pack(mav)
             f.write(struct.pack(">Q", int((t0 + i * 0.1) * 1e6)) + m.get_msgbuf())
+        # .tlog bay that chua ca hoi thoai tai duong bay. Do 16/09: phat lai toi
+        # MISSION_COUNT la adapter "tra loi" vao file chi doc -> chet sau 166 goi.
+        m = mav.mission_count_encode(255, 190, 1, 0)
+        m.pack(mav)
+        f.write(struct.pack(">Q", int((t0 + 0.5) * 1e6)) + m.get_msgbuf())
 
-    seen = []
+    seen, fails = [], []
     adapter = SikAdapter({"name": "selfcheck", "mode": "REPLAY", "path": str(path)})
     adapter.envelope.connect(lambda e: seen.append(e))
+    adapter.failed.connect(fails.append)
     started = time.time()
     adapter.finished.connect(app.quit)
     adapter.start()
@@ -1449,6 +1455,7 @@ def check_replay(app):
     took = time.time() - started
     adapter.stop()
 
+    assert not fails, f"REPLAY chet giua chung: {fails}"
     assert took < 4, f"REPLAY khong ket thuc o EOF ({took:.1f}s)"
     assert sum(1 for e in seen if e["topic"] == "attitude") == 5, seen
     assert any(e["topic"] == "link" and e["data"].get("eof") for e in seen), "khong bao EOF"

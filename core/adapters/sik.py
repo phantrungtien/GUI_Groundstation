@@ -1090,7 +1090,14 @@ class SikAdapter(QThread):
         # SiK ra ngoai tam song mot lat van giu nguyen ket noi.
         kw = {"source_system": p.get("sysid", 254), "autoreconnect": True}  # sysid rieng (2.3)
         if p["mode"] == "REPLAY":
-            return mavutil.mavlink_connection(p["path"])
+            master = mavutil.mavlink_connection(p["path"])
+            # REPLAY khong gui gi ca — chan o day vi MOI duong gui (wp, rao, log,
+            # stream) deu qua master.write. .tlog bay that chua ca hoi thoai tai
+            # duong bay; phat lai toi MISSION_COUNT la _wp_rx "tra loi" vao mot file
+            # chi doc -> io.UnsupportedOperation, adapter chet sau 166 goi (do
+            # 16/09/2026 tren 20260915-123914-real.tlog).
+            master.write = lambda _buf: None
+            return master
         if p.get("baud"):
             kw["baud"] = p["baud"]
         elif ":" not in p["conn"]:   # cong serial: /dev/ttyUSB0, COM3 — mang thi co "tcp:"/"udp:"
