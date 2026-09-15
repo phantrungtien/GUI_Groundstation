@@ -313,10 +313,11 @@ def check_tabs(app):
     for sev, txt in ((6, b"EKF3 IMU0 is using GPS"), (4, b"PreArm: Compass"), (2, b"battery low")):
         bus.emit("sik", "text", {"severity": sev, "text": txt})
     assert ms.list.count() == 3, ms.list.count()
+    assert ms.list.item(0).text().endswith("battery low"), "dong moi nhat phai nam tren cung"
     ms.filter.setCurrentIndex(2)  # canh bao tro len
     hidden = [i for i in range(3) if ms.list.item(i).isHidden()]
-    assert hidden == [0], hidden
-    print("  ok  tab Status (loc/tam dung/het tuoi thi xam) + Messages (loc severity)")
+    assert hidden == [2], hidden
+    print("  ok  tab Status (loc/tam dung/het tuoi thi xam) + Messages (loc severity, moi nhat tren cung)")
 
 
 def check_field(app):

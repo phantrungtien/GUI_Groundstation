@@ -8,6 +8,7 @@ import time
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -121,16 +122,17 @@ class MessagesTab(QWidget):
         item.setData(Qt.UserRole, sev)
         item.setHidden(sev > self._threshold())
 
-        # cuon theo chi khi dang o day — nguoi dung keo len doc thi de yen
-        bar = self.list.verticalScrollBar()
-        at_bottom = bar.value() >= bar.maximum() - 4
+        # Moi nhat nam tren cung. Dang o dinh thi dong moi hien ngay; nguoi dung
+        # keo xuong doc dong cu thi ghim dong dang doc, khong de bi day troi xuong.
+        anchor = self.list.itemAt(0, 0) if self.list.verticalScrollBar().value() else None
 
-        self.list.addItem(item)
+        self.list.insertItem(0, item)
+        if anchor is not None:
+            self.list.scrollToItem(anchor, QAbstractItemView.PositionAtTop)
+        # cat SAU khi ghim: dong bi cat co the chinh la anchor
         while self.list.count() > MAX_ROWS:
-            self.list.takeItem(0)
+            self.list.takeItem(self.list.count() - 1)
         self.count.setText(str(self.list.count()))
-        if at_bottom:
-            self.list.scrollToBottom()
 
     def _apply_filter(self):
         t = self._threshold()
