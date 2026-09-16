@@ -59,6 +59,7 @@ app = QApplication([])
 fails, done = [], []
 logs = []       # (muc, chu) — dung cai Commands ban ra, khong phai chu tu che
 acks = []       # MISSION_ACK cua phien nap
+arm_noise = [0, 0]  # khoang dong log cua vong bam ARM lai — xem muc D
 
 
 def wait(ms):
@@ -112,12 +113,15 @@ def main(conn):
     if not until("A1 co heartbeat va vi tri",
                  lambda: v("heartbeat.mode") and alt() is not None, 30):
         return
-    thieu = [f for f in ("heartbeat.mode", "heartbeat.armed", "position.lat",
-                         "position.lon", "position.alt_rel", "gps.fix_type",
-                         "gps.sats", "battery.voltage", "vfr.groundspeed",
-                         "attitude.roll", "attitude.pitch")
-             if v(f) is None]
-    check("A2 field lo i nuoi giao dien deu co", not thieu, f"thieu: {thieu}")
+    # Doi chu khong chup mot phat: cac topic ve theo nhip rieng cua no, GPS_RAW_INT
+    # cham hon HEARTBEAT vai giay tren SITL vua khoi dong. Chup o giay thu nhat la
+    # bai test do NHIP MANG chu khong do giao dien.
+    LOI = ("heartbeat.mode", "heartbeat.armed", "position.lat", "position.lon",
+           "position.alt_rel", "gps.fix_type", "gps.sats", "battery.voltage",
+           "vfr.groundspeed", "attitude.roll", "attitude.pitch")
+    until("A2 field lo i nuoi giao dien deu co",
+          lambda: not [f for f in LOI if v(f) is None], 60,
+          lambda: f"thieu: {[f for f in LOI if v(f) is None]}")
     check("A3 state du khoa cho QML", not [k for k in STATE_KEYS if k not in b.state],
           f"thieu: {[k for k in STATE_KEYS if k not in b.state]}")
     until("A4 FC bao home", lambda: b.map.home_from_fc, 30)
@@ -179,16 +183,33 @@ def main(conn):
           len(logs) > n0 and said("GUIDED"), logs[-1][1] if logs else "")
     b.act("mode", "GUIDED")
     until("D3 FC doi sang GUIDED", lambda: v("heartbeat.mode") == "GUIDED", 20)
-    b.act("arm")
-    until("D4 ARM", lambda: v("heartbeat.armed") is True, 30)
+
+    # Doi FC THAT SU arm duoc. SITL vua khoi dong thi EKF chua hoi tu va GPS chua
+    # co fix, prearm tu choi — va bai nay tu no khong bao gio biet, no chi thay
+    # "FC TU CHOI" roi ca phan con lai do theo day chuyen. Bon luot xanh dau tien
+    # deu chay tren mot SITL da mo san tu lau: xanh vi may, khong vi he thong dung.
+    until("D4 GPS co fix de arm", lambda: (v("gps.fix_type") or 0) >= 3
+          and (v("gps.sats") or 0) >= 8, 180,
+          lambda: f"fix={v('gps.fix_type')} sats={v('gps.sats')}")
+    # Bam ARM lai vai lan: fix xong van con vai giay prearm chua thong (EKF, la ban).
+    t0 = time.time()
+    arm_noise[0] = len(logs)
+    tries = 0
+    while v("heartbeat.armed") is not True and time.time() - t0 < 60:
+        b.act("arm")
+        tries += 1
+        wait(3000)
+    arm_noise[1] = len(logs)
+    check("D5 ARM", v("heartbeat.armed") is True,
+          f"{time.time() - t0:.0f}s, {tries} lan bam")
     wait(2500)
     b.refresh()
-    check("D5 dong ho gio bay chay tu luc ARM", b.state["flightTime"] >= 2,
+    check("D6 dong ho gio bay chay tu luc ARM", b.state["flightTime"] >= 2,
           f"{b.state['flightTime']}s")
     b.act("takeoff", "25")
-    until("D6 leo toi 25 m", lambda: (alt() or 0) >= 24, 90, lambda: f"alt={alt():.1f}")
+    until("D7 leo toi 25 m", lambda: (alt() or 0) >= 24, 90, lambda: f"alt={alt():.1f}")
     b.refresh()
-    check("D7 vien trang thai doc la DANG BAY", b.state["statusLevel"] == "ok",
+    check("D8 vien trang thai doc la DANG BAY", b.state["statusLevel"] == "ok",
           f"{b.state['status']} / {b.state['statusLevel']}")
 
     # ---- E. bay toi day --------------------------------------------------
@@ -346,7 +367,11 @@ if __name__ == "__main__":
     try:
         main(a.conn)
     finally:
-        nang = [s for sev, s in logs if sev <= 3]
+        # Bo cac dong "FC TU CHOI" cua vong bam ARM lai: do la prearm chua thong
+        # trong luc EKF con hoi tu, khong phai su co — dem ca vao day thi bang ket
+        # qua luc nao cung do lom dom va khong ai con doc no nua.
+        nang = [x for i, (sev, x) in enumerate(logs)
+                if sev <= 3 and not (arm_noise[0] <= i < arm_noise[1])]
         print(f"\n== KET QUA ==  {len(done)} pass / {len(fails)} fail "
               f"trong {time.time() - t0:.0f}s", flush=True)
         if fails:
