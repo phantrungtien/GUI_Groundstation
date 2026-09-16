@@ -15,3 +15,10 @@ assets/tiles/
 KE_HOACH_GUI_NATIVE_3_.md
 thumucros2_and_pymavlink.md
 doanchatcu.md
+
+# Rac cua MAVProxy: no ghi thang vao thu muc dang dung khi chay SITL
+mav.parm
+mav.tlog*
+
+# Do thi tri thuc do graphify sinh ra, dung lai duoc bang mot lenh
+graphify-out/
