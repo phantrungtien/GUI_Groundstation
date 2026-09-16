@@ -39,6 +39,31 @@ def deadline(app, ms):
     return t
 
 
+def flight(w=600, h=400):
+    """Man bay dung lam vat thi cho cac bai do widget dung chung (ban do, rao,
+    canh bao, duong bay).
+
+    Truoc day cac bai nay dung `FlightTab` lam vo. Tab do da bi xoa khi hai man
+    bay gop lam mot; `touch.Backend` giu dung vai tro cu — no la cho bus di qua
+    de toi widget. Khong dung MainWindow: bai nao chi do mot widget thi dung ca
+    cua so len la cham va keo theo ca dong thu khong lien quan.
+    """
+    from core.field import REGISTRY
+    from laptop.touch.backend import Backend
+
+    # "App vua mo, chua nhan goi nao": Backend.__init__ goi refresh() ngay, ma
+    # refresh() doc thang REGISTRY — con so lieu cua bai TRUOC trong do la no dung
+    # len mot home tam truoc ca cau assert dau tien cua bai nay.
+    REGISTRY.fields.clear()
+    b = Backend(profiles=[])
+    b.map.resize(w, h)
+    # Tat nhip tu ve 200 ms: bai nao cung tu goi `refresh()` o dung cho no muon do,
+    # con de timer chay thi no doc so lieu con sot cua bai TRUOC va dung len mot
+    # home tam ngay truoc cau assert dau tien.
+    b._timer.stop()
+    return b
+
+
 def check_normalize():
     topic, d = normalize(
         "GLOBAL_POSITION_INT",
@@ -827,7 +852,6 @@ def check_widgets(app):
     from laptop.widgets.attitude import AttitudeWidget
     from laptop.widgets.compass import Compass
     from laptop.widgets.map_widget import MapWidget, deg2num, num2deg
-    from laptop.widgets.telemetry_bar import TelemetryBar
 
     lat, lon, z = 10.762, 106.66, 16
     x, y = deg2num(lat, lon, z)
@@ -841,11 +865,6 @@ def check_widgets(app):
     a = AttitudeWidget()
     a.set_attitude(0.3, -0.15)
     assert not a.grab().isNull()
-
-    t = TelemetryBar()
-    t.set_cell("ALT", 12.3, "sik")
-    t.set_cell("PIN", None, None)
-    assert not t.grab().isNull()
 
     m = MapWidget()
     m.resize(400, 300)
@@ -898,7 +917,6 @@ def check_fence(app):
     va FENCE_RADIUS/FENCE_ALT_MAX doc bang PARAM_VALUE. Check nay dung dung nhung
     con so do, khong bia.
     """
-    from laptop.tabs.flight import FlightTab
     from laptop.widgets.map_widget import FENCE_IN, FENCE_OFF, fence_shapes, meters_per_px
 
     # PARAM_VALUE FENCE_* va HOME_POSITION phai ra topic rieng, khong chim vao STATUS
@@ -928,11 +946,10 @@ def check_fence(app):
     assert abs(meters_per_px(10.822, 16) - 2.3452) < 1e-3, meters_per_px(10.822, 16)
 
     home = (10.8221589, 106.6868454)
-    ft = FlightTab()
-    ft.resize(600, 400)
+    ft = flight(600, 400)
     ft.map.zoom = 16
 
-    # Duong that: adapter -> bus -> tab -> map (khong goi thang set_home/set_fence)
+    # Duong that: adapter -> bus -> man bay -> map (khong goi thang set_home/set_fence)
     bus.emit("sik", "home", {"lat": home[0], "lon": home[1], "alt_msl": 10.1})
     bus.emit("sik", "fence", {"FENCE_ENABLE": 1.0, "FENCE_TYPE": 7.0,
                               "FENCE_RADIUS": 150.0, "FENCE_ALT_MAX": 100.0})
@@ -946,8 +963,8 @@ def check_fence(app):
     ft.map.center = home
     r_px = int(150 / meters_per_px(home[0], 16))
     assert r_px == 63, r_px
-    # Kich thuoc lay tu chinh anh: tab chua show thi map.width() con la 100 px,
-    # chi den luc grab() Qt moi dan lai layout — lay nham thi do sai cho.
+    # Kich thuoc lay tu chinh anh chu khong tu con so vua resize: lay nham thi do
+    # sai cho, ma rao ve sai cho van "nhin duoc" — kieu hong te nhat.
     img = ft.map.grab().toImage()
     cx, cy = img.width() // 2, img.height() // 2
     assert img.pixel(cx + r_px, cy) == FENCE_IN.rgb(), "vanh rao khong nam o dung ban kinh"
@@ -960,9 +977,8 @@ def check_fence(app):
     assert img.pixel(cx + r_px, cy) == FENCE_OFF.rgb(), "rao TAT phai doi mau, khong duoc bien mat"
 
     # Ngat ket noi: rao, home, vet bay cua drone cu phai bien mat
-    ft.set_mode(None)
+    ft.attach(None, None)
     assert ft.map.fence == {} and ft.map.home is None, ft.map.fence
-    ft.close()
 
     # Xin home la mot command_long -> FC tra ack cho lenh 512, khong phai lenh cua
     # nut nao. Ack do ma xoa hang cho thi canh bao "khong co phan hoi" cua ARM bi
@@ -990,7 +1006,6 @@ def check_waypoints(app):
     muc khong co toa do, va viec ai do nap nhiem vu khac giua chung.
     """
     from core.adapters.sik import WP_ITEMS_MAX, WP_MAX
-    from laptop.tabs.flight import FlightTab
     from laptop.widgets.map_widget import WP_LINE, wp_points
 
     # `total` thieu (firmware < 4.3) thi phai BIEN MAT khoi trong tai, khong duoc
@@ -1045,8 +1060,7 @@ def check_waypoints(app):
 
     # --- duong that: adapter -> bus -> tab -> net ve tren man hinh -----------
     lat, lon = 10.8221589, 106.6868454
-    ft = FlightTab()
-    ft.resize(600, 400)
+    ft = flight(600, 400)
     ft.map.zoom = 16
     ft.map.follow = False  # khong de vi tri cu tu check khac keo tam man hinh di
     ft.map.center = (lat, lon)
@@ -1074,9 +1088,8 @@ def check_waypoints(app):
     assert f"FC có 80, chỉ tải {WP_ITEMS_MAX}" in ft.map._wp_note(), ft.map._wp_note()
 
     # Ngat ket noi: duong bay cua drone cu phai bien mat cung home va rao.
-    ft.set_mode(None)
+    ft.attach(None, None)
     assert ft.map.wp == {}, ft.map.wp
-    ft.close()
     print(f"  ok  duong bay waypoint: ve tren ban do, cat o {WP_MAX} waypoint "
           f"({WP_ITEMS_MAX} muc ke ca home/TAKEOFF/LAND)")
 
@@ -1093,7 +1106,6 @@ def check_wp_write(app):
     from core.adapters.sik import (LAND, TAKEOFF, WAYPOINT, WP_ITEMS_MAX, WP_MAX,
                                    WP_UP_TRIES)
     from core.field import REGISTRY
-    from laptop.tabs.flight import FlightTab
 
     lat, lon = 10.8221589, 106.6868454
 
@@ -1187,167 +1199,11 @@ def check_wp_write(app):
     ad.muted = False
     ad._up = None
 
-    # --- duong that: menu ban do -> dispatch -> adapter ---------------------
-    sent = []
+    # Phan giao dien (dat nhap, nap, FC nhan/tu choi, ghi de khi dang AUTO, tran
+    # WP_MAX) nam o `check_touch_flight` — do o man bay that chu khong o day nua.
 
-    class Fake:
-        def send(self, action, args=None):
-            sent.append((action, args))
-            return {"ok": action}
-
-    authority.register("sik", Fake())
-    ft = FlightTab()
-    logs = []
-    ft.log.connect(lambda text, _sev: logs.append(text))
-    try:
-        ft.resize(600, 400)
-        ft.set_mode("SIM")
-        ft.map.center = (lat, lon)
-        assert ft.map.add_draft(lat + 1e-4, lon) is True
-        assert ft.map.add_draft(lat + 2e-4, lon + 1e-4) is True
-        assert ft.map.draft[0][2] == ft.map.wp_alt, ft.map.draft
-        assert "đang đặt 2 điểm" in ft.map._draft_note(), ft.map._draft_note()
-
-        ft._send_wp()
-        assert sent == [("wp_write", {"items": [list(p) for p in ft.map.draft]})], sent
-
-        # FC xac nhan -> ban nhap phai bien mat, neu khong hai duong chong len nhau
-        bus.emit("sik", "wp", {"write": {"ok": True, "result": 0, "n": 2}})
-        assert ft.map.draft == [], ft.map.draft
-        assert "FC nhận 2 waypoint" in logs[-1], logs[-1]
-
-        # FC tu choi -> ban nhap phai CON NGUYEN de bam nap lai
-        ft.map.add_draft(lat, lon)
-        bus.emit("sik", "wp", {"write": {"ok": False, "result": 5, "n": 1}})
-        assert len(ft.map.draft) == 1, "tu choi ma van xoa mat ban nhap"
-        assert "THẤT BẠI" in logs[-1], logs[-1]
-
-        # Dang bay AUTO: cu bam dau tien chi canh bao, khong gui gi ca
-        sent.clear()
-        REGISTRY.feed({"src": "sik", "topic": "heartbeat",
-                       "data": {"mode": "AUTO", "armed": True}, "ts": time.time()})
-        ft._send_wp()
-        assert not sent, "ghi de nhiem vu dang bay ma khong hoi lai"
-        assert "ĐANG BAY AUTO" in logs[-1], logs[-1]
-        ft._send_wp()  # bam lai trong CONFIRM_S -> di
-        assert sent and sent[0][0] == "wp_write", sent
-
-        # Tran o tang UI: 50 la 50, cai thu 51 khong dat duoc
-        ft.map.drop_draft(all_of_them=True)
-        for i in range(WP_MAX):
-            assert ft.map.add_draft(lat + i * 1e-5, lon) is True, i
-        assert ft.map.add_draft(lat, lon) is False, "dat qua tran WP_MAX"
-    finally:
-        authority.unregister("sik")
-        REGISTRY.fields.clear()
-        ft.close()
     print(f"  ok  nap duong bay len FC: home + TAKEOFF dau, LAND cuoi, tran {WP_MAX}, "
           f"bo cuoc sau {WP_UP_TRIES} lan va noi ra")
-
-
-def check_nudge_keys(app):
-    """Nhich vi tri bang ban phim: bon chot chan, ramp toc do, va tha la DUNG."""
-    from PySide6.QtCore import QEvent, Qt
-    from PySide6.QtGui import QFocusEvent, QKeyEvent
-
-    from core import authority
-    from core.field import REGISTRY
-    from laptop.tabs.flight import NUDGE_RAMP, NUDGE_V0, NUDGE_VMAX, FlightTab
-
-    sent = []
-
-    class Fake:
-        def send(self, action, args=None):
-            sent.append((action, args))
-            return {"ok": action}
-
-    def press(ft, key):
-        ft.keyPressEvent(QKeyEvent(QEvent.KeyPress, key, Qt.NoModifier))
-
-    def release(ft, key):
-        ft.keyReleaseEvent(QKeyEvent(QEvent.KeyRelease, key, Qt.NoModifier))
-
-    def state(**kw):
-        REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": kw, "ts": time.time()})
-
-    authority.register("sik", Fake())
-    ft = FlightTab()
-    logs = []
-    ft.log.connect(lambda text, _sev: logs.append(text))
-    try:
-        ft.set_mode("REAL")
-
-        # --- bon chot: moi cai deu phai chan, va phai NOI RA ly do
-        for label, st in [
-            ("chua armed", {"mode": "GUIDED", "armed": False, "landed": False}),
-            ("con duoi dat", {"mode": "GUIDED", "armed": True, "landed": True}),
-            ("dang o AUTO", {"mode": "AUTO", "armed": True, "landed": False}),
-        ]:
-            state(**st)
-            sent.clear()
-            press(ft, Qt.Key_Up)
-            assert not sent, f"{label}: van gui lenh nhich"
-            assert "KHÔNG được" in logs[-1], (label, logs[-1])
-        REGISTRY.fields.clear()
-
-        # REPLAY khong gui gi ke ca khi trang thai dep
-        ft.set_mode("REPLAY")
-        state(mode="GUIDED", armed=True, landed=False)
-        sent.clear()
-        press(ft, Qt.Key_Up)
-        assert not sent, "REPLAY ma van gui lenh nhich"
-        ft.set_mode("REAL")
-
-        # --- duoc phep: giu phim -> nhich, toc do tang theo thoi gian giu
-        state(mode="GUIDED", armed=True, landed=False)
-        sent.clear()
-        press(ft, Qt.Key_Up)
-        ft._nudge_tick()
-        act, args = sent[-1]
-        assert act == "nudge", sent
-        assert abs(args["vn"] - NUDGE_V0) < 0.3, f"vua cham phim phai di cham: {args}"
-        assert args["ve"] == 0 and args["vd"] == 0, args
-
-        ft._nudge_since = time.time() - 60  # giu that lau
-        ft._nudge_tick()
-        assert abs(sent[-1][1]["vn"] - NUDGE_VMAX) < 1e-6, f"phai cham tran: {sent[-1]}"
-
-        # duong cheo khong duoc nhanh hon: hai phim van la NUDGE_VMAX, khong phai 1,41 lan
-        press(ft, Qt.Key_Right)
-        ft._nudge_tick()
-        a = sent[-1][1]
-        mag = (a["vn"] ** 2 + a["ve"] ** 2) ** 0.5
-        assert abs(mag - NUDGE_VMAX) < 1e-6, f"cheo bi nhanh hon: {mag:.2f} m/s"
-
-        # --- tha het phim -> van toc 0 (treo tai cho)
-        sent.clear()
-        release(ft, Qt.Key_Up)
-        assert not sent, "moi tha mot phim ma da dung"
-        release(ft, Qt.Key_Right)
-        assert sent[-1] == ("nudge", {"vn": 0.0, "ve": 0.0, "vd": 0.0}), sent
-        assert not ft._nudge_timer.isActive(), "tha phim roi ma timer van chay"
-
-        # --- mat focus giua luc dang giu: KHONG co keyRelease, phai tu dung
-        press(ft, Qt.Key_Left)
-        sent.clear()
-        ft.focusOutEvent(QFocusEvent(QEvent.FocusOut, Qt.OtherFocusReason))
-        assert sent[-1] == ("nudge", {"vn": 0.0, "ve": 0.0, "vd": 0.0}), \
-            "alt-tab giua luc giu phim ma drone van giu van toc"
-
-        # --- ba phim con lai
-        sent.clear()
-        press(ft, Qt.Key_Space)
-        assert sent[-1][0] == "nudge" and sent[-1][1]["vn"] == 0.0, sent
-        press(ft, Qt.Key_Return)
-        assert sent[-1] == ("mode", {"name": "AUTO"}), sent
-        press(ft, Qt.Key_L)
-        assert sent[-1][0] == "land", sent
-    finally:
-        authority.unregister("sik")
-        REGISTRY.fields.clear()
-        ft.close()
-    print(f"  ok  nhich bang ban phim: 4 chot chan, ramp {NUDGE_V0:g}->{NUDGE_VMAX:g} m/s "
-          f"(+{NUDGE_RAMP:g}/s), tha phim va mat focus deu dung")
 
 
 def check_stream_rearm(app):
@@ -1911,100 +1767,49 @@ def check_flight_alerts(app):
 
     So do thiet ke: log that 84 phut chi co 2 cau PreArm, moi cau 164 lan, cach
     nhau ~30,7 s. Cau trung trong luc dong con song thi gop, khong chong dong.
+
+    Do o `AlertBook` — ban logic ma man bay cam ung dung — chu khong o lop QLabel
+    cu: xep hang, gop va tu tat nam o day, con QML chi ve ra.
     """
-    from laptop import theme
-    from laptop.tabs.flight import FlightTab
     from laptop.widgets.alerts import ROWS, TTL_ERR, TTL_WARN
 
-    ft = FlightTab()
-    ft.resize(900, 600)
-    ft.grab()  # widget chua show: grab() moi ep resizeEvent chay, dat vi tri overlay
+    ft = flight()
     a = ft.alerts
 
-    def shown():
-        return [r.text() for r in a.rows if not r.isHidden()]
+    def shown(now=None):
+        return [text for text, _sev in a.shown(now)]
 
-    try:
-        bus.emit("sik", "text", {"severity": 6, "text": "EKF3 IMU0 is using GPS"})
-        assert shown() == [], "INFO khong duoc len man bay"
+    bus.emit("sik", "text", {"severity": 6, "text": "EKF3 IMU0 is using GPS"})
+    assert shown() == [], "INFO khong duoc len man bay"
 
-        for _ in range(3):  # nhip lap cua FC: cung mot cau, mot dong, co dem
-            bus.emit("sik", "text", {"severity": 2, "text": b"PreArm: RC not found\x00"})
-        assert shown() == ["PreArm: RC not found  ×3"], shown()
+    for _ in range(3):  # nhip lap cua FC: cung mot cau, mot dong, co dem
+        bus.emit("sik", "text", {"severity": 2, "text": b"PreArm: RC not found\x00"})
+    assert shown() == ["PreArm: RC not found  ×3"], shown()
 
-        # WARNING den SAU van nam DUOI loi nang hon
-        bus.emit("sik", "text", {"severity": 4, "text": "GPS glitch"})
-        assert shown() == ["PreArm: RC not found  ×3", "GPS glitch"], shown()
-        assert theme.CRIT in a.rows[0].styleSheet() and theme.WARN in a.rows[1].styleSheet()
+    # WARNING den SAU van nam DUOI loi nang hon, va phai doc ra la muc nhe hon
+    bus.emit("sik", "text", {"severity": 4, "text": "GPS glitch"})
+    assert shown() == ["PreArm: RC not found  ×3", "GPS glitch"], shown()
+    ft.refresh()
+    rows = ft.state["alerts"]
+    assert [r["crit"] for r in rows] == [True, False], rows
 
-        # Qua so dong: khong cat im lang
-        for i in range(3):
-            a.push(f"loi {i}", 3)
-        assert len(shown()) == ROWS and shown()[-1].endswith(f"(+{5 - ROWS})"), shown()
+    # Qua so dong: khong cat im lang
+    for i in range(3):
+        a.push(f"loi {i}", 3)
+    assert len(shown()) == ROWS and shown()[-1].endswith(f"(+{5 - ROWS})"), shown()
 
-        # Tu tat: WARNING truoc, loi sau
-        now = time.time()
-        a.tick(now + TTL_WARN + 0.1)
-        assert "GPS glitch" not in " ".join(shown()), shown()
-        assert any("PreArm" in s for s in shown()), "loi tat cung luc voi WARNING"
-        a.tick(now + TTL_ERR + 0.1)
-        assert shown() == [], shown()
+    # Tu tat: WARNING truoc, loi sau
+    now = time.time()
+    assert "GPS glitch" not in " ".join(shown(now + TTL_WARN + 0.1)), shown()
+    assert any("PreArm" in s for s in shown(now + TTL_WARN + 0.1)), \
+        "loi tat cung luc voi WARNING"
+    assert shown(now + TTL_ERR + 0.1) == [], shown(now + TTL_ERR + 0.1)
 
-        a.push("PreArm: RC not found", 2)
-        ft.set_mode(None)
-        assert shown() == [], "ngat ket noi ma loi drone cu con treo"
-        g = a.geometry()  # QRect.center() lam tron xuong 1 px — tu tinh
-        assert 2 * g.x() + g.width() == ft.width(), g
-    finally:
-        ft.close()
+    a.push("PreArm: RC not found", 2)
+    ft.attach(None, None)
+    assert shown() == [], "ngat ket noi ma loi drone cu con treo"
     print(f"  ok  loi FC noi tren man bay: >=WARNING, gop dong trung, nang len tren, "
           f"tu tat sau {TTL_WARN:g}/{TTL_ERR:g}s, ngat ket noi la xoa")
-
-
-def check_cam_swap(app):
-    """Bam o camera tren tab Bay -> camera phong ca tab, ban do thu vao goc.
-
-    Ba cho de hong: ban do nho van an click (keo/cuon lech khung nhin, va click
-    khong bao gio roi xuong camera de doi lai), bam nham giua anh lon ma doi lai,
-    va ngat ket noi xong van ket o camera chet.
-    """
-    from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtTest import QTest
-
-    from laptop.tabs.flight import FlightTab
-
-    ft = FlightTab()
-    ft.resize(900, 600)
-    ft.grab()
-    ft.video.show()
-    try:
-        pip = ft.video.geometry()
-        assert pip.width() < 300 and ft.map.geometry() == ft.rect(), (pip, ft.map.geometry())
-        assert not ft.video.testAttribute(Qt.WA_TransparentForMouseEvents), \
-            "o camera xuyen click — bam vao khong bao gio toi"
-
-        QTest.mouseClick(ft.video, Qt.LeftButton, pos=QPoint(20, 20))
-        assert ft.cam_big and ft.video.geometry() == ft.rect(), ft.video.geometry()
-        assert ft.map.geometry() == pip, f"ban do nho khong vao dung goc PiP: {ft.map.geometry()}"
-        assert ft.map.testAttribute(Qt.WA_TransparentForMouseEvents)
-        # ban do nho phai NAM TREN camera lon, khong thi no bi che mat
-        kids = ft.children()
-        assert kids.index(ft.map) > kids.index(ft.video), "ban do nho nam duoi camera"
-
-        QTest.mouseClick(ft.video, Qt.LeftButton, pos=ft.rect().center())
-        assert ft.cam_big, "bam giua anh lon ma doi lai"
-
-        QTest.mouseClick(ft.video, Qt.LeftButton, pos=pip.center())
-        assert not ft.cam_big and ft.map.geometry() == ft.rect() and ft.video.geometry() == pip
-        assert not ft.map.testAttribute(Qt.WA_TransparentForMouseEvents), \
-            "ve lai ban do lon ma van xuyen click — het keo, het menu chuot phai"
-
-        QTest.mouseClick(ft.video, Qt.LeftButton, pos=QPoint(20, 20))
-        ft.set_mode(None)
-        assert not ft.cam_big and ft.map.geometry() == ft.rect(), "ngat ket noi ma van ket o camera"
-    finally:
-        ft.close()
-    print("  ok  bam o camera tab Bay: phong ca tab, ban do vao goc; bam ban do nho la doi lai")
 
 
 def check_touch(app):
@@ -2102,6 +1907,33 @@ def check_touch(app):
         assert root.property("pending") == "", "SiK dut ma thanh truot van cho"
         win.touch.act("land", "")
         assert sent == [], sent
+
+        # --- o camera: cham de doi cho, ngat ket noi la tra ve ban do ---------
+        #
+        # Truoc day bai nay do hinh hoc QWidget cua tab Bay cu. Man cam ung lam
+        # cung viec do bang mot WidgetItem doi ten nguon, nen cai phai do la
+        # `camBig` — va nhat la cho no TU TAT khi mat ket noi: ket o mot khung
+        # camera chet trong luc drone dang bay la hong nang.
+        win.touch.attach({"name": "selfcheck", "mode": "SIM",
+                          "remote": "ws://127.0.0.1:1"}, fake)  # co remote -> hien o camera
+        wait(100)
+        assert root.property("camBig") is False, "mo len da ket o camera"
+        pip = root.findChild(QQuickItem, "pip")
+        assert pip is not None and pip.property("visible"), "khong thay o camera"
+        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier,
+                         pip.mapToScene(QPointF(pip.width() / 2, pip.height() / 2)).toPoint())
+        wait(100)
+        assert root.property("camBig") is True, "bam o camera ma khong phong len"
+        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier,
+                         pip.mapToScene(QPointF(pip.width() / 2, pip.height() / 2)).toPoint())
+        wait(100)
+        assert root.property("camBig") is False, "bam ban do nho ma khong doi lai"
+
+        root.setProperty("camBig", True)
+        wait(100)
+        win.touch.attach(None, None)
+        wait(300)
+        assert root.property("camBig") is False, "ngat ket noi ma van ket o camera"
 
         # --- cham-giu mo bang duong bay, va no phai O YEN ---------------------
         #
@@ -2205,6 +2037,8 @@ def check_touch_flight(app):
         b.addWp(320, 180)
         assert b.state["draftN"] == 2, b.state["draftN"]
         assert b.map.draft[0][2] == 30.0, "chip do cao khong vao diem vua dat"
+        # Dai chu duoi ban do phai dem dung so diem dang soan
+        assert "đang đặt 2 điểm" in b.map._draft_note(), b.map._draft_note()
         b.undoWp()
         assert b.state["draftN"] == 1, "bo diem cuoi khong an"
 
@@ -2347,10 +2181,7 @@ def check_telemetry_warn(app):
     """
     from core import i18n
     from core.field import REGISTRY
-    from laptop.tabs.flight import FlightTab
     from laptop.widgets import telemetry_bar as tb
-
-    OK, WARN, CRIT = (tb.LEVEL_COLOR[k] for k in (None, "warn", "crit"))
 
     # --- ham nguong, kiem thang ---
     proc = (Path(__file__).resolve().parent.parent
@@ -2373,74 +2204,55 @@ def check_telemetry_warn(app):
     assert f"HDOP < {tb.GPS_MAX_HDOP:.0f}" in proc, "nguong HDOP lech voi quy trinh bay"
 
     was = i18n.lang()
+    ft = flight()
     try:
         i18n.set_lang("vi")
-        ft = FlightTab()
-        ft.resize(900, 400)
-        val = ft.telemetry._val
-
-        def color(key):
-            return val[key].styleSheet().split("color:")[-1].rstrip(";")
 
         def feed(topic, data):
             REGISTRY.feed({"src": "sik", "topic": topic, "data": data, "ts": time.time()})
 
-        # --- ARM: phai hien ra, va phai doi mau ---
+        def st(key):
+            ft.refresh()
+            return ft.state[key]
+
+        # --- ARM: phai doc ra duoc, khong chi nam trong logic ---
         feed("heartbeat", {"armed": False, "mode": "STABILIZE"})
-        ft.refresh()
-        assert val["ARM"].text() == "CHƯA ARM", val["ARM"].text()
-        assert color("ARM") == OK, color("ARM")
-
+        assert st("armed") is False and st("fcMode") == "STABILIZE", ft.state
         feed("heartbeat", {"armed": True, "mode": "GUIDED"})
-        ft.refresh()
-        assert val["ARM"].text() == "ĐÃ ARM", val["ARM"].text()
-        assert color("ARM") == CRIT, "da ARM ma o van mau binh thuong"
+        assert st("armed") is True, ft.state
 
-        # --- PIN: mau theo phan tram, KHONG theo dien ap ---
+        # --- PIN: muc theo phan tram, KHONG theo dien ap ---
         # 16,8 V (4S day) va 11,1 V (3S can) cung bao 12% -> ca hai deu phai do.
         for volt in (16.8, 11.1):
             feed("battery", {"voltage": volt, "remaining": 12})
-            ft.refresh()
-            assert color("PIN") == CRIT, f"{volt} V @12% ma khong do: {color('PIN')}"
+            assert st("battLevel") == "crit", f"{volt} V @12% ma khong do: {st('battLevel')}"
+            assert st("volt") == volt, st("volt")
         feed("battery", {"voltage": 11.1, "remaining": 25})
-        ft.refresh()
-        assert color("PIN") == WARN, color("PIN")
+        assert st("battLevel") == "warn", st("battLevel")
         # 11,1 V voi mot pack 3S la gan can, voi pack 6S la chet han — nhung FC bao
         # 80% thi day la pack 3S dang khoe. Dung dien ap lam nguong la sai o day.
         feed("battery", {"voltage": 11.1, "remaining": 80})
-        ft.refresh()
-        assert color("PIN") == OK, color("PIN")
+        assert st("battLevel") == "ok", st("battLevel")
 
-        # FC khong bao phan tram -> KHONG bia ra nguong, va phai noi ro o tooltip.
-        # Registry co y BO QUA gia tri None (field.py:65) nen khong the "gui None"
-        # de xoa cai da biet — phai bo han field di, dung nhu chua tung nhan.
+        # FC khong bao phan tram -> KHONG bia ra nguong. Registry co y BO QUA gia tri
+        # None (field.py:65) nen khong the "gui None" de xoa cai da biet — phai bo
+        # han field di, dung nhu chua tung nhan.
         REGISTRY.fields.pop("battery.remaining", None)
         feed("battery", {"voltage": 11.1})
-        ft.refresh()
-        assert color("PIN") == OK, color("PIN")
-        assert "KHÔNG báo phần trăm" in val["PIN"].toolTip(), val["PIN"].toolTip()
+        assert st("battPct") is None and st("battLevel") == "ok", ft.state
 
-        # --- SAT: mau theo fix_type, KHONG theo so ve tinh ---
+        # --- GPS: muc theo fix_type, KHONG theo so ve tinh ---
         # Do that tren ban: fix_type=1, sats=0. Truoc day hien so 0 trang tinh.
         feed("gps", {"fix_type": 1, "sats": 0})
-        ft.refresh()
-        assert val["SAT"].text() == "0" and color("SAT") == CRIT, (val["SAT"].text(), color("SAT"))
-        assert "CHƯA bắt được fix" in val["SAT"].toolTip(), val["SAT"].toolTip()
+        assert st("sats") == 0 and st("gpsLevel") == "crit", ft.state
         feed("gps", {"fix_type": 2, "sats": 12})
-        ft.refresh()
-        assert color("SAT") == WARN, "2D fix (khong co do cao GPS) ma khong canh bao"
+        assert st("gpsLevel") == "warn", "2D fix (khong co do cao GPS) ma khong canh bao"
         # 12 ve tinh voi 3D fix moi la binh thuong; so ve tinh mot minh khong quyet dinh
         feed("gps", {"fix_type": 3, "sats": 12})
-        ft.refresh()
-        assert color("SAT") == OK, color("SAT")
-
-        # Tooltip phai doi theo ngon ngu nhu moi chu khac
-        i18n.set_lang("en")
-        ft.refresh()
-        assert val["ARM"].text() == "ARMED", val["ARM"].text()
-        assert "3D fix" in val["SAT"].toolTip(), val["SAT"].toolTip()
+        assert st("gpsLevel") == "ok", st("gpsLevel")
     finally:
         i18n.set_lang(was)
+        REGISTRY.fields.clear()
     print(f"  ok  thanh telemetry: o ARM moi, pin doi mau theo % (<={tb.BATT_WARN_PCT} vang, "
           f"<={tb.BATT_CRIT_PCT} do), GPS theo fix_type")
 
@@ -2505,22 +2317,18 @@ def check_home_note(app):
     """Con bao nhieu met ve nha — hien tren dai chu duoi ban do."""
     from core import i18n
     from core.field import REGISTRY
-    from laptop.tabs.flight import FlightTab, _mmss
-
-    assert [_mmss(s) for s in (0, 9, 60, 61, 611)] == ["0:00", "0:09", "1:00", "1:01", "10:11"]
 
     was = i18n.lang()
     try:
         i18n.set_lang("vi")
-        ft = FlightTab()
-        ft.resize(600, 400)
+        ft = flight(600, 400)
         assert ft.map._home_note() == "", "chua co home ma da bao khoang cach"
 
         # 0,001 do vi do = 111,3 m. Dung con so nay lam thuoc do.
         home = (10.8221589, 106.6868454)
         bus.emit("sik", "home", {"lat": home[0], "lon": home[1], "alt_msl": 10.1})
         assert ft.map._home_note() == "", "co home nhung chua co vi tri drone"
-        # Vi tri drone di qua REGISTRY roi moi vao map (flight.py:133), khong
+        # Vi tri drone di qua REGISTRY roi moi vao map (Backend.refresh), khong
         # phai qua bus truc tiep nhu home.
         REGISTRY.feed({"src": "sik", "topic": "position",
                        "data": {"lat": home[0] + 0.001, "lon": home[1], "alt_rel": 5.0},
@@ -2605,15 +2413,13 @@ def check_preflight_reads(app):
     from core import i18n
     from core.field import REGISTRY
     from laptop.app import MainWindow
-    from laptop.tabs.flight import FlightTab
 
     was = i18n.lang()
     try:
         i18n.set_lang("vi")
 
         # --- D.6 + muc F: dai chu duoi ban do ---
-        ft = FlightTab()
-        ft.resize(600, 400)
+        ft = flight(600, 400)
         home = (10.8221589, 106.6868454)
         assert ft.map._home_note() == "", "chua ket noi ma da keu suong"
 
@@ -2682,7 +2488,6 @@ def check_fence_follows_fc(app):
     """
     from core import i18n
     from core.field import REGISTRY
-    from laptop.tabs.flight import FlightTab
     from core.field import haversine_m
     from laptop.widgets.map_widget import (FENCE_TYPE_ALT_MAX, FENCE_TYPE_CIRCLE,
                                            FENCE_TYPE_POLYGON, _seg_dist_m)
@@ -2705,8 +2510,7 @@ def check_fence_follows_fc(app):
     was = i18n.lang()
     try:
         i18n.set_lang("vi")
-        ft = FlightTab()
-        ft.resize(600, 400)
+        ft = flight(600, 400)
         bus.emit("sik", "home", {"lat": home[0], "lon": home[1], "alt_msl": 10.1})
 
         def dat(ftype, alt=20.0, dlat=0.0005, items=poly):
@@ -3528,7 +3332,6 @@ if __name__ == "__main__":
     check_fence(app)
     check_waypoints(app)
     check_wp_write(app)
-    check_nudge_keys(app)
     check_stream_rearm(app)
     check_replay(app)
     check_slow_stop(app)
@@ -3541,7 +3344,6 @@ if __name__ == "__main__":
     check_param_doc(app)
     check_telemetry_warn(app)
     check_flight_alerts(app)
-    check_cam_swap(app)
     check_close_guard(app)
     check_home_note(app)
     check_drone_marker(app)

@@ -1,5 +1,8 @@
 """Thong bao loi noi tren man hinh bay, kieu DJI: dong mau giua-tren, tu tat.
 
+Chi con phan logic, khong co Qt: man bay cam ung ve cac dong nay bang QML, doc
+qua `Backend.state["alerts"]`.
+
 Tab Thong bao giu HET lich su; day chi la cai phi cong phai thay NGAY ma khong
 roi ban do. Nen chi lay WARNING tro len, va gop dong trung: FC that lap lai
 PreArm moi ~30,7 s (do 15/09/2026 tren log 84 phut: dung 2 cau x 164 lan, khong
@@ -7,11 +10,6 @@ co STATUSTEXT nao khac). Moi lan lap ma bat mot dong moi thi man hinh nhay suot.
 """
 
 import time
-
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
-
-from laptop import theme
 
 MAX_SEV = 4  # MAV_SEVERITY: WARNING tro len (so nho = nang) — giong WARN_SEV tab Thong bao
 ERR_SEV = 3  # ERROR tro len: nen do, song lau
@@ -63,46 +61,3 @@ class AlertBook:
                 text += f"  (+{len(self._items) - ROWS})"  # cat ma im lang = tuong la het
             out.append((text, sev))
         return out
-
-
-class AlertStack(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.book = AlertBook()
-        self.rows = []
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
-        for _ in range(ROWS):
-            r = QLabel(self)
-            r.setWordWrap(True)
-            r.setAlignment(Qt.AlignCenter)
-            r.hide()
-            lay.addWidget(r)
-            self.rows.append(r)
-
-    def push(self, text, sev):
-        if self.book.push(text, sev):
-            self.tick()
-
-    def clear(self):
-        self.book.clear()
-        self.tick()
-
-    def tick(self, now=None):
-        """Bo dong het han roi ve lai. FlightTab goi 5 Hz, khong can timer rieng."""
-        shown = self.book.shown(now)
-        for i, r in enumerate(self.rows):
-            if i >= len(shown):
-                r.hide()
-                continue
-            text, sev = shown[i]
-            r.setText(text)
-            r.setStyleSheet(
-                f"background:{theme.CRIT if sev <= ERR_SEV else theme.WARN};"
-                f"color:{theme.BG_DEEP};font-weight:bold;"
-                f"padding:5px;border-radius:{theme.RADIUS}px;")
-            r.show()
-        lay = self.layout()
-        self.resize(self.width(), lay.heightForWidth(self.width())
-                    if lay.hasHeightForWidth() else lay.sizeHint().height())

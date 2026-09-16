@@ -297,6 +297,7 @@ Item {
     // ---- o camera / ban do nho: cham de doi cho ------------------------------
     Rectangle {
         id: pip
+        objectName: "pip"
         visible: st.hasVideo || win.camBig
         anchors { left: parent.left; leftMargin: 14 * s; bottom: parent.bottom; bottomMargin: 10 * s }
         width: 240 * s

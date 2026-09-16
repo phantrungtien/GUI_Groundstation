@@ -1,27 +1,9 @@
-"""Thanh telemetry noi goc duoi map: da ARM chua, do cao, toc do, pin, GPS, mode.
+"""Nguong canh bao cho thanh telemetry: pin can va GPS mat fix.
 
-Moi o mang mot cham mau chi nguon du lieu (nguyen tac 2.2). Nguon het tuoi thi
-so xam di — dung hinh ma van sang la noi doi.
-
-Rieng ba o ARM / PIN / SAT con doi mau theo GIA TRI, khong chi theo tuoi. Ly do
-o `LEVEL_COLOR` va o hai hang so nguong ben duoi: mot con so dung tren nen trang
-khong tu keo mat ai ca, ma pin can va GPS mat fix la hai thu phai keo duoc.
+Chi con phan NGUONG, khong con widget: thanh telemetry duoc ve bang QML o man
+bay cam ung, doc `Backend.state["battLevel"]/["gpsLevel"]`. Hai ham duoi day la
+cho quyet dinh muc — mot con so dung tren nen trang khong tu keo mat ai ca.
 """
-
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QLabel
-
-from core import i18n
-from core.i18n import t
-from laptop import theme
-
-SRC_COLOR = {"sik": theme.OK, "remote": theme.INFO, None: theme.MUTED}
-
-# Mau theo muc do cua chinh gia tri. "crit" khong phai luc nao cung la HONG —
-# o ARM no la "canh quat co the quay", mot trang thai binh thuong nhung tuyet doi
-# khong duoc lot mat.
-LEVEL_COLOR = {None: theme.TEXT, "warn": theme.WARN, "crit": theme.CRIT}
-UNKNOWN_COLOR = theme.MUTED
 
 # --- NUM CHINH ------------------------------------------------------------
 # Nguong pin tinh theo PHAN TRAM FC bao, khong theo dien ap. Dien ap mot minh
@@ -47,19 +29,6 @@ BATT_CRIT_PCT = 20
 GPS_MIN_FIX = 3  # 3 = 3D fix. 2 = chi 2D (khong co do cao GPS) -> canh bao.
 GPS_MIN_SATS = 8
 GPS_MAX_HDOP = 2.0
-
-# (khoa tra cuu, don vi). Khoa la thu set_cell() goi toi, KHONG doi theo ngon
-# ngu; chu hien ra lay o bang chu duoi key "tlm.<khoa>" — "PIN" doc sang tieng
-# Anh la mot tu khac han, de nguyen la sai nghia chu khong phai giu nguyen goc.
-#
-# ARM dung dau: no la thu phai liec mot cai la thay, va mat trai la cho mat quet
-# toi truoc.
-CELLS = [
-    ("ARM", ""), ("ALT", "m"), ("SPD", "m/s"), ("PIN", "V"), ("SAT", ""), ("MODE", ""),
-    ("BAY", ""),
-]
-WIDE = {"MODE": 72, "ARM": 88}  # "DISARMED" dai hon "GUIDED", ca hai dai hon "25"
-
 
 def batt_level(pct):
     """Muc canh bao pin tu phan tram FC bao. None = FC khong bao -> khong doan."""
@@ -89,57 +58,3 @@ def gps_level(fix, sats=None, hdop=None):
     if hdop is not None and hdop >= GPS_MAX_HDOP:
         return "warn", "tlm.bad_hdop"
     return None, f"tlm.fix{int(fix)}"
-
-
-class TelemetryBar(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        # QLabel trong suot: khong co dong nay thi moi o bi nen QWidget chung
-        # to de len, thanh ra mot day mieng vuong thay vi mot tam kinh lien.
-        self.setStyleSheet(
-            f"QFrame{{background:{theme.SURFACE};border:1.5px solid {theme.DIVIDER};"
-            f"border-radius:{theme.RADIUS_PANEL}px;}}"
-            "QLabel{background:transparent;border:none;}"
-        )
-        grid = QGridLayout(self)
-        grid.setContentsMargins(10, 6, 10, 6)
-        grid.setHorizontalSpacing(18)
-
-        self._val, self._dot, self._name = {}, {}, {}
-        for col, (key, unit) in enumerate(CELLS):
-            name = QLabel()
-            name.setStyleSheet(f"color:{theme.MUTED};font-size:10px;")
-            self._name[key] = name
-            dot = QLabel("●")
-            val = QLabel("--")
-            val.setStyleSheet("font-size:16px;font-weight:bold;")
-            # Rong toi thieu cho chu khoi bi cat: "GUIDED" dai hon "25".
-            val.setMinimumWidth(WIDE.get(key, 52))
-            grid.addWidget(name, 0, col * 2, 1, 2)
-            grid.addWidget(dot, 1, col * 2, alignment=Qt.AlignVCenter)
-            grid.addWidget(val, 1, col * 2 + 1)
-            self._val[key], self._dot[key] = val, dot
-        self.set_cell("ALT", None, None)
-        i18n.on_change(self._retext)
-
-    def _retext(self):
-        for key, unit in CELLS:
-            self._name[key].setText(t(f"tlm.{key}") + (f" ({unit})" if unit else ""))
-
-    def set_cell(self, key, value, src, fmt="{:.1f}", level=None, tip=""):
-        """level: None binh thuong · "warn" vang · "crit" do. Xem LEVEL_COLOR.
-
-        `tip` la cho noi RA cai lam nen mau do — o hep, khong nhet duoc ca cau.
-        Khong co tip thi tooltip rong va Qt khong hien gi, dung y.
-        """
-        val, dot = self._val[key], self._dot[key]
-        if value is None:
-            val.setText("--")
-            color = UNKNOWN_COLOR
-        else:
-            val.setText(fmt.format(value) if isinstance(value, (int, float)) else str(value))
-            color = LEVEL_COLOR[level]
-        val.setStyleSheet(f"font-size:16px;font-weight:bold;color:{color};")
-        val.setToolTip(tip)
-        dot.setToolTip(tip)
-        dot.setStyleSheet(f"color:{SRC_COLOR.get(src, theme.MUTED)};font-size:11px;")

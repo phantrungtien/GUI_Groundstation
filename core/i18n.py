@@ -240,32 +240,10 @@ STR = {
                     "mission upload: FAILED — {why}. The draft is intact, you can retry"),
     "fly.wp_fc_denied": ("FC từ chối (MAV_MISSION_RESULT={code})",
                          "FC rejected it (MAV_MISSION_RESULT={code})"),
-    "fly.wp_overwrite": (
-        "nạp đường bay: drone ĐANG BAY AUTO — ghi đè là FC nhảy sang WP1 của đường mới "
-        "ngay. Mở lại menu và bấm lại trong {sec:.0f}s để xác nhận",
-        "mission upload: the drone is FLYING AUTO — overwriting makes the FC jump to WP1 "
-        "of the new route immediately. Reopen the menu and press again within {sec:.0f}s "
-        "to confirm"),
-    "menu.wp_add": ("Đặt waypoint {n} tại đây  ({alt:.0f} m)",
-                    "Put waypoint {n} here  ({alt:.0f} m)"),
-    "menu.wp_alt": ("Độ cao waypoint: {alt:.0f} m", "Waypoint altitude: {alt:.0f} m"),
-    "menu.wp_undo": ("Bỏ điểm {n}", "Remove point {n}"),
-    "menu.wp_clear": ("Xoá hết {n} điểm đang đặt", "Clear all {n} draft points"),
-    "menu.wp_send": ("NẠP {n} waypoint lên FC", "UPLOAD {n} waypoint(s) to the FC"),
-    "menu.wp_send_over": ("NẠP {n} waypoint ĐÈ LÊN nhiệm vụ đang bay",
-                          "UPLOAD {n} waypoint(s) OVER the mission in flight"),
-    "menu.wp_wipe": ("Xoá đường bay trên FC", "Wipe the mission on the FC"),
-    "menu.goto": ("GUIDED + bay tới {lat:.5f}, {lon:.5f}",
-                  "GUIDED + fly to {lat:.5f}, {lon:.5f}"),
-    "menu.cam_hide": ("Ẩn camera", "Hide camera"),
-    "menu.cam_show": ("Hiện camera", "Show camera"),
     "act.wp_wipe": ("xoá đường bay trên FC", "wipe mission on FC"),
     "act.wp_send": ("nạp {n} waypoint", "upload {n} waypoint(s)"),
     "act.goto": ("GUIDED + bay tới {lat:.5f}, {lon:.5f} ở {alt:.0f} m",
                  "GUIDED + fly to {lat:.5f}, {lon:.5f} at {alt:.0f} m"),
-    "act.resume": ("tiếp tục nhiệm vụ", "resume mission"),
-    "act.land_here": ("hạ cánh tại chỗ", "land here"),
-
     # nhich vi tri bang ban phim
     "nudge.blocked": ("nhích vị trí: KHÔNG được — {why}", "nudge: NOT allowed — {why}"),
     "nudge.stopped": ("nhích vị trí: dừng — {why}", "nudge: stopped — {why}"),
@@ -275,10 +253,7 @@ STR = {
     "nudge.on_ground": ("drone đang nằm dưới đất", "the drone is on the ground"),
     "nudge.wrong_mode": ("đang ở mode {mode}, phải chuyển sang GUIDED mới nhích được",
                          "currently in {mode}; switch to GUIDED to nudge"),
-    "nudge.why_space": ("treo tại chỗ", "hold position"),
     "nudge.why_release": ("thả phím", "key released"),
-    "nudge.why_focus": ("rời khỏi màn hình bay", "left the flight screen"),
-
     # --- tab Status -------------------------------------------------------
     "st.search": ("lọc theo tên field, vd: ATTITUDE hoặc volt",
                   "filter by field name, e.g. ATTITUDE or volt"),
@@ -316,26 +291,12 @@ STR = {
     "tlm.ARM": ("ARM", "ARM"),
     # Trang thai, khong phai ten lenh — nen dich duoc, nhung giu chinh chu "ARM"
     # cua ArduPilot o giua de doi chieu voi nut ben tab Dieu khien.
-    "tlm.armed": ("ĐÃ ARM", "ARMED"),
-    "tlm.disarmed": ("CHƯA ARM", "DISARMED"),
     "tlm.ALT": ("CAO", "ALT"),
     "tlm.SPD": ("TỐC", "SPD"),
     "tlm.PIN": ("PIN", "BAT"),
     "tlm.SAT": ("VỆ TINH", "SAT"),
     "tlm.MODE": ("MODE", "MODE"),
     "tlm.BAY": ("GIỜ BAY", "AIRBORNE"),
-    "tlm.batt_pct": ("Pin còn {pct}% — số này do FC báo (nó biết BATT_CAPACITY và số cell)",
-                     "Battery {pct}% left — reported by the FC (it knows BATT_CAPACITY "
-                     "and the cell count)"),
-    "tlm.batt_nopct": (
-        "FC KHÔNG báo phần trăm pin (BATT_CAPACITY chưa đặt). Điện áp một mình không nói "
-        "lên còn bao nhiêu nếu không biết số cell, nên ô này KHÔNG có ngưỡng cảnh báo — "
-        "tự canh lấy.",
-        "The FC does NOT report battery percentage (BATT_CAPACITY is unset). Voltage alone "
-        "cannot say how much is left without the cell count, so this cell has NO warning "
-        "threshold — watch it yourself."),
-    "tlm.fix_none": ("Chưa nhận được GPS_RAW_INT — không biết tình trạng định vị.",
-                     "No GPS_RAW_INT received yet — fix status unknown."),
     "tlm.fix0": ("KHÔNG có GPS. Số vệ tinh vô nghĩa.", "NO GPS. The satellite count is meaningless."),
     "tlm.fix1": ("Có GPS nhưng CHƯA bắt được fix — chưa có vị trí.",
                  "GPS present but NO fix yet — there is no position."),

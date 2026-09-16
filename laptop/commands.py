@@ -40,11 +40,11 @@ RNG_GROUND_CM = 100
 # --- nhich vi tri ---------------------------------------------------------
 #
 # Gui VAN TOC chu khong toa do — ly do va so do nam o `sik.py`, action "nudge".
-# Quang duong = tich phan van toc, nen giu lau thi di xa: go nhe mot cai la nhich
-# mot chut, giu thi cang luc cang nhanh toi tran.
+# Quang duong = tich phan van toc, nen giu lau thi di xa. Do lech cua ngon tay
+# tren can ao CHINH LA do lon, nen khong co ramp theo thoi gian: cham nhe =
+# NUDGE_V0, day het = NUDGE_VMAX.
 NUDGE_V0 = 1.0     # m/s ngay khi cham
 NUDGE_VMAX = 5.0   # tran toc do
-NUDGE_RAMP = 2.0   # m/s cong them moi giay giu
 # Nhip gui lai. Lenh van toc GUIDED cua ArduPilot het han sau ~3 s, va do trung vi
 # cua duong SiK la 132 ms — 5 Hz vua du day de mot goi roi khong thanh mot khoang
 # khung, ma van chi ~115 B/s tren chieu len dang trong.
