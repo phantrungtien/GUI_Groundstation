@@ -261,6 +261,8 @@ STR = {
     "menu.cam_show": ("Hiện camera", "Show camera"),
     "act.wp_wipe": ("xoá đường bay trên FC", "wipe mission on FC"),
     "act.wp_send": ("nạp {n} waypoint", "upload {n} waypoint(s)"),
+    "act.goto": ("GUIDED + bay tới {lat:.5f}, {lon:.5f} ở {alt:.0f} m",
+                 "GUIDED + fly to {lat:.5f}, {lon:.5f} at {alt:.0f} m"),
     "act.resume": ("tiếp tục nhiệm vụ", "resume mission"),
     "act.land_here": ("hạ cánh tại chỗ", "land here"),
 
@@ -533,4 +535,67 @@ STR = {
                   "The FC reports lat=lon=0 before it gets a fix; drawing that\n"
                   "would be a vertical line, not a real flight path."),
     "an.alt_range": ("cao {lo:.1f} … {hi:.1f} m", "alt {lo:.1f} … {hi:.1f} m"),
+
+    # --- man bay cam ung (touch/) -----------------------------------------
+    "touch.st_none": ("Chưa kết nối", "Not connected"),
+    "touch.st_wait": ("Đang chờ dữ liệu từ FC", "Waiting for FC data"),
+    "touch.st_lost": ("MẤT TÍN HIỆU SiK {n} s", "SiK SIGNAL LOST {n} s"),
+    "touch.st_replay": ("Phát lại — lệnh bị khoá", "Replay — commands locked"),
+    "touch.st_flying": ("Đang bay", "In flight"),
+    "touch.st_armed": ("Đã ARM — cánh quạt có thể quay", "ARMED — props may spin"),
+    "touch.st_ready": ("Sẵn sàng", "Ready"),
+    "touch.st_nogps": ("Chưa có GPS", "No GPS"),
+    "touch.slide": ("Trượt để {what}", "Slide to {what}"),
+    "touch.slide_hold": ("Trượt rồi GIỮ 2 s để {what}", "Slide and HOLD 2 s to {what}"),
+    "touch.do_arm": ("ARM", "ARM"),
+    "touch.do_disarm": ("DISARM", "DISARM"),
+    "touch.do_takeoff": ("cất cánh {alt:.0f} m", "take off {alt:.0f} m"),
+    "touch.do_land": ("hạ cánh tại chỗ", "land here"),
+    "touch.do_rtl": ("bay về nhà (RTL)", "return home (RTL)"),
+    "touch.do_kill": ("CẮT ĐỘNG CƠ", "KILL MOTORS"),
+    "touch.do_mode": ("đổi sang {name}", "switch to {name}"),
+    "touch.btn_takeoff": ("Cất cánh", "Take off"),
+    "touch.btn_land": ("Hạ cánh", "Land"),
+    "touch.btn_rtl": ("Về nhà", "Home"),
+    "touch.btn_mode": ("Chế độ", "Mode"),
+    "touch.btn_kill": ("Cắt ĐC", "Kill"),
+    "touch.kill_note": ("Đang bay mà cắt động cơ là RƠI. Chỉ dùng khi drone mất kiểm soát.",
+                        "Killing motors in flight means it FALLS. Only when it is out of control."),
+    "touch.conn_title": ("Kết nối", "Connection"),
+    "touch.connect": ("Kết nối", "Connect"),
+    "touch.disconnect": ("Ngắt kết nối", "Disconnect"),
+    "touch.rescan": ("Quét lại cổng USB", "Rescan USB ports"),
+    "touch.no_perm": ("không có quyền đọc cổng", "no permission on port"),
+    "touch.locked": ("Chưa kết nối drone thật hay SITL — lệnh không đi đâu cả",
+                     "Not connected to a live drone or SITL — commands go nowhere"),
+
+    # duong bay dat bang tay: cham-giu ban do thay cho menu chuot phai
+    "touch.wp_title": ("Đường bay", "Mission"),
+    "touch.wp_hint": ("Chạm bản đồ để chọn chỗ, rồi bấm Đặt điểm",
+                      "Tap the map to pick a spot, then Drop point"),
+    "touch.wp_add": ("Đặt điểm {n}", "Drop point {n}"),
+    # "Độ cao" tron: nhin y het bang do cao cua TAKEOFF, nguoi bay chinh o day
+    # roi cho drone leo. No chi la do cao cua diem sap dat, va chi co tac dung
+    # sau khi NAP + gat AUTO.
+    "touch.wp_alt": ("Độ cao điểm", "Point altitude"),
+    "touch.wp_undo": ("Bỏ điểm cuối", "Remove last point"),
+    "touch.wp_clear": ("Xoá nháp", "Clear draft"),
+    "touch.wp_send": ("NẠP {n} điểm", "UPLOAD {n} point(s)"),
+    "touch.wp_send_over": ("NẠP ĐÈ {n} điểm", "UPLOAD {n} point(s) OVER the mission"),
+    "touch.wp_wipe": ("Xoá đường bay trên FC", "Wipe mission on FC"),
+    # Co {alt} trong nut: lenh nay DOI do cao, khong phai bay ngang toi do. Khong
+    # ghi so ra thi nguoi bay o 50 m bam mot cai la xuong 20 m ma khong hieu vi sao.
+    "touch.wp_goto": ("Bay tới đây ({alt:.0f} m)", "Fly here ({alt:.0f} m)"),
+    "touch.wp_full": ("đã đủ {n} waypoint — không đặt thêm được",
+                      "already {n} waypoints — cannot add more"),
+    "touch.wp_overwrite": (
+        "nạp đường bay: drone ĐANG BAY AUTO — ghi đè là FC nhảy sang WP1 của đường mới "
+        "ngay. Bấm NẠP lại trong {sec:.0f}s để xác nhận",
+        "mission upload: the drone is FLYING AUTO — overwriting makes the FC jump to WP1 "
+        "of the new route immediately. Press UPLOAD again within {sec:.0f}s to confirm"),
+
+    # can ao thay cho ban phim
+    "touch.stick": ("Nhích", "Nudge"),
+    "touch.stick_up": ("Lên", "Up"),
+    "touch.stick_down": ("Xuống", "Down"),
 }

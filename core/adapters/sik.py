@@ -651,7 +651,10 @@ class SikAdapter(QThread):
             m.mission_item_send(
                 sysid, compid, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                 mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 2, 0, 0, 0, 0, 0,
-                float(args["lat"]), float(args["lon"]), float(args.get("alt", 10)),
+                # `alt` BAT BUOC. Truoc day cho mac dinh 10 m: dang bay 50 m ma bam
+                # "bay toi day" la drone TUT xuong 10 m, khong mot dong nao noi ra.
+                # Thieu thi no phai no ngay o day chu khong duoc tu doan.
+                float(args["lat"]), float(args["lon"]), float(args["alt"]),
             )
         else:
             raise ValueError(f"khong biet lenh {action!r}")

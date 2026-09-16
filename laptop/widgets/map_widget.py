@@ -467,12 +467,23 @@ class MapWidget(QWidget):
 
     # --- tuong tac ----------------------------------------------------
 
-    def wheelEvent(self, e):
+    # pan/zoom_by: chuot o day va ngon tay o man bay cam ung (touch/) cung goi vao.
+    def zoom_by(self, step):
         # Tran 21 chu khong 19: co tile z17 la da xem duoc toi z20 (phong 3 bac).
         # Qua tran thi pick_tile_zoom tra None va man hinh ve luoi — khong ket.
-        self.zoom = max(1, min(21, self.zoom + (1 if e.angleDelta().y() > 0 else -1)))
+        self.zoom = max(1, min(21, self.zoom + step))
         self._zooms = None  # co the vua co them muc zoom moi tren dia
         self.update()
+
+    def pan(self, dx, dy):
+        """Keo khung nhin theo pixel man hinh."""
+        self.follow = False  # keo tay la thoi bam theo drone
+        cx, cy = deg2num(*self.center, self.zoom)
+        self.center = num2deg(cx - dx / TILE, cy - dy / TILE, self.zoom)
+        self.update()
+
+    def wheelEvent(self, e):
+        self.zoom_by(1 if e.angleDelta().y() > 0 else -1)
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -483,10 +494,7 @@ class MapWidget(QWidget):
             return
         d = e.position() - self._drag
         self._drag = e.position()
-        self.follow = False  # keo tay la thoi bam theo drone
-        cx, cy = deg2num(*self.center, self.zoom)
-        self.center = num2deg(cx - d.x() / TILE, cy - d.y() / TILE, self.zoom)
-        self.update()
+        self.pan(d.x(), d.y())
 
     def mouseReleaseEvent(self, _):
         self._drag = None

@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # chay duoc khong can man hinh
+os.environ.setdefault("QT_QUICK_BACKEND", "software")  # QML (touch/) ve khong can GPU
 
 from core import bus
 from core.adapters.sik import SikAdapter, flatten_status, normalize
@@ -2006,6 +2007,332 @@ def check_cam_swap(app):
     print("  ok  bam o camera tab Bay: phong ca tab, ban do vao goc; bam ban do nho la doi lai")
 
 
+def check_touch(app):
+    """Tab "Bay cam ung" (laptop/touch/): moi lenh phai TRUOT HET moi di.
+
+    Keo that bang chuot tren tab QML cua cua so chinh (offscreen), khong goi
+    thang ham: cai can chung minh la "tha giua chung thi KHONG co lenh", va dieu
+    do nam o QML. Cat dong co con phai GIU 2 s o cuoi — tha ngay thi khong co gi.
+    """
+    from PySide6.QtCore import QEventLoop, QPoint, QPointF, Qt, QTimer
+    from PySide6.QtQuick import QQuickItem
+    from PySide6.QtTest import QTest
+
+    from core import authority
+    from core.field import REGISTRY
+    from laptop.app import MainWindow
+
+    sent = []
+
+    class FakeAdapter:
+        def send(self, action, args=None):
+            sent.append((action, dict(args or {})))
+            return {"ok": action}
+
+    def wait(ms):
+        loop = QEventLoop()  # KHONG app.exec(): moi lan no thoat la aboutToQuit
+        QTimer.singleShot(ms, loop.quit)
+        loop.exec()
+
+    win = MainWindow([])
+    win.resize(1280, 760)
+    win.show()
+    tabs = win.ui.tabWidget
+    assert tabs.currentWidget() is win.ui.Flight, "app khong mo o man bay"
+    # Hai bo Commands = moi ACK ghi hai dong vao tab Thong bao.
+    assert win.touch.cmd is win.control_tab.cmd, "man cam ung co bo Commands rieng"
+
+    fake = FakeAdapter()
+    authority.register("sik", fake)
+    win.touch.attach({"name": "selfcheck", "mode": "SIM"}, fake)
+    REGISTRY.feed({"src": "sik", "topic": "heartbeat",
+                   "data": {"mode": "GUIDED", "landed": True}, "ts": time.time()})
+    wait(100)
+    view = win.touch_view
+    root = view.rootObject()
+    slider = root.findChild(QQuickItem, "slider")
+
+    def drag(frac, hold_ms=0):
+        """Keo num tu dau thanh toi `frac` chieu dai, giu `hold_ms`, roi tha."""
+        h = slider.height()
+        start = slider.mapToScene(QPointF(h / 2, h / 2)).toPoint()
+        end = slider.mapToScene(QPointF(h / 2 + frac * (slider.width() - h), h / 2)).toPoint()
+        QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, start)
+        for i in range(1, 11):
+            QTest.mouseMove(view, start + (end - start) * i / 10)
+            wait(10)
+        wait(hold_ms)
+        QTest.mouseRelease(view, Qt.LeftButton, Qt.NoModifier, end)
+        wait(250)  # num troi ve (180 ms)
+
+    def ask(action):
+        root.setProperty("pending", action)
+        wait(50)
+
+    try:
+        ask("rtl")
+        drag(0.6)
+        assert sent == [], f"tha o 60% ma lenh da di: {sent}"
+        assert root.property("pending") == "rtl", "tha giua chung ma bang xac nhan dong mat"
+
+        drag(1.0)
+        assert sent == [("rtl", {})], sent
+        assert root.property("pending") == "", "truot xong ma bang van mo"
+
+        sent.clear()
+        root.setProperty("takeoffAlt", 10)
+        ask("takeoff")
+        drag(1.0)
+        assert sent == [("takeoff", {"alt": 10.0})], sent
+
+        # Cat dong co: truot het roi tha NGAY -> khong co gi; giu 2 s -> force.
+        sent.clear()
+        ask("kill")
+        drag(1.0)
+        assert sent == [], f"cat dong co ma khong can giu: {sent}"
+        ask("kill")
+        drag(1.0, hold_ms=2200)
+        assert sent == [("disarm", {"force": True})], sent
+
+        # SiK dut (MainWindow._stop_sik): bang dang cho bi huy, act() tu choi.
+        sent.clear()
+        ask("land")
+        win.touch.attach({"name": "selfcheck", "mode": "SIM"}, None)
+        wait(50)
+        assert root.property("pending") == "", "SiK dut ma thanh truot van cho"
+        win.touch.act("land", "")
+        assert sent == [], sent
+
+        # --- cham-giu mo bang duong bay, va no phai O YEN ---------------------
+        #
+        # `stateChanged` ban 5 Hz. Truoc day cai dong bang khi mat ket noi kiem
+        # theo MUC chu khong theo suon, nen luc CHUA cam radio, bang vua mo la
+        # 200 ms sau tu dong dong — cham-giu nhin nhu khong an gi. Doi >= 2 nhip.
+        win.touch.attach(None, None)
+        wait(50)
+        assert root.property("wpOpen") is False
+        pt = QPoint(int(view.width() * 0.4), int(view.height() * 0.5))
+        QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, pt)
+        wait(1200)  # nguong cham-giu cua MouseArea la 800 ms
+        QTest.mouseRelease(view, Qt.LeftButton, Qt.NoModifier, pt)
+        wait(500)
+        assert root.property("wpOpen") is True, "cham-giu khi chua ket noi: bang tu dong dong"
+
+        # CHAM MOT CAI cung phai mo — giu du 800 ms bang chuot la khong ai doan ra.
+        root.setProperty("wpOpen", False)
+        wait(250)
+        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier, pt)
+        wait(300)
+        assert root.property("wpOpen") is True, "cham mot cai ma bang diem den khong mo"
+        assert abs(root.property("wpX") - pt.x()) < 2, root.property("wpX")
+
+        # ...nhung KEO ban do thi khong: keo xong ma bang bat ra la khong dung duoc.
+        root.setProperty("wpOpen", False)
+        wait(250)
+        center0 = win.touch.map.center
+        QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, pt)
+        for i in range(1, 11):
+            QTest.mouseMove(view, pt + QPoint(6 * i, 4 * i))
+            wait(10)
+        QTest.mouseRelease(view, Qt.LeftButton, Qt.NoModifier, pt + QPoint(60, 40))
+        wait(300)
+        assert win.touch.map.center != center0, "keo ma ban do khong chay"
+        assert root.property("wpOpen") is False, "keo ban do xong ma bang diem den bat ra"
+        # Nhung VUA dut giua chung thi van phai dong (suon xuong, khong bo sot)
+        win.touch.attach({"name": "selfcheck", "mode": "SIM"}, fake)
+        wait(250)
+        win.touch.attach(None, None)
+        wait(250)
+        assert root.property("wpOpen") is False, "dut ket noi ma bang duong bay van mo"
+    finally:
+        authority.unregister("sik")
+        win.touch.attach(None, None)
+        win.close()
+    print("  ok  tab Bay cam ung: mo san, chung Commands, tha giua chung khong co lenh, "
+          "truot het moi di, cat dong co phai giu 2s, mat SiK la huy; ban do: cham (hay "
+          "cham-giu) mo bang diem den va no o yen ca khi chua ket noi, keo thi khong mo")
+
+
+def check_touch_flight(app):
+    """Man bay da gop: MOT tab bay, va waypoint + nhich deu lam duoc bang tay.
+
+    Truoc day co hai tab bay song song, moi tab mot MapWidget rieng — dat
+    waypoint chi duoc o tab cu (chuot phai) va nhich chi duoc o do (ban phim).
+    Check nay do dung cai da chuyen sang man cam ung, va do o TANG BACKEND vi
+    do la cho quyet dinh co gui goi hay khong; phan QML (cham-giu, keo can) chi
+    la cai goi vao day.
+    """
+    from core import authority
+    from core.adapters.sik import WP_MAX
+    from core.field import REGISTRY
+    from laptop.app import MainWindow
+    from laptop.commands import NUDGE_V0, NUDGE_VMAX, WP_CONFIRM_S
+
+    sent = []
+
+    class Fake:
+        def send(self, action, args=None):
+            sent.append((action, dict(args or {})))
+            return {"ok": action}
+
+    def state(**kw):
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": kw, "ts": time.time()})
+
+    lat, lon = 10.8221589, 106.6868454
+    fake = Fake()
+    authority.register("sik", fake)
+    win = MainWindow([])
+    win.resize(1280, 760)
+    logs = []
+    win.touch.cmd.log.connect(lambda text, _sev: logs.append(text))
+    b = win.touch
+    try:
+        # --- mot man bay duy nhat, va no la man cam ung ----------------------
+        assert win.touch_view.parent() is win.ui.Flight, "man cam ung khong nam trong tab Bay"
+        assert not hasattr(win, "flight_tab"), "van con tab Bay thu hai"
+        # Hai MapWidget la hai cai cung bam theo drone va cung tai tile.
+        maps = [w for w in app.allWidgets()
+                if type(w).__name__ == "MapWidget" and w.window() is win]
+        assert len(maps) <= 1, f"con {len(maps)} ban do trong cua so chinh"
+
+        b.attach({"name": "selfcheck", "mode": "SIM"}, fake)
+        b.map.resize(600, 400)
+        b.map.center = (lat, lon)
+
+        # --- waypoint: cham-giu ban do --------------------------------------
+        b.setWpAlt(30)
+        b.addWp(300, 200)
+        b.addWp(320, 180)
+        assert b.state["draftN"] == 2, b.state["draftN"]
+        assert b.map.draft[0][2] == 30.0, "chip do cao khong vao diem vua dat"
+        b.undoWp()
+        assert b.state["draftN"] == 1, "bo diem cuoi khong an"
+
+        sent.clear()
+        b.sendWp()
+        assert sent == [("wp_write", {"items": [list(p) for p in b.map.draft]})], sent
+
+        # FC nhan -> ban nhap phai bien mat (hai duong chong len nhau la khong doc duoc)
+        bus.emit("sik", "wp", {"write": {"ok": True, "result": 0, "n": 1}})
+        assert b.state["draftN"] == 0 and "FC nhận 1 waypoint" in logs[-1], logs[-1]
+        # FC tu choi -> ban nhap CON NGUYEN de bam nap lai
+        b.addWp(300, 200)
+        bus.emit("sik", "wp", {"write": {"ok": False, "result": 5, "n": 1}})
+        assert b.state["draftN"] == 1, "tu choi ma van xoa mat ban nhap"
+        assert "THẤT BẠI" in logs[-1], logs[-1]
+
+        # --- "bay toi day": do cao phai la SO DANG HIEN, khong phai 10 m chet -----
+        #
+        # Truoc day `Commands.goto` khong truyen `alt`, adapter tu dien 10 m: dang
+        # bay 50 m ma bam mot cai la drone tut xuong 10, khong mot dong nao noi ra.
+        sent.clear()
+        logs.clear()
+        b.setWpAlt(30)
+        b.goto(300, 200)
+        assert [a for a, _ in sent] == ["mode", "goto"], sent
+        assert sent[0][1] == {"name": "GUIDED"}, sent[0]
+        assert sent[1][1]["alt"] == 30.0, f"bay toi day khong dung do cao dang chon: {sent[1]}"
+        assert "30 m" in logs[-1], f"lenh doi do cao ma khong de lai vet: {logs}"
+
+        # Dang bay AUTO: cu bam dau tien chi canh bao, khong gui gi ca
+        sent.clear()
+        state(mode="AUTO", armed=True, landed=False)
+        b.refresh()
+        assert b.state["wpOver"] is True, "khong bao la dang ghi de nhiem vu dang bay"
+        b.sendWp()
+        assert not sent, "ghi de nhiem vu dang bay ma khong hoi lai"
+        assert f"{WP_CONFIRM_S:.0f}s" in logs[-1] and "ĐANG BAY AUTO" in logs[-1], logs[-1]
+        b.sendWp()  # bam lai trong WP_CONFIRM_S -> di
+        assert sent and sent[0][0] == "wp_write", sent
+
+        # Tran WP_MAX: cai thu 51 khong dat duoc, va phai NOI RA
+        b.clearWp()
+        for _ in range(WP_MAX):
+            b.map.add_draft(lat, lon)
+        b.addWp(300, 200)
+        assert b.state["draftN"] == WP_MAX and str(WP_MAX) in logs[-1], logs[-1]
+        b.clearWp()
+
+        # --- can ao: bon chot chan giong het ban phim ------------------------
+        for label, st in [
+            ("chua armed", {"mode": "GUIDED", "armed": False, "landed": False}),
+            ("con duoi dat", {"mode": "GUIDED", "armed": True, "landed": True}),
+            ("dang o AUTO", {"mode": "AUTO", "armed": True, "landed": False}),
+        ]:
+            state(**st)
+            sent.clear()
+            b.stick(0, 1, 0)
+            assert not sent, f"{label}: van gui lenh nhich"
+            assert "KHÔNG được" in logs[-1], (label, logs[-1])
+            assert b.state["nudgeWhy"], f"{label}: can ao khong noi ly do"
+
+        # --- duoc phep: day het = tran toc do, cham nhe = cham --------------
+        state(mode="GUIDED", armed=True, landed=False)
+        b.refresh()
+        assert b.state["nudgeWhy"] == "", b.state["nudgeWhy"]
+        sent.clear()
+        b.stick(0, 1, 0)
+        act, args = sent[-1]
+        assert act == "nudge" and abs(args["vn"] - NUDGE_VMAX) < 1e-6, sent
+        assert args["ve"] == 0 and args["vd"] == 0, args
+
+        b.stick(0, 0.0001, 0)
+        b._nudge_tick()
+        assert abs(sent[-1][1]["vn"] - NUDGE_V0) < 0.01, f"cham nhe phai di cham: {sent[-1]}"
+
+        # Cheo khong duoc nhanh hon: hai truc van la NUDGE_VMAX, khong phai 1,41 lan
+        b.stick(1, 1, 0)
+        b._nudge_tick()
+        a = sent[-1][1]
+        assert abs((a["vn"] ** 2 + a["ve"] ** 2) ** 0.5 - NUDGE_VMAX) < 1e-6, sent[-1]
+
+        # Leo: man hinh len la vd AM (NED)
+        b.stick(0, 0, 1)
+        b._nudge_tick()
+        assert sent[-1][1]["vd"] < 0, f"bam leo ma vd duong: {sent[-1]}"
+
+        # --- nhac tay -> van toc 0, va timer phai dung ----------------------
+        sent.clear()
+        b.stick(0, 0, 0)
+        assert sent[-1] == ("nudge", {"vn": 0.0, "ve": 0.0, "vd": 0.0}), sent
+        assert not b._nudge_timer.isActive(), "nhac tay roi ma timer van chay"
+
+        # --- ngat ket noi: so lieu cua chuyen cu KHONG duoc o lai --------------
+        #
+        # `map.reset()` xoa home, nhung `refresh()` chay 5 Hz va doc thang REGISTRY:
+        # con vi tri cu trong do la no dung lai mot home moi ngay tai cho drone vua
+        # dung, roi "ve nha bao nhieu met" dem tu cai cho sai do.
+        state(mode="GUIDED", armed=True, landed=False)
+        REGISTRY.feed({"src": "sik", "topic": "position",
+                       "data": {"lat": lat, "lon": lon, "alt_rel": 42.0}, "ts": time.time()})
+        b.refresh()
+        assert b.map.home is not None and b.state["alt"] == 42.0, "chua co gi de xoa"
+        b.attach(None, None)   # `attach` tu goi `refresh()`, khong phai doi timer
+        assert b.map.home is None, "ngat roi ma home cua chuyen cu dung lai tren ban do"
+        assert b.state["alt"] is None and b.state["sats"] is None, \
+            f"ngat roi ma o do cao/ve tinh van hien so cu: {b.state['alt']}"
+        # Nap lai canh bay cho bai ke tiep: vua xoa sach REGISTRY o tren.
+        b.attach({"name": "selfcheck", "mode": "SIM"}, fake)
+        state(mode="GUIDED", armed=True, landed=False)
+        b.refresh()
+
+        # --- mat SiK giua luc dang nhich: buong can, khong ban vao khoang khong
+        b.stick(0, 1, 0)
+        assert b._nudge_timer.isActive()
+        sent.clear()
+        win.profile, win.mode = b.profile, "SIM"  # nhu vua connect_to xong
+        win._stop_sik()  # duong that: SikAdapter.failed -> MainWindow
+        assert not b._nudge_timer.isActive(), "mat SiK ma can ao van dang nhich"
+        assert not sent, "link da dut ma van con gui goi"
+    finally:
+        authority.unregister("sik")
+        REGISTRY.fields.clear()
+        b.attach(None, None)
+        win.close()
+    print(f"  ok  man bay gop: 1 ban do, waypoint bang cham-giu (tran {WP_MAX}, xac nhan "
+          f"2 lan khi dang AUTO), can ao {NUDGE_V0:g}->{NUDGE_VMAX:g} m/s, mat SiK la buong")
+
+
 def check_telemetry_warn(app):
     """Thanh telemetry: da ARM chua, va pin/GPS phai TU KEO MAT khi xau.
 
@@ -2135,7 +2462,7 @@ def check_close_guard(app):
 
     win = MainWindow([{"name": "SITL", "mode": "SIM", "conn": "udp:127.0.0.1:14551"}])
     try:
-        # Mo o tab Bay, khong phai bang 350 hang field.
+        # Mo o man bay (cam ung), khong phai bang 350 hang field.
         assert win.ui.tabWidget.currentWidget() is win.ui.Flight, "mo sai tab"
 
         def bam_dong():
@@ -2158,7 +2485,12 @@ def check_close_guard(app):
         # Bam lan hai trong cua so xac nhan -> di
         assert bam_dong() is True, "bam lan hai roi ma van chan"
 
-        # Het cua so cho thi quay lai chan tu dau, khong "da hoi mot lan roi thoi"
+        # Het cua so cho thi quay lai chan tu dau, khong "da hoi mot lan roi thoi".
+        # Phai nap lai `armed`: lan dong vua roi da chay that qua `disconnect()`, ma
+        # ngat ket noi thi xoa sach so lieu cua chuyen cu (xem Backend.attach) —
+        # ngoai doi so khong bao gio mo lai dung cua so do, o day thi co.
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": {"armed": True},
+                       "ts": time.time()})
         win._close_asked = time.time() - CLOSE_CONFIRM_S - 0.1
         assert bam_dong() is False, "het cua so xac nhan ma van cho dong mot phat"
     finally:
@@ -3219,4 +3551,6 @@ if __name__ == "__main__":
     check_analysis(app)
     check_bin_log(app)
     check_log_download(app)
+    check_touch(app)
+    check_touch_flight(app)
     print("selfcheck: PASS")

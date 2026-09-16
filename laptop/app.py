@@ -27,12 +27,13 @@ from laptop.link_status import LinkStatus
 from laptop.replay_bar import ReplayBar
 from laptop.tabs.analysis import AnalysisTab
 from laptop.tabs.control import ControlTab
-from laptop.tabs.flight import FlightTab
 from laptop.tabs.messages import MessagesTab
 from laptop.tabs.settings import SettingsTab
 from laptop.tabs.status import StatusTab
 from laptop.widgets.video import VideoSource, VideoView, url_for
 from laptop.theme import QSS
+from laptop.touch.backend import Backend as TouchBackend
+from laptop.touch.view import make_view
 from laptop.ui.main_window_ui import Ui_MainWindow
 
 TITLE = "GCS — ArduCopter"
@@ -67,36 +68,37 @@ class MainWindow(QMainWindow):
         self.banner = ModeBanner()
         self.ui.gridLayout.addWidget(self.banner, 0, 0)
         self.ui.gridLayout.addWidget(self.ui.tabWidget, 1, 0)
-        # Mo o tab Bay: do la man hinh nguoi bay nhin. (Truoc day mo o Trang thai
-        # vi tab Bay con rong — gio no da co ban do, la ban, chan troi va thanh
-        # telemetry, con Trang thai la bang 350 hang de tra cuu chu khong de bay.)
-        self.ui.tabWidget.setCurrentWidget(self.ui.Flight)
 
         self.status_tab = StatusTab()
         self.messages_tab = MessagesTab()
         self.control_tab = ControlTab()
-        self.flight_tab = FlightTab()
         mount(self.ui.Status, self.status_tab)
         mount(self.ui.Messages, self.messages_tab)
         mount(self.ui.Control, self.control_tab)
-        mount(self.ui.Flight, self.flight_tab)
         self._unread = 0
         self.messages_tab.unread.connect(self._show_unread)
         self.ui.tabWidget.currentChanged.connect(
             lambda: self.messages_tab.set_current(
                 self.ui.tabWidget.currentWidget() is self.ui.Messages))
         self.control_tab.log.connect(self._on_cmd_log)
-        # Nap duong bay cung la lenh xuong FC — vao chung mot duong log voi
-        # ARM/TAKEOFF, khong lam duong rieng.
-        self.flight_tab.log.connect(self._on_cmd_log)
 
-        # Mot nguon video, hai cho ve: tab Camera de xem ky, o PiP tren tab Flight
+        # Mot nguon video, hai cho ve: tab Camera de xem ky, o PiP tren man bay
         # de phi cong theo doi ma khong roi ban do. Pi chi phai phuc vu mot luong.
         # ponytail: addTab bang code, khoi phai sua .ui roi chay lai build_ui.sh.
         self.video = VideoSource(self)
         self.camera_tab = VideoView(self.video)
         self.ui.tabWidget.addTab(self.camera_tab, "")
-        self.flight_tab.set_video_source(self.video)
+
+        # MOT man bay duy nhat, cam ung het (QML kieu DJI) — nam trong chinh trang
+        # "Flight" cua Designer, mo san. Truoc day co hai tab bay song song, moi
+        # tab mot MapWidget rieng: hai cai bam theo drone, hai cai tai tile, va
+        # nguoi bay phai nho tab nao dat duoc waypoint. Waypoint (cham-giu) va
+        # nhich (can ao) da chuyen sang day; chot an toan thi van dung chung
+        # `laptop/commands.py` voi tab Dieu khien.
+        self.touch = TouchBackend(profiles, cmd=self.control_tab.cmd, video_src=self.video)
+        self.touch_view = make_view(self.touch)
+        mount(self.ui.Flight, self.touch_view)
+        self.ui.tabWidget.setCurrentWidget(self.ui.Flight)
 
         # Tab Phan tich doc log tu dia, khong dinh gi toi ket noi dang chay —
         # xem lai chuyen truoc trong luc dang cam FC cung khong sao.
@@ -144,7 +146,8 @@ class MainWindow(QMainWindow):
 
     def _retext(self):
         tabs = self.ui.tabWidget
-        for w, key in ((self.ui.Flight, "tab.flight"), (self.ui.Status, "tab.status"),
+        for w, key in ((self.ui.Flight, "tab.flight"),
+                       (self.ui.Status, "tab.status"),
                        (self.ui.Control, "tab.control"), (self.ui.Messages, "tab.messages"),
                        (self.camera_tab, "tab.camera"),
                        (self.analysis_tab, "tab.analysis"),
@@ -172,7 +175,7 @@ class MainWindow(QMainWindow):
         """
         self.ui.statusbar.showMessage(text, 6000)
         self.messages_tab.add_local(text, sev=sev)
-        self.flight_tab.alerts.push(text, sev)  # tu choi/ket hang thi noi len man bay
+        self.touch.alerts.push(text, sev)  # tu choi/ket hang thi noi len man bay
         try:
             line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  [{self.mode or '-'}]  {text}\n"
             (ROOT / "logs" / "commands.log").open("a", encoding="utf-8").write(line)
@@ -209,13 +212,13 @@ class MainWindow(QMainWindow):
                 self.video.start(url)
 
         self.control_tab.set_mode(self.mode)
-        self.flight_tab.set_mode(self.mode)
         self.status_tab.attach(self.adapter)
         self.analysis_tab.attach(self.adapter)
         self.replay_bar.attach(self.adapter if self.mode == "REPLAY" else None)
         self.link_faults.attach(self.adapter if self.mode == "SIM" else None,
                                 self.remote if self.mode == "SIM" else None)
         self.faults_dock.setVisible(self.mode == "SIM")
+        self.touch.attach(profile, self.adapter)
         self.ui.statusbar.showMessage(
             t("conn.opening_msg", target=profile.get("conn") or profile.get("path")), 5000)
 
@@ -267,12 +270,12 @@ class MainWindow(QMainWindow):
         self.banner.show_disconnected()
         self.panel.set_connected(False)
         self.control_tab.set_mode(None)
-        self.flight_tab.set_mode(None)
         self.status_tab.attach(None)
         self.analysis_tab.attach(None)
         self.replay_bar.attach(None)
         self.link_faults.attach(None, None)
         self.faults_dock.hide()
+        self.touch.attach(None, None)
 
     def _on_remote_failed(self, why):
         """Nua ROS2 dut. TUYET DOI khong duoc dung nua SiK theo.
@@ -304,6 +307,8 @@ class MainWindow(QMainWindow):
         authority.unregister("sik")
         self.control_tab.set_mode(None)
         self.replay_bar.attach(None)
+        if self.profile:
+            self.touch.attach(self.profile, None)  # SiK dut: khoa lenh, giu man hinh
 
     def closeEvent(self, e):
         """Dong cua so giua luc canh quat dang quay: bat dong LAN THU HAI.

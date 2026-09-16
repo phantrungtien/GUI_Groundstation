@@ -22,10 +22,53 @@ TTL_ERR = 10.0
 TTL_WARN = 5.0
 
 
+class AlertBook:
+    """Phan logic, khong co Qt: gop, xep, tu tat. Man bay cam ung (`touch/`) dung
+    chung dung ban nay — hai ban logic la hai cho de lech nhau."""
+
+    def __init__(self):
+        self._items = {}  # chu -> [muc nang nhat, so lan, lan cuoi thay]
+
+    def push(self, text, sev):
+        """True neu co dong duoc them/cap nhat."""
+        if isinstance(text, bytes):  # cung phong nhu tab Thong bao
+            text = text.decode("utf-8", "replace")
+        text = (text or "").rstrip("\x00").strip()
+        if sev > MAX_SEV or not text:
+            return False
+        now = time.time()
+        it = self._items.get(text)
+        if it:
+            it[0], it[1], it[2] = min(it[0], sev), it[1] + 1, now
+        else:
+            self._items[text] = [sev, 1, now]
+        return True
+
+    def clear(self):
+        self._items.clear()
+
+    def shown(self, now=None):
+        """Bo dong het han, tra toi da ROWS dong [(chu da kem xn/(+k), muc)]."""
+        now = now or time.time()
+        self._items = {k: v for k, v in self._items.items()
+                       if now - v[2] < (TTL_ERR if v[0] <= ERR_SEV else TTL_WARN)}
+        # Nang nhat len tren, cung muc thi moi nhat len tren: ba dong WARNING moi
+        # khong duoc day mot dong CRITICAL ra khoi man hinh.
+        top = sorted(self._items.items(), key=lambda kv: (kv[1][0], -kv[1][2]))[:ROWS]
+        out = []
+        for i, (text, (sev, n, _)) in enumerate(top):
+            if n > 1:
+                text += f"  ×{n}"
+            if i == ROWS - 1 and len(self._items) > ROWS:
+                text += f"  (+{len(self._items) - ROWS})"  # cat ma im lang = tuong la het
+            out.append((text, sev))
+        return out
+
+
 class AlertStack(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._items = {}  # chu -> [muc nang nhat, so lan, lan cuoi thay]
+        self.book = AlertBook()
         self.rows = []
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -39,40 +82,21 @@ class AlertStack(QWidget):
             self.rows.append(r)
 
     def push(self, text, sev):
-        if isinstance(text, bytes):  # cung phong nhu tab Thong bao
-            text = text.decode("utf-8", "replace")
-        text = (text or "").rstrip("\x00").strip()
-        if sev > MAX_SEV or not text:
-            return
-        now = time.time()
-        it = self._items.get(text)
-        if it:
-            it[0], it[1], it[2] = min(it[0], sev), it[1] + 1, now
-        else:
-            self._items[text] = [sev, 1, now]
-        self.tick(now)
+        if self.book.push(text, sev):
+            self.tick()
 
     def clear(self):
-        self._items.clear()
+        self.book.clear()
         self.tick()
 
     def tick(self, now=None):
         """Bo dong het han roi ve lai. FlightTab goi 5 Hz, khong can timer rieng."""
-        now = now or time.time()
-        self._items = {k: v for k, v in self._items.items()
-                       if now - v[2] < (TTL_ERR if v[0] <= ERR_SEV else TTL_WARN)}
-        # Nang nhat len tren, cung muc thi moi nhat len tren: ba dong WARNING moi
-        # khong duoc day mot dong CRITICAL ra khoi man hinh.
-        shown = sorted(self._items.items(), key=lambda kv: (kv[1][0], -kv[1][2]))[:ROWS]
+        shown = self.book.shown(now)
         for i, r in enumerate(self.rows):
             if i >= len(shown):
                 r.hide()
                 continue
-            text, (sev, n, _) = shown[i]
-            if n > 1:
-                text += f"  ×{n}"
-            if i == ROWS - 1 and len(self._items) > ROWS:
-                text += f"  (+{len(self._items) - ROWS})"  # cat ma im lang = tuong la het
+            text, sev = shown[i]
             r.setText(text)
             r.setStyleSheet(
                 f"background:{theme.CRIT if sev <= ERR_SEV else theme.WARN};"

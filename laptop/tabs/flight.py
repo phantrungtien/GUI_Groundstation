@@ -17,6 +17,8 @@ from core.adapters.sik import WP_MAX
 from core.field import REGISTRY
 from core.i18n import t
 from laptop import theme
+from laptop.commands import (NUDGE_HZ, NUDGE_RAMP, NUDGE_V0, NUDGE_VMAX,
+                             WP_ALTS, WP_CONFIRM_S, Commands)
 from laptop.widgets.alerts import AlertStack
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
@@ -28,20 +30,14 @@ from laptop.widgets.video import VideoView
 MARGIN = 12
 PIP_W, PIP_H = 256, 192  # o camera goc tren-trai; tab Camera moi la cho xem ky
 
-# Do cao chon duoc cho waypoint dat bang chuot. Danh sach chu khong o nhap so:
-# menu la thu duy nhat o day, ma hop thoai nhap lieu thi lam nut do chet trong
-# vai giay (xem ControlTab._takeoff) — doi thang muc 2.1.
-ALTS = (10, 15, 20, 30, 50, 80)
-# Nap de len nhiem vu trong luc drone dang bay AUTO theo chinh nhiem vu do: FC
-# nhay sang WP1 cua duong bay moi ngay lap tuc. Bam lai trong ngan nay de xac
-# nhan — cung cach TAKEOFF o che do REAL dang lam.
-CONFIRM_S = 3.0
+# Dung chung voi man bay cam ung — xem laptop/commands.py.
+ALTS = WP_ALTS
+CONFIRM_S = WP_CONFIRM_S
 
 # --- Nhich vi tri bang ban phim -------------------------------------------
 #
-# Gui VAN TOC chu khong toa do — ly do va so do nam o `sik.py`, action "nudge".
-# Quang duong = tich phan van toc, nen giu phim lau thi di xa: go nhe mot cai la
-# nhich mot chut, giu thi cang luc cang nhanh toi tran.
+# Chot chan, tran toc do va nhip gui nam o `laptop/commands.py`: can ao tren man
+# bay cam ung nhich bang dung bo so do. Rieng bang phim thi chi o day.
 NUDGE = {
     Qt.Key_Up: (1, 0, 0),        # bac (ban do ve huong bac len tren)
     Qt.Key_Down: (-1, 0, 0),
@@ -50,13 +46,6 @@ NUDGE = {
     Qt.Key_PageUp: (0, 0, -1),   # NED: len la vd AM
     Qt.Key_PageDown: (0, 0, 1),
 }
-NUDGE_V0 = 1.0     # m/s ngay khi cham phim
-NUDGE_VMAX = 5.0   # tran toc do
-NUDGE_RAMP = 2.0   # m/s cong them moi giay giu phim
-# Nhip gui lai. Lenh van toc GUIDED cua ArduPilot het han sau ~3 s, va do trung vi
-# cua duong SiK la 132 ms — 5 Hz vua du day de mot goi roi khong thanh mot khoang
-# khung, ma van chi ~115 B/s tren chieu len dang trong.
-NUDGE_HZ = 5
 
 
 def _mmss(secs):
@@ -77,6 +66,10 @@ class FlightTab(QWidget):
         self._armed_at = None    # luc `armed` lat len True — goc dem gio bay
         # Phim chi toi tab nao dang giu focus, nen phai xin focus tuong minh.
         self.setFocusPolicy(Qt.StrongFocus)
+
+        # Waypoint va nhich di qua day, dung chung ban voi man bay cam ung.
+        self.cmd = Commands(self)
+        self.cmd.log.connect(self.log)
 
         self.map = MapWidget(self)
         self.compass = Compass(self)
@@ -314,13 +307,9 @@ class FlightTab(QWidget):
         elif chosen is act_send:
             self._send_wp()
         elif chosen is act_wipe:
-            self._report(t("act.wp_wipe"),
-                         authority.dispatch({"target": "sik", "action": "wp_clear"}))
+            self.cmd.wp_clear()
         elif chosen is act_goto:
-            authority.dispatch({"target": "sik", "action": "mode", "args": {"name": "GUIDED"}})
-            authority.dispatch(
-                {"target": "sik", "action": "goto", "args": {"lat": lat, "lon": lon}}
-            )
+            self.cmd.goto(lat, lon, self.map.wp_alt)
 
     def _auto_flying(self):
         """Dang bay theo chinh nhiem vu sap bi ghi de? True/False."""
@@ -330,19 +319,7 @@ class FlightTab(QWidget):
     # ---- nhich vi tri bang ban phim ----------------------------------
 
     def _nudge_block(self):
-        """Ly do KHONG duoc nhich, hay None neu duoc. Bon chot, khong bot cai nao."""
-        if self.mode not in ("REAL", "SIM"):
-            return t("nudge.no_mode")
-        if REGISTRY.value("heartbeat.armed") is not True:
-            return t("nudge.not_armed")
-        if REGISTRY.value("heartbeat.landed") is True:
-            return t("nudge.on_ground")
-        fc = REGISTRY.value("heartbeat.mode")
-        if fc != "GUIDED":
-            # KHONG tu chuyen mode ho: dang bay AUTO ma mot phim lo tay keo sang
-            # GUIDED la bo ngang nhiem vu giua chung. Nguoi bay tu chuyen.
-            return t("nudge.wrong_mode", mode=fc)
-        return None
+        return self.cmd.nudge_block(self.mode in ("REAL", "SIM"))
 
     def keyPressEvent(self, e):
         if e.isAutoRepeat():
@@ -401,8 +378,7 @@ class FlightTab(QWidget):
         d = sum(NUDGE[k][2] for k in self._held)
         # Chuan hoa: giu hai phim cheo nhau khong duoc nhanh hon 1,41 lan mot phim.
         mag = (n * n + e * e + d * d) ** 0.5 or 1.0
-        authority.dispatch({"target": "sik", "action": "nudge", "args": {
-            "vn": v * n / mag, "ve": v * e / mag, "vd": v * d / mag}})
+        self.cmd.nudge(v * n / mag, v * e / mag, v * d / mag)
 
     def _nudge_stop(self, why):
         """Van toc 0 = dung ngay tai cho drone dang o, khong can biet cho do o dau.
@@ -423,8 +399,7 @@ class FlightTab(QWidget):
             return
         if not active and why != t("nudge.why_space"):
             return  # khong nhich thi khong co gi de dung
-        authority.dispatch({"target": "sik", "action": "nudge",
-                            "args": {"vn": 0.0, "ve": 0.0, "vd": 0.0}})
+        self.cmd.nudge(0.0, 0.0, 0.0)
         if why:
             self._say("nudge.hold", 5, why=why)
 
@@ -434,9 +409,7 @@ class FlightTab(QWidget):
             self._say("fly.wp_overwrite", 4, sec=CONFIRM_S)
             return
         self._wp_confirm = 0.0
-        items = [list(p) for p in self.map.draft]
-        self._report(t("act.wp_send", n=len(items)), authority.dispatch(
-            {"target": "sik", "action": "wp_write", "args": {"items": items}}))
+        self.cmd.wp_write([list(p) for p in self.map.draft])
 
     def _say(self, key, sev=5, **kw):
         self.log.emit(t(key, **kw), sev)

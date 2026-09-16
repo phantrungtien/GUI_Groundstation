@@ -37,6 +37,29 @@ CLIMB_CHECK_S = 6.0  # giay sau TAKEOFF moi doi chieu do cao that
 # dung: RNGFND1_TYPE = 24, dai 5-400 cm. Doi cam bien thi xem lai con so nay.
 RNG_GROUND_CM = 100
 
+# --- nhich vi tri ---------------------------------------------------------
+#
+# Gui VAN TOC chu khong toa do — ly do va so do nam o `sik.py`, action "nudge".
+# Quang duong = tich phan van toc, nen giu lau thi di xa: go nhe mot cai la nhich
+# mot chut, giu thi cang luc cang nhanh toi tran.
+NUDGE_V0 = 1.0     # m/s ngay khi cham
+NUDGE_VMAX = 5.0   # tran toc do
+NUDGE_RAMP = 2.0   # m/s cong them moi giay giu
+# Nhip gui lai. Lenh van toc GUIDED cua ArduPilot het han sau ~3 s, va do trung vi
+# cua duong SiK la 132 ms — 5 Hz vua du day de mot goi roi khong thanh mot khoang
+# khung, ma van chi ~115 B/s tren chieu len dang trong.
+NUDGE_HZ = 5
+
+# --- duong bay ------------------------------------------------------------
+#
+# Do cao chon duoc cho waypoint dat bang tay. Danh sach chu khong o nhap so: hop
+# thoai nhap lieu lam nut do chet trong vai giay (xem ControlTab._takeoff).
+WP_ALTS = (10, 15, 20, 30, 50, 80)
+# Nap de len nhiem vu trong luc drone dang bay AUTO theo chinh nhiem vu do: FC
+# nhay sang WP1 cua duong bay moi ngay lap tuc. Bam lai trong ngan nay de xac
+# nhan — cung cach TAKEOFF o che do REAL dang lam.
+WP_CONFIRM_S = 3.0
+
 
 class Commands(QObject):
     # (chu da dich, muc do MAV_SEVERITY). Muc do di kem chu KHONG duoc suy tu chu:
@@ -138,6 +161,66 @@ class Commands(QObject):
         # la hai su kien khac han nhau.
         self._report(action + (" FORCE" if args and args.get("force") else ""), r)
 
+    # ---- duong bay -------------------------------------------------------
+    #
+    # Nap duong bay la mot LENH: no phai de lai vet o tab Thong bao va o
+    # logs/commands.log y nhu ARM/TAKEOFF. Nhung no KHONG di qua `_report()`:
+    # FC tra loi bang MISSION_ACK (-> topic "wp", truong `write`) chu khong bang
+    # COMMAND_ACK, nen xep vao `_pending` la chac chan an mot dong "khong co phan
+    # hoi" sau ACK_TIMEOUT du lenh da xong.
+
+    def wp_write(self, items):
+        self._soft(t("act.wp_send", n=len(items)), authority.dispatch(
+            {"target": "sik", "action": "wp_write", "args": {"items": items}}))
+
+    def wp_clear(self):
+        self._soft(t("act.wp_wipe"),
+                   authority.dispatch({"target": "sik", "action": "wp_clear"}))
+
+    def goto(self, lat, lon, alt):
+        """Bay toi mot diem. Phai o GUIDED, nen doi mode truoc — khac han `nudge`:
+        o do dang bay AUTO ma lo tay keo sang GUIDED la bo ngang nhiem vu, con o
+        day nguoi bay vua chi dich den, tuc la da chon roi.
+
+        `alt` la do cao SO VOI HOME (met), va nguoi goi PHAI dua vao: day khong
+        phai lenh "bay ngang toi do", FC se leo hay tut xuong dung so nay. Giao
+        dien dua vao chinh o do cao dang hien canh nut, de so tren man hinh va so
+        xuong FC luon la mot.
+
+        Khong di qua `_report()`: FC tra loi mission item bang MISSION_ACK chu
+        khong bang COMMAND_ACK — xem chu thich o `wp_write`.
+        """
+        authority.dispatch({"target": "sik", "action": "mode", "args": {"name": "GUIDED"}})
+        self._soft(t("act.goto", lat=lat, lon=lon, alt=float(alt)), authority.dispatch(
+            {"target": "sik", "action": "goto",
+             "args": {"lat": lat, "lon": lon, "alt": float(alt)}}))
+
+    # ---- nhich vi tri ----------------------------------------------------
+
+    def nudge_block(self, live):
+        """Ly do KHONG duoc nhich, hay None neu duoc. Bon chot, khong bot cai nao.
+
+        `live` = co duong xuong drone that khong (REAL/SIM va adapter con song).
+        Ban phim o tab Bay va can ao o man cam ung cung hoi qua day.
+        """
+        if not live:
+            return t("nudge.no_mode")
+        if REGISTRY.value("heartbeat.armed") is not True:
+            return t("nudge.not_armed")
+        if REGISTRY.value("heartbeat.landed") is True:
+            return t("nudge.on_ground")
+        fc = REGISTRY.value("heartbeat.mode")
+        if fc != "GUIDED":
+            # KHONG tu chuyen mode ho: dang bay AUTO ma mot phim lo tay keo sang
+            # GUIDED la bo ngang nhiem vu giua chung. Nguoi bay tu chuyen.
+            return t("nudge.wrong_mode", mode=fc)
+        return None
+
+    def nudge(self, vn, ve, vd):
+        """Mot goi van toc. KHONG bao cao: 5 Hz ma ghi log la lap day tab Thong bao."""
+        authority.dispatch({"target": "sik", "action": "nudge",
+                            "args": {"vn": vn, "ve": ve, "vd": vd}})
+
     # ---- nut do: KHONG qua kiem tra nao ---------------------------------
 
     def escape(self, action, args=None):
@@ -215,6 +298,19 @@ class Commands(QObject):
             self.say("log.fc_denied", 3, name=name, why=t(f"ack.{res}"))
         else:
             self.say("log.fc_ok", 5, name=name)
+
+    def _soft(self, what, result):
+        """Bao cao mot lenh co duong xac nhan RIENG (xem `wp_write`).
+
+        Giong `_report()` tru mot cho: khong xep vao `_pending`, vi cai xac nhan
+        no cho khong phai COMMAND_ACK.
+        """
+        if "error" in result:
+            self.say("log.refused", 3, what=what, why=result["error"])
+        elif "stale" in result:
+            self.say("log.queued_stale", 4, what=what, how=t("log.silent_never"))
+        else:
+            self.say("log.sent_wait", 5, what=what)
 
     def _report(self, action, result):
         if "error" in result:
