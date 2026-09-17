@@ -1560,6 +1560,13 @@ def check_video(app):
     # IP lay tu `remote` da co, khong them key config va khong di do IP.
     assert url_for("ws://192.168.1.50:8765") == "http://192.168.1.50:8080/stream"
     assert url_for("ws://127.0.0.1:8765") == "http://127.0.0.1:8080/stream"
+    # TEN MAY, khong chi IP: connections.yaml gio tro toi `hoaibac-desktop.local`
+    # vi Pi lay IP tu DHCP va da doi that mot lan (.40 -> .105), hom do GUI khong
+    # thay camera trong khi stream van chay tot. `urlparse().hostname` ha chu hoa,
+    # nen ten viet hoa cung phai ra dung dia chi.
+    assert url_for("ws://hoaibac-desktop.local:8765") \
+        == "http://hoaibac-desktop.local:8080/stream"
+    assert url_for("ws://Pi-Camera.local:8765") == "http://pi-camera.local:8080/stream"
     assert url_for("") is None
 
     # JPEG that chu khong phai byte rac: bat loi giai ma, khong chi bat loi truyen.

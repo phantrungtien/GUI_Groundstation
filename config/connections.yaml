@@ -24,9 +24,14 @@
   # Dia chi video (MJPEG cong 8080) SUY TU dong nay, khong co key rieng: video chi
   # chay tren nua WiFi, nen dung dieu kien de co video cung la dieu kien da biet IP.
   #
-  # IP nay do DHCP cap nen co the doi sau khi khoi dong lai router. Muon co dinh
-  # that thi dat DHCP reservation theo MAC cua Pi tren router — 0 dong code.
-  remote: "ws://192.168.1.40:8765"
+  # Dung TEN MAY chu khong dung IP: Pi lay IP tu DHCP nen doi sau moi lan khoi
+  # dong lai router (da doi that: .40 -> .105, va hom do GUI khong thay camera
+  # trong khi stream van chay tot). Ten .local giai duoc bang mDNS/avahi — ca hai
+  # may deu dang chay avahi-daemon, cung mot mang LAN.
+  #
+  # Doi ten may tren Pi thi phai sua dong nay. Ra bai bay khong co router chung
+  # (noi truc tiep hotspot) ma mDNS khong len thi thay tam bang IP.
+  remote: "ws://hoaibac-desktop.local:8765"
 
 # Mo phong. Can hai thu chay truoc:
 #   1. ros2 launch simtofly_mavros_sitl sitl_mission.launch.py
@@ -51,4 +56,4 @@
   mode: REAL
   conn: "udp:127.0.0.1:14550"   # cong trong — chi de profile hien ra, khong co FC
   sysid: 254
-  remote: "ws://192.168.1.40:8765"
+  remote: "ws://hoaibac-desktop.local:8765"
