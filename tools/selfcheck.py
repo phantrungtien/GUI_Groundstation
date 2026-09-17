@@ -2055,6 +2055,27 @@ def check_touch_flight(app):
         assert b.state["draftN"] == 1, "tu choi ma van xoa mat ban nhap"
         assert "THẤT BẠI" in logs[-1], logs[-1]
 
+        # --- do cao waypoint: nhap tay, va bi KEP o hai dau --------------------
+        #
+        # O nhap so go ra duoc bat cu gi, ma con so nay di thang xuong FC. Kep o
+        # backend chu khong tin vao SpinBox tu giu minh: mot ban QML khac, hay
+        # mot lenh goi tu cho khac, van phai bi kep.
+        from laptop.commands import WP_ALT_MAX, WP_ALT_MIN
+        b.setWpAlt(42)
+        assert b.map.wp_alt == 42.0, "khong nhan do cao nhap tay"
+        b.setWpAlt(WP_ALT_MAX + 500)
+        assert b.map.wp_alt == float(WP_ALT_MAX), f"tran khong kep: {b.map.wp_alt}"
+        b.setWpAlt(0)
+        assert b.map.wp_alt == float(WP_ALT_MIN), f"day khong kep: {b.map.wp_alt}"
+        b.setWpAlt(-7)
+        assert b.map.wp_alt == float(WP_ALT_MIN), f"so am khong kep: {b.map.wp_alt}"
+        # Do cao nhap tay phai vao dung diem dat SAU do
+        b.clearWp()
+        b.setWpAlt(42)
+        b.addWp(300, 200)
+        assert b.map.draft[0][2] == 42.0, "do cao nhap tay khong vao diem vua dat"
+        b.clearWp()
+
         # --- "bay toi day": do cao phai la SO DANG HIEN, khong phai 10 m chet -----
         #
         # Truoc day `Commands.goto` khong truyen `alt`, adapter tu dien 10 m: dang

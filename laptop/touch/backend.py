@@ -23,7 +23,8 @@ from core.adapters.remote import RemoteAdapter
 from core.adapters.sik import STALE, WP_MAX, SikAdapter
 from core.field import REGISTRY, haversine_m
 from core.i18n import t
-from laptop.commands import (MODES, NUDGE_HZ, NUDGE_V0, NUDGE_VMAX, WP_ALTS,
+from laptop.commands import (MODES, NUDGE_HZ, NUDGE_V0, NUDGE_VMAX, WP_ALT_MAX,
+                             WP_ALT_MIN, WP_ALTS,
                              WP_CONFIRM_S, Commands)
 from laptop.connection import ROOT, detect_serial, load_profiles
 from laptop.widgets.alerts import ERR_SEV, AlertBook
@@ -126,6 +127,8 @@ class Backend(QObject):
     ownsConnection = Property(bool, lambda self: self.owns, constant=True)
     modes = Property("QVariantList", lambda self: MODES, constant=True)
     wpAlts = Property("QVariantList", lambda self: list(WP_ALTS), constant=True)
+    wpAltMin = Property(int, lambda self: WP_ALT_MIN, constant=True)
+    wpAltMax = Property(int, lambda self: WP_ALT_MAX, constant=True)
 
     @Slot(str, "QVariantMap", str, result=str)
     def tf(self, key, args, _lang=""):
@@ -312,6 +315,15 @@ class Backend(QObject):
 
     @Slot(int)
     def setWpAlt(self, alt):
+        """Do cao cho cac waypoint dat TIEP theo (va cho "bay toi day").
+
+        Kep o day chu khong o QML: o nhap so co the go ra bat cu gi, va con so
+        nay di thang xuong FC. Kep o tang duoi cung ma moi duong deu di qua thi
+        khong phai tin vao viec tung o nhap tu giu minh.
+        """
+        alt = max(WP_ALT_MIN, min(WP_ALT_MAX, int(alt)))
+        if alt == self.map.wp_alt:
+            return
         self.map.wp_alt = float(alt)
         self.map.update()
         self.refresh()

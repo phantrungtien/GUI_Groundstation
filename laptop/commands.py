@@ -52,9 +52,19 @@ NUDGE_HZ = 5
 
 # --- duong bay ------------------------------------------------------------
 #
-# Do cao chon duoc cho waypoint dat bang tay. Danh sach chu khong o nhap so: hop
-# thoai nhap lieu lam nut do chet trong vai giay (xem ControlTab._takeoff).
+# Do cao cho waypoint dat bang tay: SAU MUC CHON SAN + mot o nhap so.
+#
+# Chip co san la duong nhanh, va tren man cam ung ngoai bai bay no la duong DUY
+# NHAT khong keo ban phim ao len che mat nua man hinh dang bay. Nhung sau con so
+# khong the phu moi bai: tran rao, do cao quy dinh, dia hinh doc deu bat mot con
+# so khac. O nhap la SpinBox co nut +/- nen tren man cam ung van bam duoc ma
+# khong can go.
+#
+# Dai gioi han KHONG phai so dep: 120 m la tran bay dan dung o VN, con 1 m la de
+# khong dat duoc waypoint o ngay mat dat. Doi tran thi sua o day, dung rai so
+# vao QML.
 WP_ALTS = (10, 15, 20, 30, 50, 80)
+WP_ALT_MIN, WP_ALT_MAX = 1, 120
 # Nap de len nhiem vu trong luc drone dang bay AUTO theo chinh nhiem vu do: FC
 # nhay sang WP1 cua duong bay moi ngay lap tuc. Bam lai trong ngan nay de xac
 # nhan — cung cach TAKEOFF o che do REAL dang lam.

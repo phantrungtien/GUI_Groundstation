@@ -479,6 +479,27 @@ Item {
                         onTap: backend.setWpAlt(modelData)
                     }
                 }
+                // O nhap: sau chip khong phu duoc moi bai (tran rao, dia hinh
+                // doc). Nut +/- de tren man cam ung khong phai goi ban phim ao
+                // len che mat man hinh bay; go so chi la duong nhanh khi co ban
+                // phim. Kep hai dau ngay o day, va backend kep lai lan nua.
+                SpinBox {
+                    id: altBox
+                    objectName: "wpAltBox"
+                    editable: true
+                    from: backend.wpAltMin
+                    to: backend.wpAltMax
+                    stepSize: 1
+                    height: 38 * s
+                    font.pixelSize: 14 * s
+                    textFromValue: function (v) { return v + " m" }
+                    valueFromText: function (txt) { return parseInt(txt) || altBox.value }
+                    // Chip va o nhap la HAI cua vao mot con so: bam chip thi o
+                    // nhap phai doi theo. `Binding` chu khong gan tay — nguoi
+                    // dung go mot lan la binding khai bao bi dut.
+                    Binding on value { value: st.wpAlt }
+                    onValueModified: backend.setWpAlt(value)
+                }
             }
             Flow {
                 width: parent.width
