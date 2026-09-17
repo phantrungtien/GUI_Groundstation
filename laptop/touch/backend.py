@@ -162,12 +162,24 @@ class Backend(QObject):
 
     def refresh(self):
         """Doc tu trong tai da nguon (nhu FlightTab.refresh), day ra QML."""
-        v = REGISTRY.value
+        # Da ngat ket noi thi man bay KHONG doc gi trong REGISTRY nua.
+        #
+        # `attach(None)` co xoa mot lan, nhung goi cuoi cung cua adapter ve SAU
+        # do: QThread da join xong, con tin hieu xep hang thi den luc vong su
+        # kien quay lai moi phat. Mot goi vi tri lot qua khe do la 200 ms sau
+        # `refresh()` dung len mot home GIA ngay tai cho drone vua dung — do duoc
+        # o e2e_sitl L1: `(10,8244209 / 106,6900736)`, tuc BAI DAP chu khong phai
+        # cho cat canh, roi "ve nha bao nhieu met" dem tu cai cho sai do.
+        #
+        # Bit o cho DOC chu khong xoa REGISTRY moi nhip: REGISTRY la cua chung
+        # (tab Trang thai, tab Phan tich che do truc tiep cung doc no), mot widget
+        # quet sach kho chung theo nhip 5 Hz cua rieng no la tac dung phu di rat xa.
+        v = REGISTRY.value if self.profile is not None else lambda *a, **k: None
         lat, lon = v("position.lat"), v("position.lon")
         if lat is not None and lon is not None:
             self.map.set_position(lat, lon)
             if self.map.home is None:
-                self.map.set_home(lat, lon)  # home TAM — xem FlightTab.refresh
+                self.map.set_home(lat, lon)  # home TAM — xem README "dau X home co the la GIA"
         hdg = v("attitude.heading")
         if hdg is None:
             hdg = v("position.heading")
@@ -436,6 +448,12 @@ class Backend(QObject):
             REGISTRY.fields.clear()
             self.map.reset()
             self.alerts.clear()  # loi cua drone cu khong duoc treo sang ket noi sau
+            # Lenh dang cho COMMAND_ACK cung phai bo. Khong bo thi toi 3 s SAU khi
+            # da ngat, `_check_pending` van bat "<lenh>: FC khong tra loi" len mot
+            # man hinh vua don sach — hoac te hon, len dau ket noi KE TIEP neu cam
+            # lai nhanh. Dut SiK giua chung thi KHAC: o do canh bao la tin that,
+            # nen `_on_failed` co y khong goi vao day.
+            self.cmd._pending.clear()
         else:
             if profile is not self.profile:
                 self.last_seen.clear()

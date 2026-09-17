@@ -337,9 +337,15 @@ def main(conn):
     print("\n== L. ngat ket noi ==", flush=True)
     b.disconnect()
     wait(600)
+    # Bon ve, va bai test PHAI noi ve nao hong: "L1 FAIL" tron khong cho biet la
+    # nut chua khoa, home con day, hay mot canh bao ve SAU luc ngat.
+    ve = {"connected": b.state["connected"], "live": b.state["live"],
+          "home": b.map.home,
+          "alerts": [a["text"] for a in b.state["alerts"]]}
     check("L1 ngat roi: khoa lenh, xoa ban do va canh bao cu",
-          not b.state["connected"] and not b.state["live"]
-          and b.map.home is None and not b.state["alerts"])
+          not ve["connected"] and not ve["live"]
+          and ve["home"] is None and not ve["alerts"],
+          f"con lai: {({k: x for k, x in ve.items() if x})}")
 
     # ---- M. phat lai chuyen vua bay --------------------------------------
     print("\n== M. phat lai (.tlog vua ghi) ==", flush=True)

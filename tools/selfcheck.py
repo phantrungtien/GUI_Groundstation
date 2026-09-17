@@ -56,6 +56,12 @@ def flight(w=600, h=400):
     # len mot home tam truoc ca cau assert dau tien cua bai nay.
     REGISTRY.fields.clear()
     b = Backend(profiles=[])
+    # Gan mot profile, KHONG gan adapter — dung trang thai "SiK vua dut: khoa
+    # lenh, giu man hinh". Chua gan gi thi profile = None, va o do `refresh()`
+    # co y quet sach REGISTRY moi nhip (goi ve tre khong duoc dung len home gia),
+    # nen bai nao bom so lieu vao REGISTRY roi doc ra se thay trong khong.
+    # `_live()` van False vi adapter con None — dung nhu truoc.
+    b.attach({"name": "selfcheck", "mode": "SIM"}, None)
     b.map.resize(w, h)
     # Tat nhip tu ve 200 ms: bai nao cung tu goi `refresh()` o dung cho no muon do,
     # con de timer chay thi no doc so lieu con sot cua bai TRUOC va dung len mot
@@ -2054,6 +2060,35 @@ def check_touch_flight(app):
         bus.emit("sik", "wp", {"write": {"ok": False, "result": 5, "n": 1}})
         assert b.state["draftN"] == 1, "tu choi ma van xoa mat ban nhap"
         assert "THẤT BẠI" in logs[-1], logs[-1]
+
+        # --- ngat ket noi phai bo ca lenh DANG CHO tra loi ---------------------
+        #
+        # Lo ra o e2e_sitl (L1, khong tai lap duoc moi lan): bam mot lenh roi ngat
+        # trong vong ACK_TIMEOUT thi 3 giay sau `_check_pending` van bat canh bao
+        # "FC khong tra loi" len mot man hinh VUA DON SACH — hoac len dau ket noi
+        # ke tiep neu cam lai nhanh.
+        b.cmd._pending.clear()
+        b.alerts.clear()
+        b.cmd.arm()                           # vao `_pending`, Fake khong tra ACK
+        assert b.cmd._pending, "lenh bam roi ma khong ai cho FC tra loi"
+        b.attach(None, None)                  # = disconnect()
+        assert not b.cmd._pending, "ngat roi ma lenh cu van con cho ACK"
+        b.cmd._check_pending()                # qua han: khong duoc noi gi nua
+        assert not b.state["alerts"], f"canh bao ve sau luc ngat: {b.state['alerts']}"
+
+        # ...va mot GOI VI TRI ve tre cung khong duoc dung len home gia. Adapter
+        # da stop() va join(), nhung tin hieu xep hang van phat khi vong su kien
+        # quay lai — do duoc o e2e_sitl L1: home hien ra o BAI DAP, khong phai o
+        # cho cat canh, roi "ve nha N m" dem tu cho sai do.
+        REGISTRY.feed({"src": "sik", "topic": "position",
+                       "data": {"lat": lat + 0.02, "lon": lon + 0.02, "alt_rel": 7.0},
+                       "ts": time.time()})
+        b.refresh()
+        assert b.map.home is None, f"goi tre dung len home gia: {b.map.home}"
+        assert b.state["alt"] is None, f"ngat roi ma o do cao con so cu: {b.state['alt']}"
+        b.attach({"name": "selfcheck", "mode": "SIM"}, fake)
+        b.map.resize(600, 400)
+        b.map.center = (lat, lon)
 
         # --- do cao waypoint: nhap tay, va bi KEP o hai dau --------------------
         #
