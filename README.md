@@ -4,7 +4,7 @@
 pymavlink, nhận dữ liệu **ROS2** qua WebSocket từ companion.
 
 Đặc tả envelope: [`docs/protocol.md`](docs/protocol.md) ·
-Báo cáo giao diện: [`baocao/BAO_CAO_GIAO_DIEN.md`](baocao/BAO_CAO_GIAO_DIEN.md)
+Báo cáo giao diện: [`baocao/BAO_CAO_GIAO_DIEN_chi_tiet.md`](baocao/BAO_CAO_GIAO_DIEN_chi_tiet.md)
 
 **Ngày bay thì cầm [`docs/operating_procedure.md`](docs/operating_procedure.md)** —
 checklist trước cất cánh, ngưỡng phải hành động, 12 kịch bản hỏng.
@@ -111,15 +111,16 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 
 ---
 
-## Sáu tab
+## Bảy tab
 
 | Tab | Nội dung |
 |---|---|
-| **Bay** | Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên. Ô camera PiP bật bằng chuột phải; bấm vào nó là camera phóng cả tab |
+| **Bay** | **Màn cảm ứng QML kiểu DJI** (`laptop/touch/`), mở sẵn khi bật app. Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên, cần ảo, waypoint bằng chạm. Ô camera PiP hiện khi có video; chạm vào nó là camera phóng cả tab. **Mọi lệnh phải trượt để xác nhận** — kể cả RTL/LAND; cắt động cơ là trượt + giữ 2 s |
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*`. Hai cột: `Field` và `Giá trị`. Field ngừng cập nhật quá `STALE` giây thì **giá trị xám đi** — đứng hình mà vẫn đen là nói dối |
 | **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`) |
 | **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay) |
+| **Phân tích** | Đọc `.tlog`/`.bin` từ đĩa hoặc kéo log thẳng từ thẻ SD của FC qua telemetry. Tối đa 4 đồ thị, quỹ đạo 3D, chế độ trực tiếp giữ 60 s gần nhất từ bus |
 | **Cài đặt** | Ngôn ngữ giao diện |
 
 ### Ký hiệu drone trên bản đồ
@@ -177,7 +178,7 @@ Rê chuột lên ô để biết **điều kiện nào trượt**, không chỉ 
 ### Dấu X home có thể là home GIẢ — dải chữ nói rõ
 
 Khi chưa nhận `HOME_POSITION` từ FC, tab Bay lấy **điểm định vị đầu tiên** làm
-home tạm (`flight.py:139`). Nó vẽ ra dấu X **y hệt** home thật, nên người bay
+home tạm (`laptop/touch/backend.py:167`). Nó vẽ ra dấu X **y hệt** home thật, nên người bay
 nhìn thấy X và tin là home đã đặt — trong khi RTL sẽ bay về home thật của FC, ở
 chỗ khác. Một dấu X sai chỗ còn tệ hơn không có dấu X nào, và đó đúng là thứ mục
 D.6 bắt kiểm (*"Home đã đặt, **đúng chỗ đứng**"*).
@@ -248,16 +249,16 @@ component 1.
 ### Bấm ô camera — camera phóng cả tab Bay, bản đồ thu vào góc
 
 Trước đây muốn xem camera to thì phải sang tab Camera, tức là rời bản đồ. Giờ
-bấm vào ô PiP (bật bằng chuột phải → hiện camera) là **đổi chỗ kiểu DJI**:
+chạm vào ô PiP (tự hiện khi có video) là **đổi chỗ kiểu DJI**:
 camera chiếm cả tab, bản đồ thu vào đúng góc ô PiP cũ — vẫn thấy drone ở đâu,
 rào ở đâu. La bàn, chân trời, thanh telemetry và dòng lỗi vẫn nằm trên cùng.
 
-- **Bấm bản đồ nhỏ** để đổi lại. Bấm giữa ảnh camera lớn thì **không** đổi — bấm
-  nhầm giữa lúc đang xem không được đá mình về bản đồ.
-- Bản đồ nhỏ **không nhận chuột**: kéo/cuộn trên ô 256 px chỉ làm lệch khung
-  nhìn, và click phải rơi xuống camera bên dưới thì mới đổi lại được. Menu chuột
-  phải (waypoint, bay tới điểm) có lại khi bản đồ về lớn.
-- Chuột phải **ngay trên ô camera nhỏ** không mở menu nữa — ô đó giờ nhận click.
+- **Chạm bản đồ nhỏ** để đổi lại. Chạm giữa ảnh camera lớn thì **không** đổi —
+  chạm nhầm giữa lúc đang xem không được đá mình về bản đồ.
+- Bản đồ nhỏ **không nhận cử chỉ**: kéo/chụm trên ô 256 px chỉ làm lệch khung
+  nhìn. Đặt waypoint và bay-tới-điểm có lại khi bản đồ về lớn.
+- Nhịp vẽ đổi theo chỗ: video 30 fps khi phóng cả tab, 15 fps khi nằm ở ô PiP;
+  bản đồ 5 fps ở cả hai chỗ — nó chỉ đổi khi drone nhích, không cần hơn.
 - Ngắt kết nối thì tự trả bản đồ về lớn: không có link thì video đã chết.
 
 ### Tab Thông báo mang số cảnh báo chưa đọc
@@ -335,8 +336,13 @@ tên node đang chạy. Mất nó là mất tầm nhìn, không phải mất quy
 
 ### Đường bay waypoint — đọc và ghi
 
-Chuột phải trên bản đồ: **đặt waypoint** (tối đa 50, chọn độ cao trong menu),
-**nạp lên FC**, hoặc **xoá đường bay trên FC**. Nạp xong app đọc ngược lại từ FC
+Chạm (hoặc chạm-giữ) trên bản đồ mở bảng: **đặt waypoint** (tối đa 50), **bay
+tới đây**, **nạp lên FC**, hoặc **xoá đường bay trên FC**. Độ cao có sáu mức bấm
+nhanh (10/15/20/30/50/80 m) **và một ô nhập số** cho con số khác — ô nhập có nút
+± nên ngoài bãi không phải gọi bàn phím ảo lên che màn hình. Giới hạn 1–120 m
+(`WP_ALT_MIN`/`WP_ALT_MAX` trong `laptop/commands.py`), kẹp cả ở ô nhập lẫn ở
+backend.
+Kéo bản đồ thì không mở bảng — chốt theo `Qt.styleHints.startDragDistance`. Nạp xong app đọc ngược lại từ FC
 rồi mới vẽ — cái hiện trên bản đồ là cái FC đang thật sự giữ, không phải cái vừa
 gửi đi. Đường tím liền là đường bay trên FC (số theo `seq` của FC, mục 0 là home
 do ArduPilot tự giữ); đường tím nhạt đứt nét là đường **đang đặt, chưa nạp**.
@@ -388,6 +394,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ```bash
 python3 tools/selfcheck.py      # 44 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
+python3 tools/e2e_sitl.py       # 53 bai mot chuyen bay tren ArduCopter SITL that
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
 python3 tools/compare_gcs.py --takeoff   # so tung con so voi MAVProxy, cung mot luong
@@ -418,7 +425,41 @@ python3 tools/measure_bandwidth.py    # byte/s that theo tung loai message
 
 `selfcheck.py` là hàng rào chính: chuẩn hoá NED→ENU, lọc nguồn MAVLink, trọng tài
 đa nguồn, nút đỏ đi trước kiểm tra quyền, REPLAY khoá nút, quét USB, chốt chặn
-TAKEOFF, tải tile.
+TAKEOFF, tải tile. Nó đo **mã nguồn** — adapter giả, bus giả, không có FC nào ở
+đầu kia.
+
+### `e2e_sitl.py` — cắm thẳng vào SITL, một chuyến bay
+
+Cái `selfcheck.py` không bao giờ bắt được là loại "mã nguồn đúng mà drone không
+làm": độ cao bị điền mặc định, lệnh gửi đúng nhưng FC từ chối, mode chưa kịp đổi
+đã bắn lệnh kế tiếp. Ba lỗi đắt nhất của dự án đều thuộc loại đó. `e2e_sitl.py`
+đi **đúng đường ngón tay đi** — `Backend.act()/addWp()/stick()` → `Commands` →
+`authority` → `SikAdapter` — không một bước nào gọi tắt xuống pymavlink.
+
+```bash
+# 1. SITL tran (khong Gazebo, khong ROS2) — THU MUC TRONG, khong EEPROM cu
+~/ardupilot/build/sitl/bin/arducopter -S -I0 --model + --speedup 1 \
+    --defaults ~/ardupilot/Tools/autotest/default_params/copter.parm \
+    --home 10.8221589,106.6868454,10,0
+
+# 2. SITL chi mo 5762/5763 SAU khi co ai cam vao 5760
+mavproxy.py --master tcp:127.0.0.1:5760 --daemon
+
+# 3. Bai test
+python3 tools/e2e_sitl.py
+```
+
+⚠️ **Luôn khởi động SITL lạnh.** Bốn lượt 52/52 đầu tiên xanh vì SITL đã mở sẵn
+từ lâu — chạy lại trên SITL vừa bật ra **5 FAIL**, tất cả đổ từ một chỗ: ARM.
+Đo được: **ARM thành công ở giây thứ 24, phải bấm 8 lần** (EKF chưa hội tụ, GPS
+chưa fix thì prearm từ chối). Bài test giờ chờ `fix_type ≥ 3 && sats ≥ 8` rồi bấm
+lại mỗi 3 s trong 60 s. Số đo mới nhất (17/09, SITL lạnh): **53/53 PASS / 169 s**.
+
+⚠️ **Đừng dùng `--speedup`** — bài này đo cả nhịp giao diện (timer 200 ms,
+`ACK_TIMEOUT` 3 s), tăng tốc là đo sai chính cái cần đo.
+
+⚠️ **Đừng nối `| tail -N` vào lệnh chạy bài test.** Nó nuốt cả tiến trình lẫn
+**mã thoát**: script trả 1 mà `tail` trả 0, nhìn y hệt PASS trong khi có 5 FAIL.
 
 ---
 
@@ -592,11 +633,18 @@ laptop/
   connection.py  # quet cong USB + banner che do
   link_faults.py # mo phong dut duong truyen (chi SIM)
   theme.py       # bang mau + QSS dung chung, widget khong tu che ma hex
-  tabs/          # flight, status, control, messages, analysis, settings
-  widgets/       # map, compass, attitude, telemetry_bar, video, trajectory3d, alerts
+  commands.py    # logic lenh (ARM/TAKEOFF/RTL/goto/waypoint) — MOT instance dung
+                 # chung cho man bay cam ung va tab Dieu khien
+  touch/         # man bay cam ung kieu DJI: backend.py (state cho QML) + qml/
+  tabs/          # status, control, messages, analysis, settings
+  widgets/       # map, compass, attitude, video, trajectory3d, alerts
+                 # telemetry_bar.py gio CHI con nguong pin/GPS, khong con widget
 
 tools/
   selfcheck.py     # 44 check, khong can SITL
+  e2e_sitl.py      # 53 bai mot chuyen bay tren ArduCopter SITL that
+  compare_gcs.py   # so tung con so voi MAVProxy tren cung mot luong goi
+  check_halves.py  # hai nua hong doc lap, nguon gia
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat
   measure_bandwidth.py  # do byte/s that tren cong dang cam
   e2e_ros2.py      # nghiem thu tren stack ROS2 that
@@ -608,5 +656,5 @@ tools/
   soak.py          # bai chay lien tuc
 ```
 
-Khoảng 8 130 dòng Python trong `core/` + `laptop/`, 6 030 nữa trong `tools/`.
-(`find core laptop -name '*.py' | xargs wc -l`)
+Khoảng 8 370 dòng Python trong `core/` + `laptop/`, 910 dòng QML, và 6 600 nữa
+trong `tools/`. (`find core laptop -name '*.py' | xargs wc -l`)
