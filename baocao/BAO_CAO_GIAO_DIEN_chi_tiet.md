@@ -1,9 +1,12 @@
 # Báo cáo: Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `f3ebff1` (17/09/2026) — toàn bộ số đo ở mục 5–8 lấy tại phiên bản `7319e8a` ngày 13–14/08/2026 và **mọi ảnh chụp là giao diện của phiên bản đó**; phần làm thêm sau đó mô tả ở mục 4.11–4.12 và nghiệm thu ở mục 9
-**Chế độ chạy:** ROS 2 Humble + ArduPilot SITL + MAVROS (profile `SITL + ROS2 (sitl_mission.launch.py)`)
-**Ngày thực nghiệm:** 13/08/2026, 23:20 – 00:00 (giờ Việt Nam)
-**Máy chạy thử:** laptop Ubuntu 22.04, ROS 2 Humble; máy tính nhúng Raspberry Pi 5 (`192.168.1.113`) phục vụ luồng video
+**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `b96706e` (17/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Hai mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
+- **Số đo ở mục 5–8** lấy tại phiên bản `7319e8a` ngày 13–14/08/2026, trên bố cục cũ. Phần làm thêm sau đó mô tả ở mục 4.11–4.12 và nghiệm thu ở mục 9.
+- **Toàn bộ chín ảnh chụp lại ngày 18/09/2026** trên bố cục hiện tại — bộ ảnh cũ đã xoá hẳn vì nó tả một giao diện không còn tồn tại (tab Bay cũ gỡ ở `14ec366`). Danh mục hình ở cuối báo cáo ghi rõ hình nào chụp trên máy bay thật, hình nào trên mô phỏng.
+
+**Chế độ chạy:** ROS 2 Humble + ArduPilot SITL + MAVROS (profile `SITL + ROS2 (sitl_mission.launch.py)`); ảnh 18/09 chụp trên cả profile máy bay thật `SiK radio` lẫn profile SITL
+**Ngày thực nghiệm:** 13/08/2026, 23:20 – 00:00 · chụp lại ảnh 18/09/2026, 16:23 – 16:41 (giờ Việt Nam)
+**Máy chạy thử:** laptop Ubuntu 22.04, ROS 2 Humble; máy tính nhúng Raspberry Pi 5 phục vụ luồng video — `192.168.1.113` ở phiên 13/08, nay gọi bằng tên máy `hoaibac-desktop.local` vì địa chỉ do DHCP cấp đã đổi hai lần trong một ngày (mục 7)
 
 ---
 
@@ -183,7 +186,7 @@ Riêng bước 3 là chỗ đã phát sinh một sự cố đáng ghi lại, tr�
 
 ### 3.2 Cách chụp ảnh và thu số đo
 
-Giao diện được chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt (`QT_QPA_PLATFORM=offscreen`) và điều khiển bằng kịch bản Python thao tác trực tiếp lên các widget thật — đúng những đối tượng mà chuột người dùng bấm vào. Ảnh được lấy bằng `QWidget.grab()` ở độ phân giải 1920×1080. Cách này tránh việc bơm sự kiện chuột/phím vào phiên desktop đang dùng (ứng dụng bật lên sẽ cướp focus và ăn phím người dùng đang gõ), đồng thời cho ảnh sạch, không lẫn cửa sổ khác.
+Giao diện được chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt (`QT_QPA_PLATFORM=offscreen`, với `QT_QUICK_BACKEND=software` cho cảnh QML của màn bay) và điều khiển bằng kịch bản Python thao tác trực tiếp lên các widget thật — đúng những đối tượng mà ngón tay người dùng chạm vào. Kịch bản gọi vào `Backend.addWp/sendWp/act` rồi để lệnh tự đi tiếp qua `Commands` → `authority` → adapter, **không gọi tắt xuống pymavlink**: chụp một đường tắt thì ảnh sẽ tả một thứ người dùng không bao giờ thấy. Ảnh được lấy bằng `QWidget.grab()` ở độ phân giải 1920×1080. Cách này tránh việc bơm sự kiện chuột/phím vào phiên desktop đang dùng (ứng dụng bật lên sẽ cướp focus và ăn phím người dùng đang gõ), đồng thời cho ảnh sạch, không lẫn cửa sổ khác.
 
 Các mốc thời gian được đo bằng đồng hồ hệ thống tại thời điểm điều kiện chuyển trạng thái, với chu kỳ kiểm tra 400 ms — nghĩa là mọi con số thời gian dưới đây có sai số lấy mẫu cỡ ±0,4 s. Băng thông và tỉ lệ mất gói lấy trực tiếp từ widget trạng thái đường truyền của chính ứng dụng, vốn đếm byte thực trên socket và suy tỉ lệ mất gói từ số thứ tự gói MAVLink.
 
@@ -674,7 +677,9 @@ Song song, mọi chuyến bay ở mọi chế độ đều được ghi `.tlog` 
 4. **Video đo qua một chặng chuyển tiếp phụ** (mục 7.2), và chất lượng liên kết WiFi tại thời điểm đo kém hơn hẳn ngày dựng hệ thống, nên các con số fps ở đây là cận dưới chứ không phải năng lực thật của hệ thống.
 5. **Gazebo chạy chế độ không cửa sổ và thế giới `iris_runway.sdf` không mang cảm biến ảnh**, nên toàn bộ phần thị giác của ngăn xếp mô phỏng không được kiểm ở phiên này; nguồn video là webcam thật gắn trên Pi.
 6. **Màn cảm ứng (mục 4.12) chưa từng gặp một ngón tay thật.** Nó đã qua trọn một chuyến bay trên SITL, nhưng bài kiểm gọi thẳng vào `Backend`, không đi qua tầng chạm của Qt. Kích thước ngón tay, chạm ướt, chạm bằng găng, màn hình ngoài nắng, và Android (thư viện Python trên Android không mở thẳng được cổng nối tiếp USB của radio SiK) đều còn nguyên ở phía trước. Toàn bộ số đo SITL cũng chỉ dài 169 s — chưa nói gì về một buổi bay dài.
-7. **Phần bổ sung ở mục 4.11 chưa qua phần cứng.** Nó được nghiệm thu bằng bộ kiểm tự động trên widget thật, nhưng chưa chạy lại trên mạch Pixhawk 6C lẫn trên ngăn xếp mô phỏng đầy đủ, và chưa có ảnh chụp. Mọi hình trong báo cáo vì thế phản ánh giao diện ngày 13–14/08/2026.
+7. **Phần bổ sung ở mục 4.11 chưa qua phần cứng.** Nó được nghiệm thu bằng bộ kiểm tự động trên widget thật, nhưng chưa chạy lại trên mạch Pixhawk 6C lẫn trên ngăn xếp mô phỏng đầy đủ.
+
+8. **Ảnh và số đo lệch nhau một tháng.** Chín hình chụp ngày 18/09/2026 trên bố cục hiện tại, còn số đo ở mục 5–8 lấy ngày 13–14/08/2026 trên bố cục cũ. Chúng khớp nhau về hành vi nhưng không phải cùng một lần chạy, nên một con số cụ thể trên ảnh có thể không trùng con số cùng tên trong bảng — ví dụ bảng telemetry ghi 308 trường còn Hình 5 hiện 297. Chỗ nào chênh thì chú thích hình nói rõ.
 
 **Nguồn video đứng hình mà giao diện vẫn báo khoẻ (mục 7).** Đo ngày 18/09/2026: máy tính nhúng phát đủ 11,6 fps, nhịp khung đều, widget video xanh — nhưng 12 khung liên tiếp trong 1,03 s trùng khít nhau từng byte. Camera đứng, máy chủ ảnh phát lại mãi một khung, và không tầng nào trong chuỗi biết điều đó. Cơ chế canh khoảng ngắt giữa hai khung bắt được đường truyền chết, **không bắt được nguồn chết**. Đây là cùng một hình dạng lỗi với sự cố MAVROS dưới đây: mọi đèn đều xanh trong khi thứ có ích không đi tới. Đã sửa ở gốc thay vì ở phía nhận (18/09/2026, `run_gui.py` trên máy tính nhúng): mỗi khung được đóng dấu thời gian lúc đọc ra khỏi ống; khung quá 2 giây thì **thôi phát** thay vì phát lại; và nếu nguồn im quá 5 giây thì một luồng canh sẽ giết rồi dựng lại tiến trình GStreamer. Bản vá chạy đúng ngay lần chạy đầu — dòng nhật ký chuyển từ `nguon 0.0 Hz -> nen 11.6 fps` thành `nguon 0.0 Hz -> nen 0.0 fps`, tức là không còn phát ảnh chết nữa. Chọn chặn ở chỗ phát chứ không cho `read()` trả về thất bại, vì `person_follow_reid` làm `if not ok: break` — trả thất bại ở đó là giết cả chương trình. Luồng HTTP im là thứ giao diện phát hiện được bằng cơ chế sẵn có; một luồng đều đặn toàn ảnh cũ thì không.
 
@@ -684,7 +689,7 @@ Song song, mọi chuyến bay ở mọi chế độ đều được ghi `.tlog` 
 
 ## 11. Kết luận
 
-Giao diện đạt được mục tiêu đặt ra ban đầu: vận hành một chuyến bay ArduCopter hoàn chỉnh thông qua ngăn xếp ROS 2/MAVROS, với hai nguồn dữ liệu song song được phân biệt rõ ràng ở mọi chỗ hiển thị. Ba khối chức năng được yêu cầu khảo sát đều hoạt động trong phiên thực nghiệm: telemetry (308 trường, 82 message/s, sai lệch hai nguồn dưới 0,4 m), đường bay waypoint (nạp và đọc ngược 7 mục trong 0,68 s, bay AUTO qua bốn điểm trong 22,4 s), và luồng video từ máy tính nhúng (hoạt động, nhưng bị giới hạn ở 2,15 Mbps bởi chất lượng WiFi tại thời điểm đo).
+Giao diện đạt được mục tiêu đặt ra ban đầu: vận hành một chuyến bay ArduCopter hoàn chỉnh thông qua ngăn xếp ROS 2/MAVROS, với hai nguồn dữ liệu song song được phân biệt rõ ràng ở mọi chỗ hiển thị. Ba khối chức năng được yêu cầu khảo sát đều hoạt động trong phiên thực nghiệm 13–14/08: telemetry (308 trường, 82 message/s, sai lệch hai nguồn dưới 0,4 m), đường bay waypoint (nạp và đọc ngược 7 mục trong 0,68 s, bay AUTO qua bốn điểm trong 22,4 s), và luồng video từ máy tính nhúng (hoạt động, nhưng bị giới hạn ở 2,15 Mbps bởi chất lượng WiFi tại thời điểm đo).
 
 Giá trị thực tế của phần mềm nằm nhiều ở cách nó xử lý trạng thái xấu hơn là ở trạng thái tốt: phân biệt hai kiểu mất kết nối theo đúng hậu quả của chúng, đọc ngược nhiệm vụ thay vì tin vào cái vừa gửi đi, hiện ô xám thay vì đóng băng khung hình cũ, và ghi lại mọi lệnh cùng phản hồi để sau sự cố còn truy được nguyên nhân.
 
