@@ -183,7 +183,7 @@ Riêng bước 3 là chỗ đã phát sinh một sự cố đáng ghi lại, tr�
 
 ### 3.2 Cách chụp ảnh và thu số đo
 
-Giao diện được chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt (`QT_QPA_PLATFORM=offscreen`) và điều khiển bằng kịch bản Python thao tác trực tiếp lên các widget thật — đúng những đối tượng mà chuột người dùng bấm vào. Ảnh được lấy bằng `QWidget.grab()` ở độ phân giải 1400×900. Cách này tránh việc bơm sự kiện chuột/phím vào phiên desktop đang dùng (ứng dụng bật lên sẽ cướp focus và ăn phím người dùng đang gõ), đồng thời cho ảnh sạch, không lẫn cửa sổ khác.
+Giao diện được chạy dưới nền tảng đồ hoạ ngoại tuyến của Qt (`QT_QPA_PLATFORM=offscreen`) và điều khiển bằng kịch bản Python thao tác trực tiếp lên các widget thật — đúng những đối tượng mà chuột người dùng bấm vào. Ảnh được lấy bằng `QWidget.grab()` ở độ phân giải 1920×1080. Cách này tránh việc bơm sự kiện chuột/phím vào phiên desktop đang dùng (ứng dụng bật lên sẽ cướp focus và ăn phím người dùng đang gõ), đồng thời cho ảnh sạch, không lẫn cửa sổ khác.
 
 Các mốc thời gian được đo bằng đồng hồ hệ thống tại thời điểm điều kiện chuyển trạng thái, với chu kỳ kiểm tra 400 ms — nghĩa là mọi con số thời gian dưới đây có sai số lấy mẫu cỡ ±0,4 s. Băng thông và tỉ lệ mất gói lấy trực tiếp từ widget trạng thái đường truyền của chính ứng dụng, vốn đếm byte thực trên socket và suy tỉ lệ mất gói từ số thứ tự gói MAVLink.
 
@@ -191,7 +191,7 @@ Các mốc thời gian được đo bằng đồng hồ hệ thống tại thờ
 
 ## 4. Phân tích tính năng giao diện
 
-Ứng dụng gồm bảy tab (năm tab ở thời điểm chụp ảnh; Phân tích và Cài đặt thêm sau — mục 4.11), một dải banner chế độ chiếm hết chiều ngang, một dock chọn nguồn kết nối bên phải, một dock mô phỏng đứt truyền bên trái (chỉ hiện ở chế độ mô phỏng), và widget trạng thái đường truyền ở góc dưới phải.
+Ứng dụng gồm bảy tab, một dải banner chế độ chiếm hết chiều ngang, một dock chọn nguồn kết nối bên phải, một dock mô phỏng đứt truyền bên trái (chỉ hiện ở chế độ mô phỏng), và widget trạng thái đường truyền ở góc dưới phải.
 
 | Tab | Nội dung |
 |---|---|
@@ -205,13 +205,17 @@ Các mốc thời gian được đo bằng đồng hồ hệ thống tại thờ
 
 Nguyên tắc thiết kế xuyên suốt là **không mặc định đoán**: ứng dụng mở lên không tự kết nối, banner xám, và người vận hành phải chọn nguồn rồi bấm "Ket noi" (Hình 1). Chế độ hiển thị (`REAL` đỏ / `SIM` xanh / `REPLAY` xám) lấy từ trường `mode` khai trong file cấu hình chứ không suy từ chuỗi kết nối — cắm radio thật mà chọn nhầm profile mô phỏng thì banner vẫn xanh, và đó là lỗi cấu hình chứ không phải suy đoán sai của phần mềm [1].
 
-![Hình 1](anh/01_chua_ket_noi.png)
-*Hình 1 — Trạng thái khởi động: chưa kết nối nguồn nào, banner xám, hai hàng trạng thái đường truyền đều báo "chua ket noi".*
+![Hình 1](anh/01_khoi_dong_chua_ket_noi.png)
+*Hình 1 — Trạng thái khởi động: chưa kết nối nguồn nào, banner xám, hai hàng trạng thái đường truyền đều báo "chua ket noi". Mọi nút trên màn bay đều mờ. Panel bên phải đã có sẵn dòng `[REAL] FT231X USB UART /dev/ttyUSB0` do quét cổng USB lúc mở ứng dụng — radio SiK đang cắm, nhưng ứng dụng vẫn không tự nối.*
 
-Sau khi chọn profile `SITL + ROS2 (sitl_mission.launch.py)` và bấm kết nối, gói MAVLink đầu tiên về sau **0,62 s** và gói ROS 2 đầu tiên về sau **1,42 s**. Bản đồ tự bám theo máy bay ngay khi có toạ độ đầu tiên (Hình 2).
+Sau khi chọn profile `SITL + ROS2 (sitl_mission.launch.py)` và bấm kết nối, gói MAVLink đầu tiên về sau **0,62 s** và gói ROS 2 đầu tiên về sau **1,42 s**. Bản đồ tự bám theo máy bay ngay khi có toạ độ đầu tiên.
 
-![Hình 2](anh/02_ban_do_sau_ket_noi.png)
-*Hình 2 — Màn bay ngay sau khi kết nối (ảnh chụp ở phiên đo 13–14/08/2026, trước khi bố cục chuyển sang màn cảm ứng ở mục 4.12): ảnh vệ tinh ngoại tuyến ở mức zoom 18, la bàn và chân trời nhân tạo nổi trên bản đồ, thanh telemetry ở đáy, hai hàng SiK/Remote đều xanh.*
+Hình 2 chụp cùng màn hình đó khi nối vào **máy bay thật qua radio SiK** (`/dev/ttyUSB0`, 57600 baud): banner ghi rõ nguồn, telemetry về thật (pin 93% / 15,9 V, mode ALT_HOLD, hướng 155°), widget đường truyền đếm **2 418 B/s, mất 0,0%**. Máy bay đang nằm trên bàn trong nhà nên chưa bắt được vệ tinh — ô GPS báo 0, dải chữ dưới bản đồ cảnh báo chưa nhận `HOME_POSITION`, và bản đồ không vẽ được gì vì chưa có toạ độ để bám. Đó chính là hành vi đúng: giao diện không bịa ra một vị trí mặc định để bản đồ trông "có vẻ chạy".
+
+Hình này cũng cho thấy **ba nguồn dữ liệu độc lập với nhau** tại cùng một thời điểm: telemetry qua SiK đang về (banner, HUD, thanh đáy), nửa ROS 2 thì không (banner tím báo mất, mục 8), còn luồng video vẫn chạy bình thường ở ô PiP góc dưới trái — vì nó đi cổng 8080 riêng của máy tính nhúng chứ không qua cầu nối WebSocket. Mất một nửa không kéo theo hai nửa kia.
+
+![Hình 2](anh/02_man_bay_cam_ung.png)
+*Hình 2 — Màn bay cảm ứng sau khi nối radio SiK vào máy bay thật (18/09/2026, trên bàn). Ba nút bên trái (Cất cánh / Hạ cánh / Về nhà) và ba nút bên phải (ARM / Chế độ / Cắt ĐC) là nút chạm cỡ ngón tay; cần ảo nằm ở góc dưới phải, cạnh hai nút leo/hạ. Ô video PiP góc dưới trái đang chạy 12,3 fps — **nội dung ô đã được làm mờ**, dải fps giữ nguyên.*
 
 ### 4.1 Panel chọn nguồn và cơ chế quét cổng USB
 
@@ -273,6 +277,11 @@ Nguyên tắc "không con số nào được tự nhận là đúng" được hi
 - **Dữ liệu hết tươi:** quá `STALE` = 2 s không có gói nào từ radio thì viên trạng thái ở đỉnh chuyển đỏ và **đếm giây** — `MẤT TÍN HIỆU SiK 7 s`. Một con số đứng yên trông y hệt một con số ổn định; câu đếm giây là thứ phân biệt được hai thứ đó.
 - **Hai nguồn nói khác nhau:** khi vị trí từ MAVLink và từ ROS 2 lệch quá ngưỡng, một **dòng đỏ riêng** hiện ra kèm số mét lệch, và nó đứng suốt trong lúc còn lệch. Đây là kịch bản hỏng số 8 của quy trình, và nó cố ý **không** đi chung hàng với các dòng lỗi khác: gộp vào đó thì nó bị đếm gộp `×n` trong khi nội dung chỉ là một sự việc kéo dài.
 
+Hai hình trên đều chụp trên bàn, nơi không có định vị vệ tinh, nên bản đồ và HUD không có gì để vẽ. Hình 3 chụp cùng màn hình đó trên **ArduCopter SITL** — nguồn duy nhất trong tầm tay cho một vị trí thật để bản đồ bám theo.
+
+![Hình 3](anh/03_man_bay_sitl_ban_do.png)
+*Hình 3 — Màn bay cảm ứng khi có định vị: ảnh vệ tinh ngoại tuyến (Google Hybrid, zoom 16) chiếm trọn khung, máy bay là tam giác vàng ở giữa vòng tròn nét đứt. Chân trời nhân tạo góc trên trái, la bàn góc trên phải, thanh telemetry ở đáy — cả bốn lớp phủ đều là `QWidget` vẽ tay, đưa vào cảnh QML qua `QWidget.render()` như mô tả ngay trên. Banner xanh `SIM` ghi thẳng tên profile, huy hiệu "Sẵn sàng" xanh, GPS 10 vệ tinh, pin 100% / 12,6 V, 15 936 B/s mất 0,0%. Hai dock hai bên (chọn nguồn, mô phỏng đứt đường truyền) đã ẩn để hình chỉ còn màn bay; dock mô phỏng vốn **chỉ hiện ở chế độ mô phỏng** — mục 4.9.*
+
 ### 4.5 Tab Status — bảng tra cứu không hardcode
 
 Tab này không khai báo trước một trường nào. Adapter trải phẳng `msg.to_dict()` của **mọi** message thành các cặp `TÊN_MESSAGE.field` rồi đẩy lên bus dưới topic `status`; bảng chỉ việc hiển thị. Đổi firmware hay bật thêm message thì bảng tự dài ra, không phải sửa mã.
@@ -310,6 +319,9 @@ Hàng cuối là chỗ dễ làm sai nhất: không có dữ liệu thì **khôn
 **Nhóm nút khẩn cấp** tách riêng cả về mã nguồn lẫn về đường đi: chúng gọi thẳng vào nhánh ESCAPE, nhánh này bỏ qua tham số `target` và luôn xuống đường MAVLink. Không có nhánh kiểm tra nào đứng trước chúng.
 
 **Dòng trạng thái node ROS 2 là chỉ đọc.** Từ khi laptop cầm toàn quyền, một nút gửi lệnh cho node tự hành sẽ là một nút nói dối. Nhưng vẫn phải nhìn thấy node nào đang chạy: node không cầm quyền thì không lái được, song nó vẫn chiếm CPU và chiếm đường truyền, và tên nó là manh mối đầu tiên khi máy bay hành xử lạ.
+
+![Hình 4](anh/04_dieu_khien.png)
+*Hình 4 — Tab Điều khiển khi đang nối máy bay thật. Nhóm lệnh thường ở trên (ARM/DISARM, đổi mode, độ cao + TAKEOFF); ô mode hiện ALT_HOLD là mode máy bay đang thật sự ở, đọc về chứ không phải lựa chọn đang chờ. Dòng nhiệm vụ ROS 2 ghi "(chưa có tin từ companion)" vì nửa WebSocket đang đứt. **Nhóm nút đỏ nằm tách hẳn xuống đáy** — RTL / LAND / DISARM — kèm dòng cảnh báo vàng "REAL — mọi lệnh dưới đây đi thẳng xuống máy bay thật".*
 
 ### 4.7 Tab Messages và cơ chế ghi vết lệnh
 
@@ -440,10 +452,10 @@ Camera và bản đồ là hai thứ người lái cần cùng lúc nhưng khôn
 
 ### 5.1 Độ phủ dữ liệu
 
-Tab Status liệt kê **308 trường** ở thời điểm chụp (Hình 3), gồm mọi trường số của mọi message MAVLink mà bộ điều khiển bay gửi lên, cộng các trường cảm biến đã giải mã và tham số PID đọc theo yêu cầu. Hàng quá hạn chuyển xám (lúc chụp là cột tuổi riêng — xem mục 4.5), nên một trường đứng yên vì hỏng phân biệt được với một trường đứng yên vì đại lượng không đổi.
+Tab Trạng thái liệt kê **297 trường** ở thời điểm chụp (Hình 5), gồm mọi trường số của mọi message MAVLink mà bộ điều khiển bay gửi lên, cộng các trường cảm biến đã giải mã và tham số PID đọc theo yêu cầu. Hàng quá hạn chuyển xám, nên một trường đứng yên vì hỏng phân biệt được với một trường đứng yên vì đại lượng không đổi.
 
-![Hình 3](anh/03_trang_thai.png)
-*Hình 3 — Tab Status với 308 trường và ô lọc theo tên. Ảnh chụp ngày 13/08, khi bảng còn hai cột Nguồn và Tuổi; bố cục hiện tại còn hai cột Field và Giá trị (mục 4.5).*
+![Hình 5](anh/05_trang_thai.png)
+*Hình 5 — Tab Trạng thái với 297 trường và ô lọc theo tên, đọc từ máy bay thật qua SiK. Bảng còn hai cột Field và Giá trị (mục 4.5). Con số này không cố định giữa các phiên: ba lần đo trong cùng buổi chiều 18/09 cho 301, 302 rồi 297, vì bảng chỉ mọc thêm khi bộ điều khiển bay thật sự gửi message đó lên, và mỗi phiên nó gửi một tập hơi khác nhau.*
 
 ### 5.2 Tải đường truyền
 
@@ -484,6 +496,8 @@ Cần thận trọng khi diễn giải: cả hai nguồn cuối cùng đều b�
 
 ## 6. Đặt và nạp đường bay waypoint
 
+> **Mục này chưa có hình.** Ba hình cũ (bản nháp đường bay, đường bay đã nạp, chuyến AUTO) thuộc bộ ảnh 13–14/08/2026, chụp trên bố cục màn bay đã bị gỡ ở mục 4.12, nên đã xoá cùng cả bộ. Chụp lại đòi có định vị vệ tinh: trên bàn trong nhà, GPS báo 0 và bản đồ không có toạ độ nào để vẽ đường bay lên. Số đo trong mục này giữ nguyên — chúng lấy từ nhật ký của chính các phiên đo đó, không lấy từ ảnh.
+
 ### 6.1 Quy trình
 
 Đường bay được dựng bằng cách chạm — hoặc chạm-giữ — lên bản đồ: mỗi lần thêm một điểm vào *bản nháp* (vẽ nét đứt, màu nhạt). Trần cứng là 50 waypoint.
@@ -494,9 +508,6 @@ Hai chi tiết về mặt kỹ thuật đáng nêu, vì cả hai đều là ch�
 
 - **Kẹp ở hai tầng.** Ô nhập tự kẹp trong dải 1–120 m (`WP_ALT_MIN`/`WP_ALT_MAX`), và hàm nhận giá trị ở tầng dưới **kẹp lại một lần nữa**. Con số này đi thẳng xuống bộ điều khiển bay, nên không được phép tin rằng một ô nhập cụ thể tự giữ mình — một bản giao diện khác, hay một lời gọi từ chỗ khác, vẫn phải bị kẹp. Dải giới hạn đặt cạnh danh sách mức trong `laptop/commands.py` chứ không rải vào mã giao diện, để đổi trần là sửa một chỗ.
 - **Dãy mức và ô nhập là hai cửa vào cùng một con số**, nên bấm một mức thì ô nhập phải đổi theo. Chỗ này dùng một ràng buộc khai báo (`Binding`) chứ không gán tay: trong QML, người dùng gõ vào ô một lần là ràng buộc khai báo thông thường **bị đứt**, và từ đó bấm mức nhanh sẽ đổi con số thật mà ô nhập vẫn hiện số cũ — hai thứ trên màn hình nói hai điều khác nhau, đúng kiểu lỗi im lặng mà báo cáo này coi là nguy hiểm nhất. Đã kiểm lại trên giao diện nạp thật: bấm mức 50 m thì ô hiện 50; gõ 42 thì giá trị thật thành 42; gõ 999 thì ô tự kẹp về 120; và **sau khi đã gõ tay**, bấm mức 20 m thì ô vẫn đổi theo về 20. Bản nháp chưa hề chạm tới máy bay. Đang bay AUTO mà nạp đè thì phải xác nhận **hai lần**: bộ điều khiển bay nhảy sang waypoint 1 của đường mới ngay khi nhận.
-
-![Hình 4](anh/06_waypoint_ban_nhap.png)
-*Hình 4 — Bốn waypoint đang đặt (bản nháp) tạo thành hình vuông cạnh 60 m quanh điểm home, độ cao 15 m.*
 
 Khi nạp, adapter chèn thêm ba mục mà người vận hành không phải nghĩ tới: mục 0 là điểm home (ArduPilot luôn giữ ở vị trí này), mục 1 là lệnh `NAV_TAKEOFF`, và mục cuối là `NAV_LAND`. Thiếu mục cất cánh ở đầu thì nhiệm vụ AUTO không bao giờ khởi động được từ mặt đất; thiếu mục hạ cánh ở cuối thì máy bay treo vô hạn tại waypoint cuối.
 
@@ -513,9 +524,6 @@ Giao thức nạp do bộ điều khiển bay dẫn nhịp: ứng dụng gửi `
 | Số mục đọc ngược về từ bộ điều khiển bay | **7** (home + TAKEOFF + 4 waypoint + LAND) |
 | Nhật ký | `nap 4 waypoint: da gui, cho FC tra loi` → `FC nhan 4 waypoint — dang doc lai de doi chieu` |
 
-![Hình 5](anh/07_waypoint_tren_fc.png)
-*Hình 5 — Đường bay sau khi nạp: nét liền màu tím là nhiệm vụ đang nằm trên bộ điều khiển bay, đánh số theo `seq` của chính nó. Dải chữ dưới bản đồ ghi "duong bay 6 diem · toi #0".*
-
 Con số 0,68 s cho bốn waypoint tương thích với phép đo trước đó trên cùng loại đường truyền: 50 waypoint nạp xong và đọc lại đủ 51 mục trong 2,1 s [2]. Đây vẫn là số của TCP loopback; trên radio SiK thật, phép đo ngày 13/08/2026 cho 12,0 s cho một nhiệm vụ 51 mục mỗi chiều — tức chậm hơn khoảng một bậc độ lớn nhưng vẫn còn biên an toàn lớn so với ngưỡng chờ 2 s giữa hai mục.
 
 ### 6.3 Bay tự động theo đường bay đã nạp
@@ -531,9 +539,6 @@ Sau khi nạp, chuyến bay được thực hiện trọn vẹn từ giao diện
 | Bay từ waypoint 1 tới waypoint 4 | **22,4 s** ở tốc độ 4,63 m/s |
 | RTL → bộ điều khiển bay xác nhận đổi mode | **0,68 s** |
 | RTL → hạ cánh xong và tự disarm | **50,7 s** (lần 1), **57,2 s** (lần 2) |
-
-![Hình 6](anh/09_bay_auto_theo_duong_bay.png)
-*Hình 6 — Đang bay AUTO: vệt bay màu xanh (79 điểm) bám sát đường bay tím, dấu tròn trắng đánh dấu waypoint đang bay tới ("toi #4"), thanh telemetry báo 15,2 m và 4,7 m/s. Ô video góc trên trái đang ở trạng thái mất tín hiệu — xem mục 7.*
 
 Sau khi TAKEOFF, ứng dụng đối chiếu độ cao sau 6 s: nếu bộ điều khiển bay đã nhận lệnh mà độ cao không đổi, nó cảnh báo có node đang chiếm luồng setpoint trong mode GUIDED. Đây là phản ứng với một kiểu hỏng đã gặp thật, trong đó lệnh cất cánh được chấp nhận (`result = 0`) rồi bị chính luồng 30 Hz của một node ROS 2 mồ côi đè lên, khiến máy bay nằm im trong khi giao diện trông y hệt thành công [1].
 
@@ -571,13 +576,18 @@ Trạng thái đường truyền WiFi của Pi tại thời điểm đo: băng 5
 
 Diễn giải: **nghẽn nằm ở đường truyền, không ở camera và không ở mã nguồn** — cùng kết luận đã rút ra ngày dựng hệ thống, chỉ khác nguyên nhân cụ thể (lần đó là Pi bám băng 2,4 GHz; lần này là suy hao khoảng cách khiến tốc độ liên kết tụt còn 7,2 Mbit/s dù vẫn ở băng 5 GHz). Phân bố nhịp khung ở lần đo thứ hai — p50 chỉ 23 ms nhưng p90 tới 444 ms và đỉnh 4,77 s — là dấu hiệu điển hình của việc gói bị dồn rồi xả theo cụm trên một liên kết yếu, chứ không phải camera trả khung chậm đều.
 
-![Hình 7](anh/05_camera_tu_pi.png)
-*Hình 7 — Tab Camera hiển thị khung hình thật từ webcam gắn trên Pi 5, giải mã và vẽ toàn khung.*
+![Hình 6](anh/06_camera_tu_pi.png)
+*Hình 6 — Tab Camera hiển thị khung hình thật từ webcam gắn trên máy tính nhúng, giải mã và vẽ toàn khung (18/09/2026, 12,2 fps). Mọi thứ chồng trên khung — "PERSONS 3 DET 3", ba hộp `PERSON` kèm độ tin cậy, bộ xương tư thế, "LUA 0 | 144 ms | 6.9 FPS" — do chính máy tính nhúng vẽ vào ảnh JPEG trước khi gửi; giao diện chỉ giải mã và hiển thị. Cùng luồng đó vẽ đồng thời ở ô PiP của Hình 2: **một nguồn video, hai chỗ vẽ**, máy tính nhúng chỉ phải phục vụ một luồng. **Mặt người trong khung đã được làm mờ trước khi ảnh vào kho mã.***
 
-![Hình 8](anh/08_dang_bay_pip_camera.png)
-*Hình 8 — Ô video PiP bật trên tab Flight trong lúc máy bay treo ở 15,1 m, mode GUIDED. Một nguồn video, hai chỗ vẽ.*
+Trước khi có tấm hình trên, cùng buổi chiều hôm đó đã xảy ra một sự cố đáng kể lại nguyên vẹn, vì nó là ví dụ sạch nhất trong cả báo cáo cho luận điểm "mọi đèn xanh mà thứ có ích không đi tới": **nhịp khung đẹp không có nghĩa là hình đang mới**. Đo thẳng vào luồng MJPEG lúc chụp — đọc 12 khung liên tiếp trong 1,03 s, đúng 11,6 fps như con số giao diện hiển thị — thì cả 12 khung **trùng khít nhau** (cùng md5 `100dcc757d`, cùng 68 430 byte). Máy tính nhúng vẫn phát đều đặn, nhưng phát lại mãi một khung đã chụp: camera đứng, còn máy chủ ảnh thì không biết. Giao diện không thể phát hiện kiểu hỏng này bằng cơ chế hiện có, vì cơ chế đó canh **khoảng ngắt giữa hai khung** chứ không so nội dung hai khung. Đây là một lỗ hổng thật trong lập luận "người vận hành luôn biết mình có hình hay không" ở đoạn trên — ghi lại ở mục 10.
 
-Khi đỉnh khoảng ngắt vượt ngưỡng 4,0 s của bộ đọc, ứng dụng đóng kết nối và thử lại; ô video chuyển sang xám kèm lý do và địa chỉ đang gọi (thấy ở Hình 6). Đây là hành vi đúng thiết kế chứ không phải lỗi — và nó cho thấy giá trị của quyết định "không đóng băng khung cuối": ở tình huống này người vận hành biết ngay mình đang không có hình, thay vì nhìn một khung hình 5 giây tuổi.
+Truy ngược xuống máy tính nhúng cùng ngày cho thấy chuỗi hỏng đầy đủ, và **không tầng nào trong chuỗi báo lỗi**: webcam UVC (Microdia `0c45:636b`) ngừng đẩy khung lúc 15:07:37 — nhân không ghi một dòng `dmesg` nào, thiết bị vẫn liệt kê trên USB, `/dev/video0` vẫn mở; `v4l2src` của GStreamer kẹt trong `poll()` vô hạn nên ống dữ liệu im; luồng đọc của `run_gui.py` kẹt theo trong `stdout.read()`; và hàm `read()` trả về khung cuối **không kèm dấu thời gian**, nên máy chủ ảnh cứ nén lại đúng khung đó và phát ra 11,6 fps. Chính máy tính nhúng in `[mjpeg] nguon 0.0 Hz` mỗi 5 giây suốt 28 phút — con số đúng đã được tính và in ra, chỉ là **không ai đọc nó**. Nhiệt độ 62,6 °C, `throttled=0x0`: không phải do bóp xung.
+
+Khi đỉnh khoảng ngắt vượt ngưỡng 4,0 s của bộ đọc, ứng dụng đóng kết nối và thử lại; ô video chuyển sang xám kèm lý do và địa chỉ đang gọi. Đây là hành vi đúng thiết kế chứ không phải lỗi — và nó cho thấy giá trị của quyết định "không đóng băng khung cuối": ở tình huống này người vận hành biết ngay mình đang không có hình, thay vì nhìn một khung hình 5 giây tuổi.
+
+Đo được ngay sau đó, khi máy tính nhúng còn sống mà camera thì không: ô video chuyển xám và ghi `không có video (URLError)` cùng đúng địa chỉ đang gọi, trong khi nửa SiK vẫn 2 179 B/s, mất 0,0%. Người vận hành biết ngay mình không có hình — đúng điều mà **28 phút phát lại một khung chết đã không cho họ biết**.
+
+**Kết cục của sự cố.** Ba cách dựng lại bằng phần mềm đều thất bại: khởi động lại container (systemd tự làm 346 lần, đều chết vì `--device /dev/video0` trỏ vào một node không còn), unbind/bind cổng USB, và `authorized` 0→1. Nhân trả `can't set config #1, error -71` mỗi lần — firmware webcam treo ở mức thiết bị, không tầng nào phía trên gỡ được. **Rút ra cắm lại là cách duy nhất chạy**, và cắm sang cổng khác (`4-1` trên `xhci-hcd.1` → `2-2` trên `xhci-hcd.0`) thì lên ngay. Phép đo xác nhận đã sống thật chứ không phải sống giả như lần trước: 14 khung liên tiếp đọc từ luồng, **14 mã băm khác nhau**, 11,9 fps — so với 1 mã băm trên 12 khung lúc hỏng.
 
 *Ghi chú về đường đi của gói tin ở phép đo này:* profile mô phỏng khai `remote: ws://127.0.0.1:8765` (cầu nối ROS 2 chạy ngay trên laptop), nên địa chỉ video suy ra cũng là loopback. Để giao diện vẫn nhận đúng khung hình thật từ Pi, cổng 8080 của Pi được chuyển tiếp về loopback của laptop qua một đường hầm SSH. Byte JPEG vì thế vẫn đi qua đúng đường WiFi thật và phản ánh đúng chất lượng liên kết, nhưng có thêm một chặng chuyển tiếp TCP — cần tính đến khi so sánh chặt chẽ với phép đo trực tiếp `http://192.168.1.113:8080/stream` trong bảng trên.
 
@@ -605,8 +615,7 @@ Khi ngắt nửa ROS 2 trong lúc máy bay đang bay AUTO ở 14,9 m:
 - Các ô telemetry đổi chấm nguồn sang màu của nửa MAVLink và tiếp tục cập nhật
 - Ô video chuyển xám
 
-![Hình 9](anh/12_mat_nua_ros2.png)
-*Hình 9 — Mất nửa ROS 2 giữa chuyến bay AUTO. Banner nói rõ mất cái gì và còn cái gì, thay vì một thông báo "mất kết nối" chung chung.*
+Banner ở Hình 2 là đúng kịch bản này, chụp thật ngày 18/09/2026: nửa SiK nối được vào máy bay, nửa ROS 2 thì không (`ws://hoaibac-desktop.local:8765` trả `[Errno 111] Connection refused`, ghi ở dòng trạng thái đáy màn hình). Banner nói rõ mất cái gì và còn cái gì — "MẤT ROS2 — mất video và nguồn vị trí thứ hai. SiK còn, lái và nút đỏ còn." — thay vì một thông báo "mất kết nối" chung chung. Đáng chú ý là **ô video vẫn có hình**: luồng MJPEG đi cổng 8080 riêng, không đi qua cầu nối WebSocket, nên mất ROS 2 không đồng nghĩa mất camera. Địa chỉ của máy tính nhúng cũng đã đổi lần nữa trong ngày (`192.168.1.105` → `192.168.1.28`) mà không phải sửa cấu hình, vì `connections.yaml` khai tên máy `.local` chứ không khai IP.
 
 Đây chính là điểm phân biệt đã nêu ở mục 1: mất nửa ROS 2 là **mất tầm nhìn**, không phải mất quyền điều khiển — vì từ khi laptop cầm toàn quyền, node tự hành trên máy tính nhúng không lái được. Ngược lại, mất nửa MAVLink là mất đường cứu sinh, và giao diện dành cho nó banner đỏ với thông điệp khác hẳn.
 
@@ -658,6 +667,8 @@ Song song, mọi chuyến bay ở mọi chế độ đều được ghi `.tlog` 
 6. **Màn cảm ứng (mục 4.12) chưa từng gặp một ngón tay thật.** Nó đã qua trọn một chuyến bay trên SITL, nhưng bài kiểm gọi thẳng vào `Backend`, không đi qua tầng chạm của Qt. Kích thước ngón tay, chạm ướt, chạm bằng găng, màn hình ngoài nắng, và Android (thư viện Python trên Android không mở thẳng được cổng nối tiếp USB của radio SiK) đều còn nguyên ở phía trước. Toàn bộ số đo SITL cũng chỉ dài 169 s — chưa nói gì về một buổi bay dài.
 7. **Phần bổ sung ở mục 4.11 chưa qua phần cứng.** Nó được nghiệm thu bằng bộ kiểm tự động trên widget thật, nhưng chưa chạy lại trên mạch Pixhawk 6C lẫn trên ngăn xếp mô phỏng đầy đủ, và chưa có ảnh chụp. Mọi hình trong báo cáo vì thế phản ánh giao diện ngày 13–14/08/2026.
 
+**Nguồn video đứng hình mà giao diện vẫn báo khoẻ (mục 7).** Đo ngày 18/09/2026: máy tính nhúng phát đủ 11,6 fps, nhịp khung đều, widget video xanh — nhưng 12 khung liên tiếp trong 1,03 s trùng khít nhau từng byte. Camera đứng, máy chủ ảnh phát lại mãi một khung, và không tầng nào trong chuỗi biết điều đó. Cơ chế canh khoảng ngắt giữa hai khung bắt được đường truyền chết, **không bắt được nguồn chết**. Đây là cùng một hình dạng lỗi với sự cố MAVROS dưới đây: mọi đèn đều xanh trong khi thứ có ích không đi tới. Đã sửa ở gốc thay vì ở phía nhận (18/09/2026, `run_gui.py` trên máy tính nhúng): mỗi khung được đóng dấu thời gian lúc đọc ra khỏi ống; khung quá 2 giây thì **thôi phát** thay vì phát lại; và nếu nguồn im quá 5 giây thì một luồng canh sẽ giết rồi dựng lại tiến trình GStreamer. Bản vá chạy đúng ngay lần chạy đầu — dòng nhật ký chuyển từ `nguon 0.0 Hz -> nen 11.6 fps` thành `nguon 0.0 Hz -> nen 0.0 fps`, tức là không còn phát ảnh chết nữa. Chọn chặn ở chỗ phát chứ không cho `read()` trả về thất bại, vì `person_follow_reid` làm `if not ok: break` — trả thất bại ở đó là giết cả chương trình. Luồng HTTP im là thứ giao diện phát hiện được bằng cơ chế sẵn có; một luồng đều đặn toàn ảnh cũ thì không.
+
 **Về sự cố cấu hình MAVROS (mục 8.1).** Điều đáng rút ra không phải là "chọn sai cổng" mà là **một thành phần trung gian có thể báo kết nối thành công trong khi không chuyển được dữ liệu nào có ích**. MAVROS nói "Got HEARTBEAT, connected. FCU: ArduPilot", bộ định tuyến của nó đếm được 4 450 gói không lỗi, và các publisher đều tồn tại — ba tín hiệu đều xanh trong khi hệ thống hỏng. Chỉ phép đếm message thực tế trên từng topic mới phát hiện được. Đây đúng là loại lỗi mà nguyên tắc thiết kế của chính giao diện đang phòng: hàng trạng thái đường truyền không suy từ "adapter đang chạy" mà từ lần cuối thật sự có gói về [1].
 
 ---
@@ -674,19 +685,20 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 
 ## Danh mục hình
 
-| Hình | Tệp | Nội dung |
-|---|---|---|
-| 1 | `anh/01_chua_ket_noi.png` | Trạng thái khởi động, chưa kết nối |
-| 2 | `anh/02_ban_do_sau_ket_noi.png` | Tab Flight sau khi kết nối |
-| 3 | `anh/03_trang_thai.png` | Tab Status, 308 trường |
-| 4 | `anh/06_waypoint_ban_nhap.png` | Bản nháp đường bay bốn điểm |
-| 5 | `anh/07_waypoint_tren_fc.png` | Đường bay đã nạp, đọc ngược từ FC |
-| 6 | `anh/09_bay_auto_theo_duong_bay.png` | Bay AUTO theo đường bay, có vệt bay |
-| 7 | `anh/05_camera_tu_pi.png` | Tab Camera, luồng MJPEG từ Pi 5 |
-| 8 | `anh/08_dang_bay_pip_camera.png` | Ô video PiP trên tab Flight khi đang bay |
-| 9 | `anh/12_mat_nua_ros2.png` | Kịch bản mất nửa ROS 2 |
+| Hình | Tệp | Mục | Nội dung |
+|---|---|---|---|
+| 1 | `anh/01_khoi_dong_chua_ket_noi.png` | 4 | Trạng thái khởi động, chưa kết nối |
+| 2 | `anh/02_man_bay_cam_ung.png` | 4 | Màn bay cảm ứng, nối radio SiK vào máy bay thật |
+| 3 | `anh/03_man_bay_sitl_ban_do.png` | 4.4 | Màn bay khi có định vị — bản đồ, HUD (trên SITL) |
+| 4 | `anh/04_dieu_khien.png` | 4.6 | Tab Điều khiển, nhóm nút đỏ tách riêng |
+| 5 | `anh/05_trang_thai.png` | 5.1 | Tab Trạng thái, 297 trường |
+| 6 | `anh/06_camera_tu_pi.png` | 7 | Tab Camera, luồng MJPEG từ máy tính nhúng |
 
-Các ảnh còn lại trong thư mục `anh/`: `04_dieu_khien.png` (tab Control), `10_rtl_dang_ve.png` (đang bay về), `11_thong_bao.png` (tab Messages). Toàn bộ số đo thô nằm ở `anh/so_do.json`. Mọi ảnh trong báo cáo chụp ngày 13–14/08/2026, tức trước phần bổ sung ở mục 4.11 — chỗ nào bố cục đã đổi thì chú thích hình nói rõ.
+**Hình 1, 2, 4, 5, 6 chụp lúc 16:28 ngày 18/09/2026** trong cùng một phiên chạy, với radio SiK nối vào máy bay thật đặt trên bàn và luồng video thật từ máy tính nhúng, nên mọi con số trên chúng thuộc cùng một thời điểm. **Hình 3 chụp lúc 16:23 cùng ngày trên ArduCopter SITL khởi động lạnh** (`tcp:127.0.0.1:5763`, home `10,8221589 / 106,6868454`), vì đó là cách duy nhất có định vị vệ tinh khi máy bay còn nằm trên bàn trong nhà — chú thích hình nói rõ chỗ nào là mô phỏng. Bộ ảnh cũ ngày 13–14/08/2026 đã xoá hẳn: chúng chụp bố cục hai tab bay song song, đã gỡ ở `14ec366`, nên giữ lại chỉ gây hiểu nhầm.
+
+Một chỗ trong báo cáo **chưa có hình**: **mục 6** (đặt và nạp đường bay, bay AUTO) và mọi trạng thái chỉ xuất hiện khi đang bay. Số đo ở mục đó lấy từ nhật ký của các phiên đo tương ứng, không lấy từ ảnh.
+
+Mặt người lọt vào khung camera ở Hình 2 và Hình 6 **đã được làm mờ** trước khi ảnh vào kho mã. Toàn bộ số đo thô nằm ở `anh/so_do.json`.
 
 ---
 
