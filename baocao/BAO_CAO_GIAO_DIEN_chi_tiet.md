@@ -496,7 +496,7 @@ Cần thận trọng khi diễn giải: cả hai nguồn cuối cùng đều b�
 
 ## 6. Đặt và nạp đường bay waypoint
 
-> **Mục này chưa có hình.** Ba hình cũ (bản nháp đường bay, đường bay đã nạp, chuyến AUTO) thuộc bộ ảnh 13–14/08/2026, chụp trên bố cục màn bay đã bị gỡ ở mục 4.12, nên đã xoá cùng cả bộ. Chụp lại đòi có định vị vệ tinh: trên bàn trong nhà, GPS báo 0 và bản đồ không có toạ độ nào để vẽ đường bay lên. Số đo trong mục này giữ nguyên — chúng lấy từ nhật ký của chính các phiên đo đó, không lấy từ ảnh.
+> **Ba hình của mục này chụp trên ArduCopter SITL** (18/09/2026, 16:41), vì đặt và nạp đường bay đòi có định vị vệ tinh — máy bay thật nằm trên bàn trong nhà thì GPS báo 0, không có toạ độ nào để vẽ lên. Kịch bản chụp gọi đúng đường mà ngón tay đi (`Backend.addWp/sendWp/act` → `Commands` → `authority` → adapter), không gọi tắt xuống pymavlink, nên hình phản ánh đúng cái người dùng thấy. Các số đo cũ trong mục này giữ nguyên, lấy từ nhật ký của chính phiên đo tương ứng; số đo của phiên chụp 18/09 ghi riêng ở chú thích từng hình.
 
 ### 6.1 Quy trình
 
@@ -508,6 +508,9 @@ Hai chi tiết về mặt kỹ thuật đáng nêu, vì cả hai đều là ch�
 
 - **Kẹp ở hai tầng.** Ô nhập tự kẹp trong dải 1–120 m (`WP_ALT_MIN`/`WP_ALT_MAX`), và hàm nhận giá trị ở tầng dưới **kẹp lại một lần nữa**. Con số này đi thẳng xuống bộ điều khiển bay, nên không được phép tin rằng một ô nhập cụ thể tự giữ mình — một bản giao diện khác, hay một lời gọi từ chỗ khác, vẫn phải bị kẹp. Dải giới hạn đặt cạnh danh sách mức trong `laptop/commands.py` chứ không rải vào mã giao diện, để đổi trần là sửa một chỗ.
 - **Dãy mức và ô nhập là hai cửa vào cùng một con số**, nên bấm một mức thì ô nhập phải đổi theo. Chỗ này dùng một ràng buộc khai báo (`Binding`) chứ không gán tay: trong QML, người dùng gõ vào ô một lần là ràng buộc khai báo thông thường **bị đứt**, và từ đó bấm mức nhanh sẽ đổi con số thật mà ô nhập vẫn hiện số cũ — hai thứ trên màn hình nói hai điều khác nhau, đúng kiểu lỗi im lặng mà báo cáo này coi là nguy hiểm nhất. Đã kiểm lại trên giao diện nạp thật: bấm mức 50 m thì ô hiện 50; gõ 42 thì giá trị thật thành 42; gõ 999 thì ô tự kẹp về 120; và **sau khi đã gõ tay**, bấm mức 20 m thì ô vẫn đổi theo về 20. Bản nháp chưa hề chạm tới máy bay. Đang bay AUTO mà nạp đè thì phải xác nhận **hai lần**: bộ điều khiển bay nhảy sang waypoint 1 của đường mới ngay khi nhận.
+
+![Hình 6](anh/06_waypoint_ban_nhap.png)
+*Hình 6 — Bốn waypoint đang đặt: nét đứt, màu nhạt, đánh số 1–4 theo thứ tự chạm. Dải chữ dưới bản đồ ghi rõ đây mới là **bản nháp** — "đang đặt 4 điểm @15m — CHƯA NẠP" — nên chưa có gì chạm tới máy bay. Độ cao 15 m là giá trị `setWpAlt` đang giữ cho các điểm đặt tiếp theo.*
 
 Khi nạp, adapter chèn thêm ba mục mà người vận hành không phải nghĩ tới: mục 0 là điểm home (ArduPilot luôn giữ ở vị trí này), mục 1 là lệnh `NAV_TAKEOFF`, và mục cuối là `NAV_LAND`. Thiếu mục cất cánh ở đầu thì nhiệm vụ AUTO không bao giờ khởi động được từ mặt đất; thiếu mục hạ cánh ở cuối thì máy bay treo vô hạn tại waypoint cuối.
 
@@ -524,6 +527,9 @@ Giao thức nạp do bộ điều khiển bay dẫn nhịp: ứng dụng gửi `
 | Số mục đọc ngược về từ bộ điều khiển bay | **7** (home + TAKEOFF + 4 waypoint + LAND) |
 | Nhật ký | `nap 4 waypoint: da gui, cho FC tra loi` → `FC nhan 4 waypoint — dang doc lai de doi chieu` |
 
+![Hình 7](anh/07_waypoint_tren_fc.png)
+*Hình 7 — Đường bay sau khi nạp: nét liền màu tím là nhiệm vụ đang nằm trên bộ điều khiển bay, đánh số theo `seq` của chính nó chứ không theo thứ tự người dùng chạm. Bản nháp đã bị xoá đi — chỉ còn **một** đường trên bản đồ, không có hai đường chồng nhau để phải đoán cái nào là kế hoạch cũ. Dòng dưới cùng ghi "nạp đường bay: FC nhận 4 waypoint — đang đọc lại để đối chiếu". Phiên chụp 18/09 đo được **7 mục đọc ngược về trong 1,55 s**.*
+
 Con số 0,68 s cho bốn waypoint tương thích với phép đo trước đó trên cùng loại đường truyền: 50 waypoint nạp xong và đọc lại đủ 51 mục trong 2,1 s [2]. Đây vẫn là số của TCP loopback; trên radio SiK thật, phép đo ngày 13/08/2026 cho 12,0 s cho một nhiệm vụ 51 mục mỗi chiều — tức chậm hơn khoảng một bậc độ lớn nhưng vẫn còn biên an toàn lớn so với ngưỡng chờ 2 s giữa hai mục.
 
 ### 6.3 Bay tự động theo đường bay đã nạp
@@ -539,6 +545,9 @@ Sau khi nạp, chuyến bay được thực hiện trọn vẹn từ giao diện
 | Bay từ waypoint 1 tới waypoint 4 | **22,4 s** ở tốc độ 4,63 m/s |
 | RTL → bộ điều khiển bay xác nhận đổi mode | **0,68 s** |
 | RTL → hạ cánh xong và tự disarm | **50,7 s** (lần 1), **57,2 s** (lần 2) |
+
+![Hình 8](anh/08_bay_auto.png)
+*Hình 8 — Đang bay AUTO: huy hiệu đổi thành "Đang bay" và nút ARM đổi thành DISARM, thanh telemetry báo 15,0 m / 9,9 m/s / 67 m cách nhà / 0:23 giờ bay, dải dưới bản đồ ghi "đường bay 6 điểm · tới #2". Dòng vàng bên phải là chốt an toàn của cần ảo: "đang ở mode AUTO, phải chuyển sang GUIDED mới nhích được" — cần ảo không âm thầm giành quyền khỏi nhiệm vụ đang chạy. Phiên chụp 18/09: **ARM ăn ngay lần bấm đầu**, TAKEOFF đặt 15 m đạt **13,33 m** lúc kiểm tra.*
 
 Sau khi TAKEOFF, ứng dụng đối chiếu độ cao sau 6 s: nếu bộ điều khiển bay đã nhận lệnh mà độ cao không đổi, nó cảnh báo có node đang chiếm luồng setpoint trong mode GUIDED. Đây là phản ứng với một kiểu hỏng đã gặp thật, trong đó lệnh cất cánh được chấp nhận (`result = 0`) rồi bị chính luồng 30 Hz của một node ROS 2 mồ côi đè lên, khiến máy bay nằm im trong khi giao diện trông y hệt thành công [1].
 
@@ -576,8 +585,8 @@ Trạng thái đường truyền WiFi của Pi tại thời điểm đo: băng 5
 
 Diễn giải: **nghẽn nằm ở đường truyền, không ở camera và không ở mã nguồn** — cùng kết luận đã rút ra ngày dựng hệ thống, chỉ khác nguyên nhân cụ thể (lần đó là Pi bám băng 2,4 GHz; lần này là suy hao khoảng cách khiến tốc độ liên kết tụt còn 7,2 Mbit/s dù vẫn ở băng 5 GHz). Phân bố nhịp khung ở lần đo thứ hai — p50 chỉ 23 ms nhưng p90 tới 444 ms và đỉnh 4,77 s — là dấu hiệu điển hình của việc gói bị dồn rồi xả theo cụm trên một liên kết yếu, chứ không phải camera trả khung chậm đều.
 
-![Hình 6](anh/06_camera_tu_pi.png)
-*Hình 6 — Tab Camera hiển thị khung hình thật từ webcam gắn trên máy tính nhúng, giải mã và vẽ toàn khung (18/09/2026, 12,2 fps). Mọi thứ chồng trên khung — "PERSONS 3 DET 3", ba hộp `PERSON` kèm độ tin cậy, bộ xương tư thế, "LUA 0 | 144 ms | 6.9 FPS" — do chính máy tính nhúng vẽ vào ảnh JPEG trước khi gửi; giao diện chỉ giải mã và hiển thị. Cùng luồng đó vẽ đồng thời ở ô PiP của Hình 2: **một nguồn video, hai chỗ vẽ**, máy tính nhúng chỉ phải phục vụ một luồng. **Mặt người trong khung đã được làm mờ trước khi ảnh vào kho mã.***
+![Hình 9](anh/09_camera_tu_pi.png)
+*Hình 9 — Tab Camera hiển thị khung hình thật từ webcam gắn trên máy tính nhúng, giải mã và vẽ toàn khung (18/09/2026, 12,2 fps). Mọi thứ chồng trên khung — "PERSONS 3 DET 3", ba hộp `PERSON` kèm độ tin cậy, bộ xương tư thế, "LUA 0 | 144 ms | 6.9 FPS" — do chính máy tính nhúng vẽ vào ảnh JPEG trước khi gửi; giao diện chỉ giải mã và hiển thị. Cùng luồng đó vẽ đồng thời ở ô PiP của Hình 2: **một nguồn video, hai chỗ vẽ**, máy tính nhúng chỉ phải phục vụ một luồng. **Mặt người trong khung đã được làm mờ trước khi ảnh vào kho mã.***
 
 Trước khi có tấm hình trên, cùng buổi chiều hôm đó đã xảy ra một sự cố đáng kể lại nguyên vẹn, vì nó là ví dụ sạch nhất trong cả báo cáo cho luận điểm "mọi đèn xanh mà thứ có ích không đi tới": **nhịp khung đẹp không có nghĩa là hình đang mới**. Đo thẳng vào luồng MJPEG lúc chụp — đọc 12 khung liên tiếp trong 1,03 s, đúng 11,6 fps như con số giao diện hiển thị — thì cả 12 khung **trùng khít nhau** (cùng md5 `100dcc757d`, cùng 68 430 byte). Máy tính nhúng vẫn phát đều đặn, nhưng phát lại mãi một khung đã chụp: camera đứng, còn máy chủ ảnh thì không biết. Giao diện không thể phát hiện kiểu hỏng này bằng cơ chế hiện có, vì cơ chế đó canh **khoảng ngắt giữa hai khung** chứ không so nội dung hai khung. Đây là một lỗ hổng thật trong lập luận "người vận hành luôn biết mình có hình hay không" ở đoạn trên — ghi lại ở mục 10.
 
@@ -692,13 +701,17 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 | 3 | `anh/03_man_bay_sitl_ban_do.png` | 4.4 | Màn bay khi có định vị — bản đồ, HUD (trên SITL) |
 | 4 | `anh/04_dieu_khien.png` | 4.6 | Tab Điều khiển, nhóm nút đỏ tách riêng |
 | 5 | `anh/05_trang_thai.png` | 5.1 | Tab Trạng thái, 297 trường |
-| 6 | `anh/06_camera_tu_pi.png` | 7 | Tab Camera, luồng MJPEG từ máy tính nhúng |
+| 6 | `anh/06_waypoint_ban_nhap.png` | 6.1 | Bản nháp đường bay bốn điểm |
+| 7 | `anh/07_waypoint_tren_fc.png` | 6.2 | Đường bay đã nạp, đọc ngược từ FC |
+| 8 | `anh/08_bay_auto.png` | 6.3 | Đang bay AUTO theo đường bay |
+| 9 | `anh/09_camera_tu_pi.png` | 7 | Tab Camera, luồng MJPEG từ máy tính nhúng |
 
-**Hình 1, 2, 4, 5, 6 chụp lúc 16:28 ngày 18/09/2026** trong cùng một phiên chạy, với radio SiK nối vào máy bay thật đặt trên bàn và luồng video thật từ máy tính nhúng, nên mọi con số trên chúng thuộc cùng một thời điểm. **Hình 3 chụp lúc 16:23 cùng ngày trên ArduCopter SITL khởi động lạnh** (`tcp:127.0.0.1:5763`, home `10,8221589 / 106,6868454`), vì đó là cách duy nhất có định vị vệ tinh khi máy bay còn nằm trên bàn trong nhà — chú thích hình nói rõ chỗ nào là mô phỏng. Bộ ảnh cũ ngày 13–14/08/2026 đã xoá hẳn: chúng chụp bố cục hai tab bay song song, đã gỡ ở `14ec366`, nên giữ lại chỉ gây hiểu nhầm.
+Chín hình đều chụp ngày **18/09/2026**, trên bố cục hiện tại của mã nguồn, ở độ phân giải 1920×1080. Chúng chia làm hai nhóm, và **chú thích từng hình nói rõ hình đó thuộc nhóm nào**:
 
-Một chỗ trong báo cáo **chưa có hình**: **mục 6** (đặt và nạp đường bay, bay AUTO) và mọi trạng thái chỉ xuất hiện khi đang bay. Số đo ở mục đó lấy từ nhật ký của các phiên đo tương ứng, không lấy từ ảnh.
+- **Máy bay thật, 16:28** — Hình 1, 2, 4, 5, 9, chụp trong cùng một phiên chạy với radio SiK cắm vào `/dev/ttyUSB0` và luồng video thật từ máy tính nhúng, nên mọi con số trên chúng thuộc cùng một thời điểm. Máy bay nằm trên bàn trong nhà nên không có định vị vệ tinh.
+- **ArduCopter SITL khởi động lạnh, 16:23 và 16:41** — Hình 3, 6, 7, 8 (`tcp:127.0.0.1:5763`, home `10,8221589 / 106,6868454`). Đây là nhóm duy nhất có toạ độ để bản đồ bám theo, nên mọi thứ liên quan tới bản đồ, đường bay và chuyến bay tự động đều nằm ở đây. Bộ ảnh cũ ngày 13–14/08/2026 đã xoá hẳn: chúng chụp bố cục hai tab bay song song, đã gỡ ở `14ec366`, nên giữ lại chỉ gây hiểu nhầm.
 
-Mặt người lọt vào khung camera ở Hình 2 và Hình 6 **đã được làm mờ** trước khi ảnh vào kho mã. Toàn bộ số đo thô nằm ở `anh/so_do.json`.
+Mặt người lọt vào khung camera ở Hình 2 và Hình 9 **đã được làm mờ** trước khi ảnh vào kho mã. Toàn bộ số đo thô nằm ở `anh/so_do.json`.
 
 ---
 
