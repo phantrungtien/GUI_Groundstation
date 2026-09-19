@@ -1,0 +1,20 @@
+# Bao cao va tai lieu van hanh: doc bang agent con, ton token nhat, khong phai kien truc code
+baocao/
+README.md
+docs/*
+!docs/protocol.md
+config/
+
+# Code sinh tu dong tu file .ui
+laptop/ui/main_window_ui.py
+
+# Script do dac / kiem thu / tien ich: khong thuoc luong chay cua app
+tools/selfcheck.py
+tools/e2e_*.py
+tools/soak.py
+tools/hitl.py
+tools/measure_bandwidth.py
+tools/check_halves.py
+tools/compare_gcs.py
+tools/fetch_tiles.py
+tools/*.sh
