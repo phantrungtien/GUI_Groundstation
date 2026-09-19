@@ -1,7 +1,8 @@
 # Báo cáo: Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `b96706e` (17/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Hai mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
+**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `e05fc1d` (19/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Ba mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
 - **Số đo ở mục 5–8** lấy tại phiên bản `7319e8a` ngày 13–14/08/2026, trên bố cục cũ. Phần làm thêm sau đó mô tả ở mục 4.11–4.12 và nghiệm thu ở mục 9.
+- **Phần làm ngày 19/09/2026** (ô CÒN, SẴN SÀNG ARM, cảnh báo đứng yên, giọng nói, tự nối lại USB, giữ 2 s chọn điểm, chạm đúp z20, bỏ thao tác giữ-2-giây của DISARM) mô tả ở mục 4.14, **không có ảnh chụp**; nghiệm thu bằng `selfcheck` và `e2e_sitl` (mục 9). **Phụ lục A** liệt kê toàn bộ tính năng theo mã nguồn hiện tại.
 - **Toàn bộ chín ảnh chụp lại ngày 18/09/2026** trên bố cục hiện tại — bộ ảnh cũ đã xoá hẳn vì nó tả một giao diện không còn tồn tại (tab Bay cũ gỡ ở `14ec366`). Danh mục hình ở cuối báo cáo ghi rõ hình nào chụp trên máy bay thật, hình nào trên mô phỏng.
 
 **Chế độ chạy:** ROS 2 Humble + ArduPilot SITL + MAVROS (profile `SITL + ROS2 (sitl_mission.launch.py)`); ảnh 18/09 chụp trên cả profile máy bay thật `SiK radio` lẫn profile SITL
@@ -16,7 +17,7 @@ Báo cáo mô tả và đánh giá thực nghiệm một trạm điều khiển 
 
 Báo cáo gồm hai phần bổ trợ nhau: một phân tích tính năng theo từng thành phần giao diện, trong đó mỗi quyết định thiết kế được truy về phép đo hoặc sự cố đã sinh ra nó (mục 4); và một phần nghiệm thu định lượng trên ngăn xếp mô phỏng đầy đủ (mục 5 đến 9).
 
-Kết quả chính: giao diện dựng được đường bay bốn điểm và nạp thành công lên bộ điều khiển bay trong 0,68 s (bảy mục đọc ngược về, gồm điểm home, lệnh cất cánh và lệnh hạ cánh do phần mềm tự chèn); lệnh ARM được chấp nhận sau 1,2 s và máy bay đạt 12 m sau 9,2 s; sai lệch vị trí giữa hai nguồn dữ liệu nằm trong khoảng 0,0 – 0,38 m suốt chuyến bay; toàn bộ 29 phép tự kiểm của bộ `selfcheck` đều đạt (bộ kiểm ở phiên bản hiện tại đã lên 38 phép và vẫn đạt hết — mục 9). Luồng video từ Pi hoạt động nhưng chất lượng bị giới hạn bởi đường WiFi tại thời điểm đo (2,15 Mbps, đỉnh khoảng ngắt quãng 4,77 s), thấp hơn nhiều so với con số ghi nhận ngày 06/08/2026 (5,75 Mbps, đỉnh 615 ms) — và giao diện phản ứng đúng như thiết kế: chuyển sang ô xám thay vì đóng băng khung hình cũ.
+Kết quả chính: giao diện dựng được đường bay bốn điểm và nạp thành công lên bộ điều khiển bay trong 0,68 s (bảy mục đọc ngược về, gồm điểm home, lệnh cất cánh và lệnh hạ cánh do phần mềm tự chèn); lệnh ARM được chấp nhận sau 1,2 s và máy bay đạt 12 m sau 9,2 s; sai lệch vị trí giữa hai nguồn dữ liệu nằm trong khoảng 0,0 – 0,38 m suốt chuyến bay; toàn bộ 29 phép tự kiểm của bộ `selfcheck` đều đạt (bộ kiểm ở phiên bản hiện tại đã lên 45 phép và vẫn đạt hết — mục 9). Luồng video từ Pi hoạt động nhưng chất lượng bị giới hạn bởi đường WiFi tại thời điểm đo (2,15 Mbps, đỉnh khoảng ngắt quãng 4,77 s), thấp hơn nhiều so với con số ghi nhận ngày 06/08/2026 (5,75 Mbps, đỉnh 615 ms) — và giao diện phản ứng đúng như thiết kế: chuyển sang ô xám thay vì đóng băng khung hình cũ.
 
 ---
 
@@ -44,7 +45,7 @@ Từ đó, câu hỏi mà báo cáo này trả lời là:
 1. **Một kiến trúc hai nguồn có trọng tài tường minh.** Mọi đại lượng hiển thị đều mang theo nguồn phát và tuổi dữ liệu, thay vì bị gộp lại thành một con số không truy nguyên được. Cơ chế trọng tài (mục 2.1) là mã dùng chung, không phụ thuộc vào loại đường truyền — thêm một đường thứ ba chỉ tốn một dòng cấu hình ưu tiên.
 2. **Phân loại suy giảm theo hậu quả, không theo hiện tượng.** Mất đường ROS 2 và mất đường MAVLink cho ra hai màu banner khác nhau với hai thông điệp khác nhau, vì hành động phải làm tiếp theo của người vận hành là khác nhau (mục 8.2).
 3. **Nguyên tắc "đọc ngược để xác nhận" áp cho mọi lệnh có trạng thái.** Đường bay sau khi nạp được tải lại từ bộ điều khiển bay rồi mới vẽ; lệnh cất cánh được đối chiếu với độ cao thực sau 6 s. "Đã gửi" không được phép hiển thị giống "đã làm" (mục 6.1 và 6.3).
-4. **Một bộ số đo tái lập được** cho toàn bộ chu trình trên ngăn xếp ROS 2/MAVROS thật, kèm mã kiểm thử tự động 29 phép ở thời điểm đo, nay là 44 phép không cần SITL cộng 53 bài chạy trọn một chuyến bay trên SITL thật (mục 9), thay vì đánh giá định tính.
+4. **Một bộ số đo tái lập được** cho toàn bộ chu trình trên ngăn xếp ROS 2/MAVROS thật, kèm mã kiểm thử tự động 29 phép ở thời điểm đo, nay là 45 phép không cần SITL cộng 58 bài chạy trọn một chuyến bay trên SITL thật (mục 9), thay vì đánh giá định tính.
 
 ---
 
@@ -120,6 +121,8 @@ laptop/          # tầng giao diện
   link_faults.py # mô phỏng đứt đường truyền (chỉ chế độ SIM)
   commands.py    # logic lệnh (ARM · TAKEOFF · RTL · goto · waypoint), MỘT thể
                  # hiện dùng chung cho màn bay cảm ứng và tab Control
+  safety.py      # thời gian RTL, kiểm failsafe, % pin theo điện áp (không Qt)
+  voice.py       # đọc cảnh báo thành tiếng (Qt TextToSpeech)
   touch/         # màn bay cảm ứng QML: backend.py (trạng thái) + qml/ + items.py
   tabs/          # status · control · messages · analysis · settings
   widgets/       # map · compass · attitude · video · trajectory3d · alerts
@@ -128,17 +131,17 @@ laptop/          # tầng giao diện
 tools/           # công cụ đo, kiểm thử, tải ảnh bản đồ, cầu nối ROS 2
 ```
 
-Quy tắc phụ thuộc một chiều: `laptop/` được phép gọi `core/`, chiều ngược lại thì không. Nhờ vậy toàn bộ logic xử lý dữ liệu kiểm thử được mà không cần dựng cửa sổ, và đó là điều kiện để bộ `selfcheck` chạy được 44 phép kiểm trong khoảng hai phút mà không cần SITL.
+Quy tắc phụ thuộc một chiều: `laptop/` được phép gọi `core/`, chiều ngược lại thì không. Nhờ vậy toàn bộ logic xử lý dữ liệu kiểm thử được mà không cần dựng cửa sổ, và đó là điều kiện để bộ `selfcheck` chạy được 45 phép kiểm trong khoảng hai phút mà không cần SITL.
 
-**Quy mô mã nguồn.** Ba mốc: `7319e8a` (phiên bản lấy số đo ở mục 5–8), `affa8d8` (phiên bản viết báo cáo), và `f3ebff1` (hiện tại, sau khi gộp hai màn bay — mục 4.12):
+**Quy mô mã nguồn.** Bốn mốc: `7319e8a` (phiên bản lấy số đo ở mục 5–8), `affa8d8` (phiên bản viết báo cáo), `f3ebff1` (sau khi gộp hai màn bay — mục 4.12), và `e05fc1d` (hiện tại, sau phần an toàn 19/09 — mục 4.14):
 
-| Thành phần | `7319e8a` | `affa8d8` | `f3ebff1` |
-|---|---|---|---|
-| `core/` (bus, trọng tài, quyền, hai adapter, bộ đọc log, bảng chữ song ngữ) | 1 280 | 2 055 | 2 955 |
-| `laptop/` (cửa sổ chính, 7 tab, widget vẽ tay, logic lệnh, bảng màu chung) | 3 131 | 4 568 | 5 412 |
-| `laptop/touch/qml/` (màn bay cảm ứng, QML) | — | — | 911 |
-| `tools/` (kiểm thử, đo đạc, cầu nối, tải ảnh bản đồ, máy chủ video) | 3 947 | 5 310 | 6 605 |
-| **Tổng** | **8 358** | **11 933** | **15 883** |
+| Thành phần | `7319e8a` | `affa8d8` | `f3ebff1` | `e05fc1d` |
+|---|---|---|---|---|
+| `core/` (bus, trọng tài, quyền, hai adapter, bộ đọc log, bảng chữ song ngữ) | 1 280 | 2 055 | 2 955 | 3 016 |
+| `laptop/` (cửa sổ chính, 7 tab, widget vẽ tay, logic lệnh, bảng màu chung) | 3 131 | 4 568 | 5 412 | 5 882 |
+| `laptop/touch/qml/` (màn bay cảm ứng, QML) | — | — | 911 | 947 |
+| `tools/` (kiểm thử, đo đạc, cầu nối, tải ảnh bản đồ, máy chủ video) | 3 947 | 5 310 | 6 605 | 7 009 |
+| **Tổng** | **8 358** | **11 933** | **15 883** | **16 854** |
 
 Con số `laptop/` tăng ít hơn phần thêm vào vì cùng đợt đó **817 dòng chết bị xoá** (`14ec366`): mã không còn ai gọi tới thì không được nằm lại trong cây, kể cả khi nó vẫn chạy được.
 
@@ -198,13 +201,13 @@ Các mốc thời gian được đo bằng đồng hồ hệ thống tại thờ
 
 | Tab | Nội dung |
 |---|---|
-| **Flight** | **Màn cảm ứng kiểu DJI** (mục 4.12–4.13): bản đồ vệ tinh ngoại tuyến; la bàn, chân trời nhân tạo, thanh telemetry, dòng lỗi nổi, cần ảo và ô video PiP đè lên bản đồ. Mọi lệnh xác nhận bằng cách **trượt**, không bằng hộp thoại |
+| **Flight** | **Màn cảm ứng kiểu DJI** (mục 4.12–4.13): bản đồ vệ tinh ngoại tuyến; la bàn, chân trời nhân tạo, thanh telemetry, dòng lỗi nổi, cần ảo và ô video PiP đè lên bản đồ; ô **CÒN**, dòng **SẴN SÀNG ARM** và cảnh báo đứng yên (mục 4.14). Mọi lệnh xác nhận bằng cách **trượt**, không bằng hộp thoại |
 | **Status** | Toàn bộ trường số của mọi message MAVLink; hàng quá hạn chuyển xám |
-| **Control** | ARM/DISARM, đổi mode, TAKEOFF; nhóm nút khẩn cấp; dòng trạng thái node ROS 2 (chỉ đọc) |
-| **Messages** | STATUSTEXT của bộ điều khiển bay cộng kết quả mọi lệnh do người dùng bấm |
+| **Control** | ARM/DISARM, đổi mode, TAKEOFF; nhóm nút khẩn cấp; dòng trạng thái node ROS 2 (chỉ đọc); khối SẴN SÀNG ARM / CÒN / cảnh báo giống màn bay |
+| **Messages** | STATUSTEXT của bộ điều khiển bay cộng kết quả mọi lệnh do người dùng bấm; chạm dòng lỗi nổi trên màn bay là nhảy tới đúng dòng đó |
 | **Camera** | Luồng MJPEG toàn khung từ máy tính nhúng |
-| **Phân tích** | Mở `.tlog` từ đĩa, vẽ đồ thị trường và quỹ đạo bay 3D (mục 4.11) |
-| **Cài đặt** | Đổi ngôn ngữ giao diện Việt ↔ Anh ngay lúc đang chạy (mục 4.11) |
+| **Phân tích** | Mở `.tlog`/`.bin` từ đĩa hoặc kéo log từ thẻ SD của bộ điều khiển bay qua telemetry; tối đa 4 đồ thị, quỹ đạo bay 3D, chế độ trực tiếp giữ 60 s (mục 4.11) |
+| **Cài đặt** | Đổi ngôn ngữ giao diện Việt ↔ Anh ngay lúc đang chạy (mục 4.11); bật/tắt đọc cảnh báo thành tiếng (mục 4.14) |
 
 Nguyên tắc thiết kế xuyên suốt là **không mặc định đoán**: ứng dụng mở lên không tự kết nối, banner xám, và người vận hành phải chọn nguồn rồi bấm "Ket noi" (Hình 1). Chế độ hiển thị (`REAL` đỏ / `SIM` xanh / `REPLAY` xám) lấy từ trường `mode` khai trong file cấu hình chứ không suy từ chuỗi kết nối — cắm radio thật mà chọn nhầm profile mô phỏng thì banner vẫn xanh, và đó là lỗi cấu hình chứ không phải suy đoán sai của phần mềm [1].
 
@@ -263,7 +266,8 @@ Bản đồ là widget lớn nhất trong phần mềm (khoảng 800 dòng) và 
 | Điểm home | Lấy từ `HOME_POSITION` do bộ điều khiển bay gửi, không suy từ vị trí đầu tiên nhìn thấy — nối vào giữa chuyến bay thì hai thứ đó khác nhau |
 | Hàng rào geofence | Vòng tròn (bán kính từ tham số `FENCE_RADIUS`) và đa giác (tải về như một nhiệm vụ riêng, `mission_type = 1`) |
 | Đường bay | Nét liền tím: nhiệm vụ trên bộ điều khiển bay; nét đứt nhạt: bản nháp chưa nạp; dấu tròn: waypoint đang bay tới |
-| Bảng chạm trên bản đồ | Đặt/bỏ waypoint, chọn độ cao, nạp lên bộ điều khiển bay, xoá đường bay, bay tới một điểm (GUIDED + goto). Mở bằng một cú chạm hoặc chạm-giữ; kéo bản đồ thì không mở (chốt theo `Qt.styleHints.startDragDistance`) |
+| Bảng chạm trên bản đồ | Đặt/bỏ waypoint, chọn độ cao, nạp lên bộ điều khiển bay, xoá đường bay, bay tới một điểm (GUIDED + goto). Mở bằng **giữ 2 s** (`holdMs = 2000`), có vòng tròn chạy quanh ngón tay; thả sớm hoặc kéo bản đồ là huỷ (chốt theo `Qt.styleHints.startDragDistance`), chạm một cái không mở — từ 19/09, mục 4.14 |
+| Chạm đúp | Tâm về máy bay, bật bám theo, phóng tới zoom 20 (`FOLLOW_ZOOM`); chưa có vị trí thì giữ nguyên zoom và nói ra — mục 4.14 |
 
 Hai chi tiết đáng nêu về mặt thiết kế. Thứ nhất, bảng chọn là một lớp phủ **không chặn** chứ không phải hộp thoại nhập liệu, vì một hộp thoại chặn (`QMessageBox`) làm các nút khẩn cấp **chết trong khi vẫn báo là đang bật** — đo được: khi một hộp thoại đang mở thì cửa sổ chính không nhận sự kiện chuột, ba nút vẫn trả `isEnabled() == True` nhưng bấm không ăn [1]. Thứ hai, mục "bay tới điểm này" gửi *hai* lệnh liên tiếp (đổi mode GUIDED, rồi mới gửi toạ độ), vì một lệnh goto trong mode không phù hợp sẽ bị âm thầm bỏ qua.
 
@@ -301,15 +305,15 @@ Về hiệu năng: dữ liệu được gom lại và vẽ mỗi 200 ms thay vì
 
 **Chốt ARM theo vị trí cần ga.** Bộ điều khiển bay *không* kiểm tra cần ga khi nhận lệnh ARM từ trạm mặt đất — mã nguồn ArduPilot chỉ kiểm ga có *thấp hơn* ngưỡng an toàn hay không, còn kiểm "ga quá cao" chỉ áp cho trường hợp arm bằng cần lái. Đo thật: ga ở 1496 → lệnh được chấp nhận → động cơ vọt lên ngay lập tức. Ứng dụng vì thế tự chặn ở ngưỡng `THR_ARM_MAX = 1150`, suy từ hai tham số của chính khung máy bay. Nhưng khi **không thấy** dữ liệu cần ga thì nó vẫn gửi lệnh và nói rõ là không biết cần ga ở đâu — khoá nút ARM chỉ vì mất telemetry là đổi một kiểu hỏng lấy một kiểu hỏng khác.
 
-**Chốt TAKEOFF theo mode.** ArduCopter chỉ thật sự cất cánh bằng lệnh `NAV_TAKEOFF` khi đang ở GUIDED. Ở STABILIZE nó trả về thất bại; ở LOITER nó trả về **chấp nhận rồi không làm gì** — kiểu hỏng tệ nhất vì giao diện trông y hệt thành công. Ứng dụng chặn trước và nói rõ lý do, thay vì để người vận hành tự đoán qua chữ "THAT BAI".
+**Chốt TAKEOFF theo mode và theo ARM.** ArduCopter chỉ thật sự cất cánh bằng lệnh `NAV_TAKEOFF` khi đang ở GUIDED **và đã ARM**; chưa ARM thì nó chỉ trả "THẤT BẠI" chung chung, nên từ 19/09 ứng dụng chặn trước và nói thẳng "drone CHƯA ARM" — chỉ chặn khi *biết chắc* là chưa ARM, mất telemetry thì vẫn gửi. Ở STABILIZE nó trả về thất bại; ở LOITER nó trả về **chấp nhận rồi không làm gì** — kiểu hỏng tệ nhất vì giao diện trông y hệt thành công. Ứng dụng chặn trước và nói rõ lý do, thay vì để người vận hành tự đoán qua chữ "THAT BAI".
 
 **Xác nhận TAKEOFF ở chế độ thật bằng cách bấm lại trong 3 giây**, không bằng hộp thoại — cùng lý do đã nêu ở mục 4.3.
 
-**Đối chiếu độ cao sau 6 giây** để bắt trường hợp lệnh được chấp nhận nhưng bị một luồng setpoint 30 Hz của node ROS 2 mồ côi đè lên.
+**Đối chiếu độ cao sau 6 giây** để bắt trường hợp lệnh được chấp nhận nhưng bị một luồng setpoint 30 Hz của node ROS 2 mồ côi đè lên. Phép đối chiếu chỉ chạy khi bộ điều khiển bay **chấp nhận đúng lần cất cánh đó** (đếm lượt `_climb_seq`): đo thật 19/09 16:06:46, cất cánh lúc chưa ARM bị từ chối mà 6 s sau vẫn hiện "FC đã nhận nhưng độ cao không đổi" — sai cả sự thật lẫn lý do.
 
 **Nút DISARM hai bậc, chia theo "đang ở dưới đất hay không" chứ không theo cần ga.** ArduCopter từ chối mọi lệnh disarm từ trạm mặt đất khi nó chưa tin là đã hạ cánh, và nó ngừng tin ngay khi cần ga rời khỏi vị trí thấp nhất (đo thật: `ack = 4`, ba trên ba lần). Nghĩa là vị trí cần ga quyết định nút có ăn hay không — điều không ai đoán được lúc cần ngắt gấp. Logic thay thế:
 
-| Đang ở dưới đất? | Bấm một phát | Giữ 2 giây |
+| Đang ở dưới đất? | Bấm một phát | Bấm lại trong 3 giây |
 |---|---|---|
 | Có | force ngay — ga ở mức nào cũng ngắt được | — |
 | Không (đang bay) | lệnh thường (bộ điều khiển bay sẽ từ chối nếu nó tin là đang bay) | force |
@@ -403,27 +407,27 @@ Việc này trùng với `MAVExplorer.py` có sẵn kèm `pymavlink`; tab trong 
 
 Màn bay được dựng cho **màn cảm ứng ngoài bãi bay**: nơi không có chuột, nơi màn hình bị nắng rọi, và nơi mọi thao tác phải chịu được một cú chạm nhầm. Ba ràng buộc đó quyết định gần như toàn bộ bố cục.
 
-**Mọi lệnh xác nhận bằng cách trượt.** Nút lệnh không gửi gì cả — chạm vào nó chỉ **mở một bảng**, và chỉ khi kéo núm đi hết vệt trượt thì lệnh mới đi xuống. Điều này áp cho **tất cả**, kể cả RTL, LAND và DISARM; riêng cắt động cơ thì phải trượt hết **rồi giữ thêm 2 giây**, có vòng tiến trình chạy trong lúc giữ. Đây là lựa chọn có ý thức đi ngược nguyên tắc ở mục 2.1 (lệnh khẩn cấp nên tới được trong một thao tác): trên một thiết bị cầm tay, xác suất chạm nhầm vào DISARM giữa lúc đang bay lớn hơn hẳn cái giá nửa giây trượt. Ba chi tiết làm vệt trượt thành một xác nhận thật chứ không phải hình thức:
+**Mọi lệnh xác nhận bằng cách trượt.** Nút lệnh không gửi gì cả — chạm vào nó chỉ **mở một bảng**, và chỉ khi kéo núm đi hết vệt trượt thì lệnh mới đi xuống. Điều này áp cho **tất cả**, kể cả RTL, LAND, DISARM và cắt động cơ. Cắt động cơ trước đây phải trượt hết rồi giữ thêm 2 giây; từ 19/09 thao tác giữ đã bỏ (cả trên tab Control, thay bằng bấm lại trong 3 giây) — thay vào đó **hậu quả ghi ngay đỏ trên bảng trượt**: "Cánh quạt dừng NGAY. Đang bay thì drone RƠI TỰ DO…". Đây là lựa chọn có ý thức đi ngược nguyên tắc ở mục 2.1 (lệnh khẩn cấp nên tới được trong một thao tác): trên một thiết bị cầm tay, xác suất chạm nhầm vào DISARM giữa lúc đang bay lớn hơn hẳn cái giá nửa giây trượt. Ba chi tiết làm vệt trượt thành một xác nhận thật chứ không phải hình thức:
 
 - **Thả giữa chừng thì núm trôi về vạch xuất phát và không có gì xảy ra.** Không có trạng thái "gần như đã xác nhận".
 - **Vuốt ngang qua thanh không tính.** Chỉ cú chạm bắt đúng vào núm mới bắt đầu kéo; vuốt lướt trên màn hình đi qua thanh trượt bị bỏ qua.
 - **Bảng tự đóng sau 15 giây**, và **đóng ngay khi mất đường xuống máy bay**: trượt xong mà lệnh rơi vào khoảng không còn tệ hơn là không cho trượt.
 
-Bảng xác nhận cũng là nơi **chọn tham số** của chính lệnh đó: cất cánh chọn trong 3/5/10/20/30 m, đổi mode chọn trong danh sách mode của bộ điều khiển bay. Với hai lệnh này, số chọn sẵn thay cho ô nhập là để không có bàn phím ảo nào bật lên che mất nửa màn hình đúng lúc máy bay sắp rời đất. Độ cao đường bay thì khác — xem mục 6.1.
+Bảng xác nhận cũng là nơi **chọn tham số** của chính lệnh đó: cất cánh chọn trong 3/5/10/20/30 m **hoặc ô nhập số 1–120 m** (kẹp cả ở QML lẫn `Backend.act`, thêm 19/09), đổi mode chọn trong danh sách mode của bộ điều khiển bay. Với hai lệnh này, số chọn sẵn thay cho ô nhập là để không có bàn phím ảo nào bật lên che mất nửa màn hình đúng lúc máy bay sắp rời đất. Độ cao đường bay thì khác — xem mục 6.1.
 
 **Bố cục và công dụng từng thành phần:**
 
 | Vị trí | Thành phần | Công dụng |
 |---|---|---|
 | Đỉnh màn | Viên trạng thái, chế độ bay, GPS, PIN | Trả lời "có được bay tiếp không" — xem mục 4.4 |
-| Ngay dưới đỉnh | Dòng lệch hai nguồn, rồi các dòng lỗi | Sự cố phải tự tìm đến mắt người vận hành, không đợi người mở tab đi tìm (mục 4.11) |
+| Ngay dưới đỉnh | Dòng SẴN SÀNG ARM, cảnh báo đứng yên, dòng lệch hai nguồn, rồi các dòng lỗi | Sự cố phải tự tìm đến mắt người vận hành, không đợi người mở tab đi tìm (mục 4.11, 4.14); chạm dòng lỗi là mở tab Messages đúng dòng đó |
 | Trái, giữa chiều cao | Ba nút bay: cất cánh ▲, hạ cánh ▼, về nhà ⌂ | Vòng đời một chuyến bay, xếp theo đúng thứ tự dùng |
 | Phải, giữa chiều cao | ARM/DISARM (đổi hình và chữ theo trạng thái thật), chọn mode, cắt động cơ ✕ | Nhóm động cơ và chế độ, tách khỏi nhóm bay để không bấm nhầm nhóm |
 | Phải, dưới | Cần ảo + hai nút leo/hạ | Lái tay (mục 4.10) |
 | Trái, dưới | Ô camera / bản đồ nhỏ | Chạm để đổi chỗ với nền, xem mục 4.13 |
-| Đáy màn | H, D, H.S, V.S, HDG, T | Trả lời "đang bay thế nào" |
-| Kéo từ mép trái | Ngăn chọn nguồn kết nối | Chọn profile, kết nối/ngắt, quét lại cổng USB mà không phải rời màn bay |
-| Chạm lên bản đồ | Bảng đường bay | Đặt waypoint, chọn độ cao, bay tới điểm, nạp/xoá đường bay (mục 6) |
+| Đáy màn | H, D, H.S, V.S, HDG, T, CÒN | Trả lời "đang bay thế nào" và "còn bay được bao lâu" (mục 4.14) |
+| Dock bên phải (ngoài màn QML) | Chọn nguồn kết nối | Chọn profile, kết nối/ngắt, quét lại cổng USB. Ngăn kéo kết nối từ mép trái màn bay (chỉ dành cho bản điện thoại) đã gỡ ở `e05fc1d` — hai chỗ kết nối là hai chỗ để bấm nhầm |
+| Giữ 2 s trên bản đồ | Bảng đường bay | Đặt waypoint, chọn độ cao, bay tới điểm, nạp/xoá đường bay (mục 6) |
 
 Nút tròn nhỏ nhất là 46 px và núm cần ảo cũng 46 px — dưới ngưỡng đó thì ngón tay che mất chính cái mình đang bấm. Mọi kích thước nhân với một hệ số co giãn theo chiều cao cửa sổ (kẹp trong 0,7–1,4), nên cùng một màn hình chạy được trên laptop 720 px lẫn điện thoại nằm ngang.
 
@@ -434,7 +438,7 @@ Toàn bộ file QML **không chứa một chốt an toàn nào**: nó chỉ mở
 | Lỗi | Nguyên nhân | Đã chặn lại bằng |
 |---|---|---|
 | Bảng đường bay tự đóng sau 200 ms khi chưa kết nối | Tín hiệu đổi trạng thái bắn 5 Hz, chốt đóng bảng kiểm theo **mức** chứ không theo **sườn** | Chuyển sang `wasConnected && !connected` |
-| Chạm bản đồ một cái không mở được bảng, phải giữ đủ 800 ms | Chỉ có `onPressAndHold`, thiếu `onClicked` | Thêm `onClicked` + chốt `dragged` theo `startDragDistance` |
+| Chạm bản đồ một cái không mở được bảng, phải giữ đủ 800 ms | Chỉ có `onPressAndHold`, thiếu `onClicked` | Thêm `onClicked` + chốt `dragged` theo `startDragDistance`. *Ngày 19/09 đảo lại có chủ ý*: chạm một cái mở bảng thì chạm nhầm cũng thành chọn điểm, nên nay phải giữ 2 s có vòng tiến trình (mục 4.14) |
 | "Bay tới đây" **đóng cứng 10 m**: đang bay 50 m mà bấm là tụt xuống 10 m | `Commands.goto` không truyền `alt`, adapter điền mặc định `args.get("alt", 10)`; lại là lệnh duy nhất không đi qua nhánh ghi vết nên **không để lại dấu** | `alt` thành tham số bắt buộc ở adapter; đổi tên ô "Độ cao" → "Độ cao điểm" |
 | Ngắt kết nối xong **điểm home giả mọc lại** sau 200 ms, các ô độ cao/pin/vệ tinh treo số cũ sang cả chuyến sau | `map.reset()` xoá home nhưng vòng vẽ lại đọc thẳng `REGISTRY` còn số cũ (đo được: `10,82441 / 106,68946` → `10,82667 / 106,69270`) | `attach()` xoá `REGISTRY` khi profile về `None` |
 
@@ -448,6 +452,46 @@ Camera và bản đồ là hai thứ người lái cần cùng lúc nhưng khôn
 - **Chạm giữa ảnh lớn thì không đổi.** Chạm nhầm giữa lúc đang xem không được đá người dùng về bản đồ.
 - **Ô nhỏ không nhận cử chỉ bản đồ:** kéo hay chụm trên một ô 256 px chỉ làm lệch khung nhìn mà không giúp gì; đặt waypoint và bay-tới-điểm chỉ có khi bản đồ đang lớn.
 - **Ngắt kết nối thì tự trả bản đồ về lớn.** Không có đường truyền thì video đã chết, và kẹt lại trong một khung hình đứng im trong lúc máy bay còn trên trời là kiểu hỏng nguy hiểm.
+
+### 4.14 Bổ sung ngày 19/09/2026: an toàn pin, sẵn sàng ARM, giọng nói, tự nối lại
+
+Phần này làm sau khi chụp chín hình (18/09), nên **không có ảnh**; nghiệm thu bằng `selfcheck` 45/45 và `e2e_sitl` 58/58 trên SITL khởi động lạnh (mục 9). Số đo tham số lấy từ bộ điều khiển bay MicoAir743 thật (tham số 07/09, pin 19/09).
+
+**Ô CÒN — thời gian bay còn lại.** Nằm cạnh ô `T` ở đáy màn bay, chỉ hiện khi đang ARM:
+
+```
+CÒN = (BATT_CAPACITY − mAh đã xài − mốc failsafe) ÷ dòng điện
+```
+
+Mốc failsafe là `BATT_LOW_MAH`, không có thì `BATT_CRT_MAH`, cả hai bằng 0 thì 20 % dung lượng. mAh đã xài lấy `BATTERY_STATUS.current_consumed` của bộ điều khiển bay (đối chiếu trên log thật: khớp phép tự tích phân dòng điện, lệch 1,2 mAh sau 716 s); dòng điện làm mượt ~5 s; ≤ 3 phút vàng, ≤ 1 phút đỏ; dòng < 0,1 A coi là nhiễu và hiện `--`. Một cái bẫy đã gặp: tham số bộ điều khiển bay chỉ về **một lần** lúc kết nối, nên đọc qua `REGISTRY` thì sau `STALE` = 2 s nó hết tươi và ô CÒN hiện `--` suốt chuyến — `Backend` vì thế giữ tham số riêng.
+
+**Dòng SẴN SÀNG ARM.** Theo bit `PREARM_CHECK` của `SYS_STATUS` — cùng nguồn Mission Planner và QGroundControl dùng. Chưa sẵn sàng thì dòng vàng kèm lý do lấy từ câu `PreArm:` gần nhất (giữ 40 s, vì bộ điều khiển bay chỉ nhắc lại mỗi ~31 s). Đã ARM hoặc mất số liệu thì ẩn — không nói "sẵn sàng" khi không biết.
+
+**Cảnh báo đứng yên** (`laptop/safety.py`, không phụ thuộc Qt). Khác dòng lỗi nổi ở chỗ không tự tắt: còn đúng thì còn hiện.
+
+| Lúc | Cảnh báo | Điều kiện |
+|---|---|---|
+| Chưa ARM | Failsafe pin TẮT | `BATT_FS_LOW_ACT = BATT_FS_CRT_ACT = 0` |
+| Chưa ARM | Failsafe mất RC / mất GCS TẮT | `FS_THR_ENABLE = 0` / `FS_GCS_ENABLE = 0` |
+| Chưa ARM | `BATT_LOW_VOLT` sai số cell | ngoài 3,3–3,9 V/cell (số cell = ⌈V / 4,25⌉) |
+| Chưa ARM | Pin có thể KHÔNG đầy lúc cắm | % suy từ điện áp nghỉ thấp hơn % bộ điều khiển bay báo ≥ 25 điểm, dòng < 1 A |
+| Đang bay | **VỀ NHÀ NGAY** (đỏ) / Sắp phải về (vàng) | CÒN ≤ thời gian RTL + 30 s / + 90 s |
+
+Thời gian RTL tính theo đúng chuỗi bước của ArduCopter: leo tới `RTL_ALT`, bay ngang về (`RTL_SPEED`, 0 thì lấy `WP_SPD`), lơ lửng `RTL_LOIT_TIME`, hạ nhanh tới `LAND_ALT_LOW`, hạ chậm `LAND_SPEED`. Ứng dụng hỏi cả tên cũ lẫn tên đơn vị SI của firmware 4.7-dev (`RTL_ALT` cm ↔ `RTL_ALT_M` m…). Thiếu tham số nào thì im lặng — không nói "tắt" thay cho "chưa biết".
+
+Chạy với số thật của MicoAir743, **cả bốn** cảnh báo chưa-ARM đều bật: failsafe pin và GCS đang tắt, `BATT_LOW_VOLT = 10,8 V` là 2,70 V/cell trên pin 4S, và pin 3,82 V/cell ≈ 45 % trong khi bộ điều khiển bay báo 99 % (vì nó coi pin đầy lúc cắm). Cùng bộ số đó, `WP_SPD = 1 m/s` nên RTL từ 500 m mất ~8 phút 51 giây. Tức là trước phần này, chiếc máy bay thật đang có bốn lỗi cấu hình an toàn mà không màn hình nào nói ra. (Sau đó failsafe trên bộ điều khiển bay đã được bật đủ.)
+
+**Đọc cảnh báo thành tiếng** (`laptop/voice.py`, Qt TextToSpeech — speech-dispatcher/espeak-ng trên Linux, SAPI trên Windows). Chỉ đọc **khi trạng thái đổi**: "Sẵn sàng arm", "Mất tín hiệu", "Sắp phải về", "Pin yếu, còn N phần trăm"; riêng "Về nhà ngay" nhắc lại mỗi 30 s còn đúng. Ngôn ngữ theo tab Cài đặt, đổi giữa chuyến thì câu sau đổi theo. Không có engine TTS thì im lặng và ứng dụng vẫn chạy; tắt được ở tab Cài đặt.
+
+**Rút cáp USB rồi cắm lại — tự nối lại.** Đang có dữ liệu mà cổng biến mất thì ứng dụng giữ nguyên profile, banner đỏ ghi "mất cổng … — cắm lại là tự kết nối", và quét cổng mỗi giây. Thiết bị được nhận lại theo **VID:PID:số serial** chứ không theo tên cổng: cắm lại ra `ttyACM1` vẫn nhận, cắm một radio khác vào thì không nối nhầm. Chỉ áp cho cổng serial — TCP/UDP đã có `autoreconnect` của pymavlink, còn REPLAY không có gì để cắm lại. Bấm **Ngắt** là thôi chờ.
+
+**Thao tác bản đồ.** Chọn điểm (đặt waypoint, bay tới đây) nay phải **giữ 2 s** có vòng tiến trình quanh ngón tay; chạm một cái không làm gì — đảo lại quyết định ở bảng lỗi mục 4.12, vì chạm nhầm không được phép thành chọn điểm. **Chạm đúp** đưa tâm về máy bay, bật bám và phóng tới zoom 20; trước đây ngón tay rung 2 px ở lần chạm thứ hai là tắt bám và bản đồ đứng im, nay bản đồ chỉ bắt đầu kéo khi vượt `startDragDistance`.
+
+**Video khi mô phỏng vẫn lấy từ Pi.** Địa chỉ video bình thường suy từ dòng `remote` (mục 7.1), nhưng ở profile SITL nửa ROS 2 chạy trên laptop còn camera nằm trên Pi — nên profile có thêm khoá `video` riêng; có thì dùng, không có thì suy như cũ. Nhờ đó không còn cần đường hầm SSH như ghi chú ở mục 7.2.
+
+**Tab Control hiện cùng trạng thái** (SẴN SÀNG ARM, CÒN, cảnh báo) như màn bay, và **chạm một dòng lỗi nổi** trên màn bay là mở tab Messages, chọn sẵn đúng dòng đó.
+
+**Gỡ bỏ:** bản sao thứ hai của đường kết nối nằm trong `Backend` (~110 dòng, chỉ `e2e_sitl` dùng) cùng ngăn kéo kết nối trong màn QML (80 dòng) đã xoá; `e2e_sitl` nay kết nối qua đúng `MainWindow.connect_to`, nên bộ kiểm phủ luôn tự nối lại USB, video và việc hỏi tham số.
 
 ---
 
@@ -503,7 +547,7 @@ Cần thận trọng khi diễn giải: cả hai nguồn cuối cùng đều b�
 
 ### 6.1 Quy trình
 
-Đường bay được dựng bằng cách chạm — hoặc chạm-giữ — lên bản đồ: mỗi lần thêm một điểm vào *bản nháp* (vẽ nét đứt, màu nhạt). Trần cứng là 50 waypoint.
+Đường bay được dựng bằng cách **giữ 2 s** lên bản đồ (từ 19/09; lúc chụp Hình 6 còn là chạm một cái): mỗi lần thêm một điểm vào *bản nháp* (vẽ nét đứt, màu nhạt). Trần cứng là 50 waypoint.
 
 **Độ cao: sáu mức bấm nhanh cộng một ô nhập số.** Sáu mức có sẵn (10/15/20/30/50/80 m) là đường nhanh, và trên màn cảm ứng ngoài bãi bay chúng là đường *duy nhất* không kéo bàn phím ảo lên che mất màn hình. Nhưng sáu con số không phủ được mọi bài bay: trần hàng rào của từng bãi, độ cao do quy định địa phương, hay địa hình dốc như trường hợp đo được ở mục 10 — mặt đất chỗ hạ cánh thấp hơn điểm cất cánh 6,5 m — đều đòi một con số khác. Ô nhập vì thế đứng ngay cạnh dãy mức, dùng một `SpinBox` có nút tăng/giảm nên **bấm được bằng ngón tay mà không cần gõ**; gõ số chỉ là đường nhanh khi có bàn phím.
 
@@ -639,8 +683,8 @@ Ngoài phiên chạy mô tả ở trên, phần mềm mang theo bốn lớp ki�
 
 | Công cụ | Phạm vi | Kết quả |
 |---|---|---|
-| `tools/selfcheck.py` | Phép kiểm không cần SITL: chuẩn hoá NED→ENU, lọc nguồn, trọng tài đa nguồn, nút khẩn cấp đi trước kiểm tra quyền, khoá nút ở chế độ phát lại, quét cổng USB, chốt chặn TAKEOFF, cấu trúc nhiệm vụ waypoint, giải mã MJPEG, cùng các phép kiểm cho mục 4.11–4.12 | PASS 29/29 (13/08) → 38/38 (23/08) → **44/44 (17/09)** |
-| `tools/e2e_sitl.py` | 53 bài trong **một chuyến bay trên ArduCopter SITL thật**, đi đúng đường ngón tay đi | **PASS 53/53 trong 169 s** (17/09, SITL khởi động lạnh) |
+| `tools/selfcheck.py` | Phép kiểm không cần SITL: chuẩn hoá NED→ENU, lọc nguồn, trọng tài đa nguồn, nút khẩn cấp đi trước kiểm tra quyền, khoá nút ở chế độ phát lại, quét cổng USB, chốt chặn TAKEOFF, cấu trúc nhiệm vụ waypoint, giải mã MJPEG, cùng các phép kiểm cho mục 4.11–4.12 | PASS 29/29 (13/08) → 38/38 (23/08) → 44/44 (17/09) → **45/45 (19/09)** |
+| `tools/e2e_sitl.py` | 58 bài trong **một chuyến bay trên ArduCopter SITL thật**, kết nối qua đúng `MainWindow.connect_to` của ứng dụng rồi đi đúng đường ngón tay đi | PASS 53/53 trong 169 s (17/09) → **58/58 trong 175 s** (19/09, `e05fc1d`, SITL khởi động lạnh) |
 | `tools/measure_bandwidth.py` | Byte/s thực theo từng loại message trên cổng đang cắm | 2 899 B/s, 82,2 msg/s (mục 5.2) |
 | `tools/compare_gcs.py` | Đối chiếu từng con số với MAVProxy trên **cùng một luồng gói tin**, ở hai trạng thái tĩnh | Toạ độ khớp tuyệt đối; mọi đại lượng khác lệch nhỏ hơn nửa đơn vị hiển thị [4] |
 
@@ -679,6 +723,8 @@ Song song, mọi chuyến bay ở mọi chế độ đều được ghi `.tlog` 
 6. **Màn cảm ứng (mục 4.12) chưa từng gặp một ngón tay thật.** Nó đã qua trọn một chuyến bay trên SITL, nhưng bài kiểm gọi thẳng vào `Backend`, không đi qua tầng chạm của Qt. Kích thước ngón tay, chạm ướt, chạm bằng găng, màn hình ngoài nắng, và Android (thư viện Python trên Android không mở thẳng được cổng nối tiếp USB của radio SiK) đều còn nguyên ở phía trước. Toàn bộ số đo SITL cũng chỉ dài 169 s — chưa nói gì về một buổi bay dài.
 7. **Phần bổ sung ở mục 4.11 chưa qua phần cứng.** Nó được nghiệm thu bằng bộ kiểm tự động trên widget thật, nhưng chưa chạy lại trên mạch Pixhawk 6C lẫn trên ngăn xếp mô phỏng đầy đủ.
 
+   Phần 19/09 (mục 4.14) cũng vậy ở vế bay: các cảnh báo chưa-ARM đã chạy với tham số thật của MicoAir743, nhưng ô CÒN, VỀ NHÀ NGAY và giọng nói chưa qua một chuyến bay thật nào — chúng mới được kiểm trên SITL, nơi dòng điện và dung lượng pin là số mô phỏng.
+
 8. **Ảnh và số đo lệch nhau một tháng.** Chín hình chụp ngày 18/09/2026 trên bố cục hiện tại, còn số đo ở mục 5–8 lấy ngày 13–14/08/2026 trên bố cục cũ. Chúng khớp nhau về hành vi nhưng không phải cùng một lần chạy, nên một con số cụ thể trên ảnh có thể không trùng con số cùng tên trong bảng — ví dụ bảng telemetry ghi 308 trường còn Hình 5 hiện 297. Chỗ nào chênh thì chú thích hình nói rõ.
 
 **Nguồn video đứng hình mà giao diện vẫn báo khoẻ (mục 7).** Đo ngày 18/09/2026: máy tính nhúng phát đủ 11,6 fps, nhịp khung đều, widget video xanh — nhưng 12 khung liên tiếp trong 1,03 s trùng khít nhau từng byte. Camera đứng, máy chủ ảnh phát lại mãi một khung, và không tầng nào trong chuỗi biết điều đó. Cơ chế canh khoảng ngắt giữa hai khung bắt được đường truyền chết, **không bắt được nguồn chết**. Đây là cùng một hình dạng lỗi với sự cố MAVROS dưới đây: mọi đèn đều xanh trong khi thứ có ích không đi tới. Đã sửa ở gốc thay vì ở phía nhận (18/09/2026, `run_gui.py` trên máy tính nhúng): mỗi khung được đóng dấu thời gian lúc đọc ra khỏi ống; khung quá 2 giây thì **thôi phát** thay vì phát lại; và nếu nguồn im quá 5 giây thì một luồng canh sẽ giết rồi dựng lại tiến trình GStreamer. Bản vá chạy đúng ngay lần chạy đầu — dòng nhật ký chuyển từ `nguon 0.0 Hz -> nen 11.6 fps` thành `nguon 0.0 Hz -> nen 0.0 fps`, tức là không còn phát ảnh chết nữa. Chọn chặn ở chỗ phát chứ không cho `read()` trả về thất bại, vì `person_follow_reid` làm `if not ok: break` — trả thất bại ở đó là giết cả chương trình. Luồng HTTP im là thứ giao diện phát hiện được bằng cơ chế sẵn có; một luồng đều đặn toàn ảnh cũ thì không.
@@ -694,6 +740,74 @@ Giao diện đạt được mục tiêu đặt ra ban đầu: vận hành một 
 Giá trị thực tế của phần mềm nằm nhiều ở cách nó xử lý trạng thái xấu hơn là ở trạng thái tốt: phân biệt hai kiểu mất kết nối theo đúng hậu quả của chúng, đọc ngược nhiệm vụ thay vì tin vào cái vừa gửi đi, hiện ô xám thay vì đóng băng khung hình cũ, và ghi lại mọi lệnh cùng phản hồi để sau sự cố còn truy được nguyên nhân.
 
 Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chính các hạn chế nêu trên: (i) lặp lại toàn bộ phép đo trên radio SiK và bộ điều khiển bay thật để có số băng thông và tỉ lệ mất gói có ý nghĩa, đồng thời chụp lại bộ ảnh cho phần bổ sung ở mục 4.11–4.12 — bộ ảnh hiện tại đã lệch hẳn một thế hệ giao diện so với mã nguồn; (ii) thay module WiFi rời cho Pi 5 để đưa luồng video về lại mức 16 fps đã đạt được ngày 06/08; (iii) đưa cảm biến ảnh mô phỏng của Gazebo vào vòng kiểm thử để phần thị giác của ngăn xếp cũng được nghiệm thu tự động.
+
+---
+
+## Phụ lục A — Bảng tổng hợp tính năng giao diện
+
+Đối chiếu với mã nguồn `e05fc1d` (19/09/2026). Cột "Mục" trỏ tới phần phân tích trong báo cáo. 59 tính năng, chia theo nơi người vận hành gặp chúng; cách nghiệm thu chung ghi ở mục 9 (`selfcheck` 45/45, `e2e_sitl` 58/58).
+
+| # | Nhóm | Tính năng | Chi tiết chính | Mã nguồn | Mục |
+|---|---|---|---|---|---|
+| 1 | Kết nối | Chọn profile nguồn | REAL / SIM / REPLAY khai trong `config/connections.yaml`; chọn theo **tên**, không theo số dòng; không tự kết nối lúc mở | `laptop/connection.py` | 4.1 |
+| 2 | Kết nối | Quét cổng USB | Lọc theo VID/PID USB, bỏ `/dev/ttyS*`; baud `ttyUSB*` 57600, `ttyACM*` 115200; thiếu quyền `dialout` thì in nguyên lệnh cần chạy | `laptop/connection.py` | 4.1 |
+| 3 | Kết nối | Tự nối lại USB | Rút–cắm lại thì nhận lại theo VID:PID:serial, quét mỗi giây, giữ baud/sysid/remote | `laptop/app.py`, `connection.py` | 4.14 |
+| 4 | Kết nối | Hai nửa dữ liệu song song | MAVLink (SiK/TCP) + ROS 2 qua WebSocket 8765; trọng tài đa nguồn chọn giá trị tươi nhất | `core/field.py`, `core/adapters/` | 2.1 |
+| 5 | Kết nối | Banner chế độ 7 trạng thái | None / WAIT / REAL / SIM / REPLAY / DEGRADED / LOST; màu theo `mode` trong cấu hình | `laptop/connection.py` | 4.2 |
+| 6 | Kết nối | Widget trạng thái đường truyền | B/s thực và % mất gói (từ số thứ tự MAVLink) cho SiK và Remote; ngưỡng 5 % | `laptop/app.py` | 4.8 |
+| 7 | Kết nối | Mô phỏng đứt truyền | Bịt riêng từng nửa ở tầng envelope; chỉ hiện ở SIM | `laptop/link_faults.py` | 4.9, 8.2 |
+| 8 | Kết nối | Phát lại `.tlog` | Thanh tua, tạm dừng; khoá mọi nút kể cả nút khẩn cấp | `core/adapters/sik.py` | 4.9 |
+| 9 | Kết nối | Ghi `.tlog` mọi chế độ | Kể cả bay thật; đọc lại được bằng Mission Planner | `core/adapters/sik.py` | 9 |
+| 10 | Màn bay | Bố cục cảm ứng kiểu DJI | QML; nút ≥ 46 px; hệ số co giãn 0,7–1,4 theo chiều cao cửa sổ | `laptop/touch/qml/Main.qml` | 4.12 |
+| 11 | Màn bay | Xác nhận bằng thanh trượt | Mọi lệnh kể cả RTL/LAND/DISARM/cắt động cơ; thả giữa chừng là huỷ; tự đóng sau 15 s hoặc khi mất đường xuống | `SlideConfirm.qml` | 4.12 |
+| 12 | Màn bay | Cắt động cơ | Trượt hết là đi (bỏ giữ 2 s từ 19/09); hậu quả "rơi tự do" ghi đỏ trên bảng | `Main.qml`, `commands.py` | 4.12, 4.14 |
+| 13 | Màn bay | Cất cánh chọn độ cao | Chip 3/5/10/20/30 m + ô nhập 1–120 m, kẹp hai tầng | `Main.qml`, `touch/backend.py` | 4.12 |
+| 14 | Màn bay | Đổi mode | Chọn trong danh sách mode của bộ điều khiển bay | `Main.qml` | 4.12 |
+| 15 | Màn bay | Cần ảo + nút leo/hạ | Gửi **vận tốc** 1–5 m/s, 5 Hz; 4 chốt (gửi được, ARM, không dưới đất, GUIDED); 3 đường buông đều phát lệnh dừng | `commands.py` (`nudge`) | 4.10 |
+| 16 | Màn bay | Thanh telemetry đỉnh | Viên trạng thái (ARM / đang bay / mất tín hiệu đếm giây), mode, GPS (fix + ≥ 8 vệ tinh + HDOP ≤ 2), pin % (≤ 30 vàng, ≤ 20 đỏ) và V | `Main.qml`, `telemetry_bar.py` | 4.4, 4.11 |
+| 17 | Màn bay | Thanh telemetry đáy | H, D (về nhà), H.S, V.S, HDG, T (giờ bay từ sườn lên `armed`) | `Main.qml` | 4.4 |
+| 18 | Màn bay | Ô CÒN | Thời gian bay còn lại theo dòng điện và mốc failsafe mAh; ≤ 3 phút vàng, ≤ 1 phút đỏ | `touch/backend.py`, `telemetry_bar.py` | 4.14 |
+| 19 | Màn bay | Dòng SẴN SÀNG ARM | Bit `PREARM_CHECK`; lý do từ câu `PreArm:` gần nhất | `touch/backend.py` | 4.14 |
+| 20 | Màn bay | Cảnh báo đứng yên | Failsafe pin/RC/GCS tắt, `BATT_LOW_VOLT` sai, pin không đầy, VỀ NHÀ NGAY / sắp phải về | `laptop/safety.py` | 4.14 |
+| 21 | Màn bay | Dòng lỗi nổi | STATUSTEXT mức 0–4 + kết quả lệnh; gộp `×n`; tối đa 3 dòng, đỏ tự tắt 10 s, vàng 5 s; chạm là mở tab Messages đúng dòng | `widgets/alerts.py` | 4.11, 4.14 |
+| 22 | Màn bay | Dòng lệch hai nguồn | Vị trí MAVLink vs ROS 2 lệch quá 5 m thì hiện đỏ kèm số mét | `touch/backend.py` | 4.4, 5.3 |
+| 23 | Màn bay | La bàn + chân trời nhân tạo | `QWidget` vẽ tay đưa vào QML qua `QWidget.render()`; cùng nguồn hướng với mũi máy bay | `widgets/compass.py`, `attitude.py`, `touch/items.py` | 4.4 |
+| 24 | Màn bay | Đổi chỗ camera ↔ bản đồ | Chạm ô PiP để đổi; chạm giữa ảnh lớn không đổi; ngắt kết nối thì trả bản đồ về lớn | `Main.qml` | 4.13 |
+| 25 | Kết nối | Dock chọn nguồn bên phải | Một chỗ kết nối duy nhất; ngăn kéo kết nối trong màn QML đã gỡ 19/09 | `laptop/connection.py` | 4.12 |
+| 26 | Bản đồ | Ảnh vệ tinh ngoại tuyến | Tile Google Hybrid trên đĩa, tới z21; thiếu mức thì phóng mức gần nhất; tải bù khi có mạng | `widgets/map_widget.py` | 2.4, 4.3 |
+| 27 | Bản đồ | Bám theo máy bay | Mặc định bật; kéo bản đồ là tắt | `map_widget.py` | 4.3 |
+| 28 | Bản đồ | Chạm đúp về máy bay | Tâm về máy bay, bật bám, zoom 20 | `map_widget.py` | 4.14 |
+| 29 | Bản đồ | Ký hiệu máy bay | Tam giác chỉ hướng mũi; chưa biết hướng thì vẽ hình tròn | `map_widget.py` | 4.11 |
+| 30 | Bản đồ | Vệt bay | Tối đa 3 000 điểm | `map_widget.py` | 4.3 |
+| 31 | Bản đồ | Điểm home | Từ `HOME_POSITION`; chưa có thì dải chữ nói rõ là home đoán | `map_widget.py` | 4.3 |
+| 32 | Bản đồ | Hàng rào geofence | Tròn + đa giác, vẽ và đo theo bit `FENCE_TYPE`; khoảng cách tới rào gần nhất | `map_widget.py` | 4.3, 4.11 |
+| 33 | Waypoint | Đặt điểm bằng giữ 2 s | Vòng tiến trình; thả sớm/kéo là huỷ; tối đa 50 điểm; bản nháp nét đứt | `Main.qml`, `commands.py` | 6.1, 4.14 |
+| 34 | Waypoint | Độ cao điểm | 6 mức 10–80 m + ô nhập 1–120 m, kẹp hai tầng, `Binding` giữ đồng bộ | `Main.qml`, `commands.py` | 6.1 |
+| 35 | Waypoint | Nạp lên bộ điều khiển bay | Tự chèn home + TAKEOFF + LAND; gửi lại tối đa 5 lần; nạp đè lúc AUTO phải xác nhận hai lần | `core/adapters/sik.py` | 6.1–6.2 |
+| 36 | Waypoint | Đọc ngược sau khi nạp | Vẽ cái bộ điều khiển bay đang giữ, không vẽ cái vừa gửi | `sik.py`, `map_widget.py` | 6.1 |
+| 37 | Waypoint | Bay tới điểm | GUIDED rồi goto, giữ độ cao "Độ cao điểm" (không còn đóng cứng 10 m) | `commands.py` | 4.3, 4.12 |
+| 38 | Waypoint | Xoá đường bay trên bộ điều khiển bay | Từ bảng bản đồ | `commands.py` | 4.3 |
+| 39 | Lệnh | ARM + chốt cần ga | Chặn khi ga > `THR_ARM_MAX` = 1150; không thấy cần ga thì vẫn gửi và nói rõ | `commands.py` | 4.6 |
+| 40 | Lệnh | TAKEOFF + chốt mode/ARM | Phải GUIDED và đã ARM; REAL phải bấm lại trong 3 s; đối chiếu độ cao sau 6 s chỉ khi FC chấp nhận | `commands.py`, `tabs/control.py` | 4.6, 4.14 |
+| 41 | Lệnh | Nút khẩn cấp RTL / LAND / DISARM | Nhánh ESCAPE, đi thẳng MAVLink, chỉ khoá ở REPLAY | `core/authority.py` | 2.3, 4.6 |
+| 42 | Lệnh | DISARM hai bậc | Dưới đất: force ngay; đang bay/không biết: lệnh thường, bấm lại trong 3 s là force; "dưới đất" hỏi hai nguồn độc lập | `commands.py`, `tabs/control.py` | 4.6 |
+| 43 | Lệnh | Hạn chờ phản hồi | 3 s không có `COMMAND_ACK` thì ghi "KHÔNG CÓ PHẢN HỒI" | `commands.py` | 4.7 |
+| 44 | Lệnh | Ghi vết lệnh ba nơi | Thanh trạng thái + tab Messages `[APP]` + `logs/commands.log` | `commands.py` | 4.7 |
+| 45 | Lệnh | Quyền điều khiển | `/gcs/authority` chốt `"gcs"`; node trên máy tính nhúng không lái được | `tools/ros2_bridge.py` | 2.3 |
+| 46 | Lệnh | Chặn đóng cửa sổ khi ARM | Lần đầu bị từ chối, bấm lại trong 3 s; không dùng hộp thoại | `laptop/app.py` | 4.11 |
+| 47 | Tab Status | Bảng mọi trường MAVLink | Không khai trước trường nào; ô lọc; tạm dừng; hàng quá `STALE` chuyển xám; vẽ gom 200 ms | `tabs/status.py` | 4.5, 5.1 |
+| 48 | Tab Status | `SENSOR.*` giải mã | 31 hàng từ ba bitmask `SYS_STATUS`, dịch lúc vẽ | `core/adapters/sik.py` | 4.5 |
+| 49 | Tab Status | 63 tham số PID + tooltip | Đọc theo yêu cầu; mỗi tham số một dòng giải thích hai thứ tiếng | `core/param_doc.py` | 4.5, 4.11 |
+| 50 | Tab Control | Lệnh thường + trạng thái node ROS 2 | ARM/DISARM, mode, TAKEOFF; dòng node chỉ đọc | `tabs/control.py` | 4.6 |
+| 51 | Tab Control | Khối trạng thái bay | SẴN SÀNG ARM, CÒN, cảnh báo — cùng dữ liệu `Backend.state` | `tabs/control.py` | 4.14 |
+| 52 | Tab Messages | Dòng thời gian thông báo | STATUSTEXT + `[APP]`; lọc 4 mức; 2 000 dòng; chỉ tự cuộn khi đang ở cuối; số cảnh báo chưa đọc trên tên tab | `tabs/messages.py` | 4.7, 4.11 |
+| 53 | Camera | Luồng MJPEG | Cổng 8080 riêng; hạn chờ từng lần đọc; luôn vẽ khung mới nhất; mất tín hiệu thì ô xám, không đóng băng; fps đo ở đầu nhận | `widgets/video.py` | 7 |
+| 54 | Camera | Địa chỉ video | Suy từ `remote`, hoặc khoá `video` riêng (profile SITL lấy camera Pi) | `widgets/video.py` | 7.1, 4.14 |
+| 55 | Phân tích | Đọc log | `.tlog`/`.bin` từ đĩa hoặc kéo từ thẻ SD của FC qua telemetry | `tabs/analysis.py`, `core/` | 4.11 |
+| 56 | Phân tích | Đồ thị + quỹ đạo 3D | Tối đa 4 đồ thị; chuẩn hoá 0–1; lọc điểm `lat = lon = 0`; chế độ trực tiếp 60 s | `tabs/analysis.py`, `widgets/trajectory3d.py` | 4.11 |
+| 57 | Cài đặt | Song ngữ Việt ↔ Anh | Đổi ngay không khởi động lại; nhớ bằng `QSettings`; `selfcheck` đối chiếu từng cặp | `core/i18n.py`, `tabs/settings.py` | 4.11 |
+| 58 | Cài đặt | Đọc cảnh báo thành tiếng | Qt TTS; đọc khi trạng thái đổi; "Về nhà ngay" nhắc mỗi 30 s; bật/tắt | `laptop/voice.py` | 4.14 |
+| 59 | Chung | Bảng màu thống nhất | Mọi màu từ `laptop/theme.py` | `laptop/theme.py` | 4.11 |
 
 ---
 
