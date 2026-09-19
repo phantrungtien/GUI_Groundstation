@@ -420,8 +420,8 @@ các giá trị của tham số kiểu liệt kê (`FS_THR_ENABLE` → `1: Bật
 - **Tham số `PARAM.*`**: dòng viết tay (144) → bản dịch tiếng Việt
   `core/param_meta_vi.json` (901 tham số) → mô tả tiếng Anh của ArduPilot
   `core/param_meta.json` (5 771, dùng khi chọn English hoặc tham số lạ). Đo trên
-  log `.bin` thật của FC (ArduCopter V4.7.0): **1 036/1 037** tham số có giải thích
-  tiếng Việt, 0 cái rơi về tiếng Anh; thiếu `GND_EFFECT_COMP`.
+  log `.bin` thật của FC (ArduCopter V4.7.0): **1 037/1 037** tham số có giải thích
+  tiếng Việt, 0 cái rơi về tiếng Anh (`GND_EFFECT_COMP` vắng trong file master nên viết tay).
 - **Trường telemetry** (`ATTITUDE.roll`, `VIBRATION.vibration_x`…): mô tả từ định
   nghĩa MAVLink của pymavlink kèm đơn vị, có bản dịch — `core/field_doc.json`, phủ
   **328/328** trường thấy trên `.tlog` SiK thật + SITL. Trường lạ thì để trống, không bịa.

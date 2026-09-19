@@ -507,7 +507,7 @@ Cũng không có ảnh; nghiệm thu bằng `selfcheck` 45/45 và `e2e_sitl` 58/
 
 | Loại hàng | Nguồn mô tả | Độ phủ đo được |
 |---|---|---|
-| Tham số `PARAM.*` | Dòng viết tay (144) → bản dịch tiếng Việt `core/param_meta_vi.json` (901) → mô tả tiếng Anh của ArduPilot `core/param_meta.json` (5 771, dựng từ `apm.pdef.xml` bản master của Mission Planner, đúng tên SI của 4.7-dev) | 1 036/1 037 tham số trong log `.bin` của FC thật (ArduCopter V4.7.0) có tiếng Việt; thiếu `GND_EFFECT_COMP` |
+| Tham số `PARAM.*` | Dòng viết tay (145) → bản dịch tiếng Việt `core/param_meta_vi.json` (901) → mô tả tiếng Anh của ArduPilot `core/param_meta.json` (5 771, dựng từ `apm.pdef.xml` bản master của Mission Planner, đúng tên SI của 4.7-dev) | 1 037/1 037 tham số trong log `.bin` của FC thật (ArduCopter V4.7.0) có tiếng Việt; `GND_EFFECT_COMP` vắng trong file master nên viết tay theo mã nguồn |
 | Trường telemetry `MSG.field` | Định nghĩa MAVLink của pymavlink, kèm đơn vị và bản dịch — `core/field_doc.json` | 328/328 trường thấy trên `.tlog` SiK thật và SITL |
 
 Tooltip thêm ý nghĩa các giá trị của tham số kiểu liệt kê (`FS_THR_ENABLE` → "1: Bật — luôn RTL…"). Bản dịch do máy làm, theo mẫu (RC1..16, SERVO1..16 dùng chung một câu) nên cần đọc lại khi nghi ngờ; tên mode, tên thiết bị và giao thức giữ nguyên tiếng Anh theo quy ước của ứng dụng. Mã nguồn ArduPilot 4.6.3 trên máy sinh ra tên cũ (`RTL_ALT`, `WPNAV_SPEED`) nên không dùng được làm nguồn — một ví dụ nữa cho việc nguồn tài liệu phải khớp đúng firmware đang bay.

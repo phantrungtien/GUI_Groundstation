@@ -330,6 +330,17 @@ EXPLICIT = {
     "RTL_ALT_TYPE": (
         "Độ cao RTL tính so với điểm cất cánh hay so với địa hình bên dưới.",
         "Whether the RTL altitude is measured from the launch point or above the terrain."),
+    # Co tren FC 4.7.0 nhung vang mat trong apm.pdef.xml ban master — viet tay theo
+    # ArduCopter/baro_ground_effect.cpp.
+    "GND_EFFECT_COMP": (
+        "Bù hiệu ứng mặt đất cho áp kế (0 tắt, 1 bật). Luồng gió cánh quạt sát đất làm "
+        "áp kế báo độ cao sai; bật thì lúc vừa ARM chờ cất cánh (tới khi lên 0,5 m hoặc "
+        "quá 5 s) và lúc hạ cánh chậm, EKF bỏ qua cú sụt độ cao áp kế trong vùng "
+        "EK3_GND_EFF_DZ.",
+        "Barometer ground-effect compensation (0 off, 1 on). Rotor wash near the ground "
+        "makes the baro read a wrong height; when on, right after arming until takeoff "
+        "(0.5 m climbed or 5 s) and during slow landings the EKF ignores baro height dips "
+        "within EK3_GND_EFF_DZ."),
     "RTL_CONE_SLOPE": (
         "Độ dốc của hình nón quanh điểm nhà: đang ở gần nhà thì không leo cao vô ích, độ "
         "cao về nhà bị cắt theo khoảng cách.",

@@ -84,7 +84,7 @@
 |---|---|---|---|---|
 | 48 | Trạng thái | Bảng mọi trường MAVLink | Tra bất kỳ con số nào drone gửi lên, có ô lọc và nút tạm dừng. Dữ liệu đã cũ thì chuyển xám | 4.5, 5.1 |
 | 49 | Trạng thái | `SENSOR.*` giải mã | Biết ngay cảm biến nào đang hỏng | 4.5 |
-| 50 | Trạng thái | Cột Giải thích | Mỗi hàng có một dòng giải thích ngay trong bảng, theo ngôn ngữ đang chọn: 1 036/1 037 tham số FC thật và 328/328 trường telemetry có tiếng Việt; tooltip kèm ý nghĩa các giá trị | 4.5, 4.11 |
+| 50 | Trạng thái | Cột Giải thích | Mỗi hàng có một dòng giải thích ngay trong bảng, theo ngôn ngữ đang chọn: 1 037/1 037 tham số FC thật và 328/328 trường telemetry có tiếng Việt; tooltip kèm ý nghĩa các giá trị | 4.5, 4.11 |
 | 51 | Điều khiển | Lệnh thường + trạng thái node ROS 2 | ARM, đổi mode, cất cánh bằng chuột. Thấy node nào đang chạy trên máy tính nhúng | 4.6 |
 | 52 | Điều khiển | Khối trạng thái bay | Xem SẴN SÀNG ARM, CÒN và các cảnh báo mà không phải quay sang màn bay | 4.14 |
 | 53 | Thông báo | Dòng thời gian thông báo | Đọc lại toàn bộ lỗi và kết quả lệnh, có lọc theo mức. Số cảnh báo chưa đọc hiện ngay trên tên tab | 4.7, 4.11 |
