@@ -5,7 +5,8 @@ camera da duoc do va kiem ky. Viet lai bang QML la hai ban de lech nhau; o day
 chi goi `QWidget.render()` cua chinh no vao painter cua QML.
 
 ponytail: ve lai theo nhip `fps` chu khong theo su kien — widget an khong phat
-yeu cau ve. Ban do 5 Hz (cung nhip FlightTab.refresh), camera 30 Hz.
+yeu cau ve. Ban do 5 Hz (cung nhip FlightTab.refresh). Camera ve them moi khi co
+khung moi (`_follow`), timer chi con lo o xam.
 """
 
 from PySide6.QtCore import Property, QPoint, QTimer, Signal
@@ -31,9 +32,22 @@ class WidgetItem(QQuickPaintedItem):
         return self._name
 
     def _set_name(self, v):
+        self._follow(WIDGETS.get(self._name), False)
         self._name = v
+        self._follow(WIDGETS.get(v), True)
         self.nameChanged.emit()
         self.update()
+
+    def _follow(self, w, on):
+        """Camera: ve lai DUNG LUC co khung moi, khong doi timer.
+
+        Timer 15 Hz lay mau nguon 15 fps thi hai nhip phach nhau — khung ve hai lan,
+        khung bi bo qua — hinh giat du Pi phat deu va GUI nhan du 15 fps (18/09/2026).
+        Timer van chay: no ve o xam khi mat hinh, va ve lai widget khong co `source`.
+        """
+        sig = getattr(getattr(w, "source", None), "updated", None)
+        if sig is not None:
+            (sig.connect if on else sig.disconnect)(self.update)
 
     def _get_fps(self):
         return 1000 // max(1, self._timer.interval())
