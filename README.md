@@ -262,6 +262,11 @@ riêng **"Về nhà ngay" nhắc lại mỗi 30 s** còn đúng. Ngôn ngữ the
 `+Annie` (không có thì `female3`, `female2`), pitch 0,5, rate 0,1 — ba hằng số
 đầu file. Không có engine TTS thì im lặng, app vẫn chạy. Tắt ở tab Cài đặt.
 
+**Dòng lỗi đỏ cũng được đọc**: `"Lỗi: <câu của FC>"`, mỗi dòng một lần lúc nó
+hiện (hết hạn 10 s rồi quay lại thì đọc lại), xếp hàng sau câu đang đọc chứ không
+cắt ngang, tối đa 3 câu mỗi nhịp. Bỏ `PreArm:` — dòng SẴN SÀNG ARM đã nói, và FC
+nhắc PreArm mỗi ~31 s. Câu của FC là tiếng Anh nên giọng Việt đọc theo phiên âm Việt.
+
 ### Chạm đúp — về drone, phóng tới z20
 
 Chạm đúp bản đồ: tâm về drone, bật bám theo, và **zoom 20** (`FOLLOW_ZOOM`) dù

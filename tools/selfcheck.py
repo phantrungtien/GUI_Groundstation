@@ -2469,6 +2469,17 @@ def check_touch_flight(app):
         b.refresh()
         assert b.voice.spoken.count("Về nhà ngay") == 2, "VE NHA NGAY phai nhac lai moi 30 s"
 
+        # --- giong noi doc dong loi DO: moi dong mot lan, bo PreArm, bo vang ----
+        b.voice.spoken.clear()
+        for sev, text in ((2, "EKF variance"), (2, "PreArm: Compass not calibrated"),
+                          (4, "GPS glitch")):
+            bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),
+                               "data": {"severity": sev, "text": text}})
+        for _ in range(5):
+            b.refresh()
+        said = [x for x in b.voice.spoken if x.startswith("Lỗi")]
+        assert said == ["Lỗi: EKF variance"], b.voice.spoken
+
         # --- cham dong loi tren man bay -> tab Thong bao, dung dong do ---------
         bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),
                            "data": {"severity": 2, "text": "PreArm: Check mag field:  168"}})

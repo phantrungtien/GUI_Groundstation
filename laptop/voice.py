@@ -41,9 +41,12 @@ class Voice:
             self._tts = None
         self._last = {}  # ten su kien -> gia tri lan truoc
         self._said_at = {}
+        self._red = set()  # dong loi do da doc, xem alerts()
         self.spoken = []  # nhat ky, cho selfcheck
 
-    def say(self, key, **kw):
+    def say(self, key, queue=False, **kw):
+        """queue=True: xep sau cau dang doc (loi FC). Mac dinh cat ngang — "ve
+        nha ngay" khong duoc doi mot cau loi dai doc xong."""
         text = t(key, **kw)
         self.spoken.append(text)
         if not self._tts or not enabled():
@@ -52,7 +55,7 @@ class Voice:
         if self._tts.locale() != loc:
             self._tts.setLocale(loc)
             self._pick_voice(loc)
-        self._tts.say(text)
+        (self._tts.enqueue if queue else self._tts.say)(text)
 
     def _pick_voice(self, loc):
         """Giong nu (VOICE_VARIANTS) dung vung cua locale.
@@ -90,6 +93,18 @@ class Voice:
             self._said_at[event] = now
             self.say(key, **kw)
 
+    def alerts(self, red):
+        """Doc moi dong loi DO vua hien (suon: moi xuat hien, hoac het han roi
+        quay lai). PreArm bo qua — dong SAN SANG ARM da noi, va FC nhac PreArm
+        moi ~31 s nen doc len la lai nhai suot luc chuan bi."""
+        red = {x for x in red if not x.startswith("PreArm")}
+        # Toi da 3 cau moi nhip — bang cho man bay chi co 3 dong; don 10 loi mot
+        # luc thi hang doi doc keo dai ca phut, cham hon ca viec nhin man hinh.
+        for text in sorted(red - self._red)[:3]:
+            self.say("voice.alert", queue=True, text=text)
+        self._red = red
+
     def reset(self):
         self._last.clear()
         self._said_at.clear()
+        self._red = set()

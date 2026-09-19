@@ -540,6 +540,7 @@ STR = {
     "safe.rtl_now": ("VỀ NHÀ NGAY — còn {left}, về mất ~{need}", "RETURN NOW — {left} left, return takes ~{need}"),
     "safe.rtl_soon": ("Sắp phải về — còn {left}, về mất ~{need}", "Return soon — {left} left, return takes ~{need}"),
     "voice.ready": ("Sẵn sàng arm", "Ready to arm"),
+    "voice.alert": ("Lỗi: {text}", "Error: {text}"),
     "voice.lost": ("Mất tín hiệu", "Signal lost"),
     "voice.rtl_soon": ("Sắp phải về", "Return soon"),
     "voice.rtl_now": ("Về nhà ngay", "Return now"),
@@ -559,8 +560,8 @@ STR = {
 
     # duong bay dat bang tay: cham-giu ban do thay cho menu chuot phai
     "touch.wp_title": ("Đường bay", "Mission"),
-    "touch.wp_hint": ("Chạm bản đồ để chọn chỗ, rồi bấm Đặt điểm",
-                      "Tap the map to pick a spot, then Drop point"),
+    "touch.wp_hint": ("Giữ 2 s trên bản đồ để chọn chỗ, rồi bấm Đặt điểm",
+                      "Hold the map for 2 s to pick a spot, then Drop point"),
     "touch.wp_add": ("Đặt điểm {n}", "Drop point {n}"),
     # "Độ cao" tron: nhin y het bang do cao cua TAKEOFF, nguoi bay chinh o day
     # roi cho drone leo. No chi la do cao cua diem sap dat, va chi co tac dung

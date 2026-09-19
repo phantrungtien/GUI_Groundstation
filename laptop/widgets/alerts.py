@@ -45,6 +45,10 @@ class AlertBook:
     def clear(self):
         self._items.clear()
 
+    def red(self):
+        """Chu cac dong DO dang con song (goi sau shown(), no moi don dong het han)."""
+        return {k for k, v in self._items.items() if v[0] <= ERR_SEV}
+
     def shown(self, now=None):
         """Bo dong het han, tra toi da ROWS dong [(chu da kem xn/(+k), muc)]."""
         now = now or time.time()
