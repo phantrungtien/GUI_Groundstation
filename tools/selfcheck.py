@@ -1871,31 +1871,40 @@ def check_param_doc(app):
         # Ca hai o cua hang deu phai co: re chuot cho nao trong hang cung ra.
         assert all(st.model.item(row["PARAM.ATC_RAT_RLL_P"], c).toolTip() == tip
                    for c in range(st.model.columnCount()))
-        assert st.model.item(row["ATTITUDE.roll"], 0).toolTip() == "", "bia mo ta cho field thuong"
-        # Cot Giai thich (cot 3): cung chu voi tooltip, hang thuong de trong.
+        # Cot Giai thich (cot 3): cung chu voi tooltip.
         assert st.model.item(row["PARAM.ATC_RAT_RLL_P"], 2).text() == tip
-        assert st.model.item(row["ATTITUDE.roll"], 2).text() == ""
-        # Tham so khong co dong viet tay: lay mo ta ArduPilot (file ArduPilot master),
-        # kem don vi; kieu liet ke thi tooltip co ca cac gia tri.
-        bus.emit("sik", "status", {"PARAM.BATT_CAPACITY": 5200.0, "PARAM.FS_THR_ENABLE": 1.0})
+        # Hang telemetry: mo ta tu dinh nghia MAVLink, tieng Viet khi chon tieng Viet.
+        roll = st.model.item(row["ATTITUDE.roll"], 2).text()
+        assert "Góc roll" in roll and roll.endswith("[rad]"), roll
+        # Tham so khong co dong viet tay: ban dich tieng Viet cua mo ta ArduPilot,
+        # kem don vi; kieu liet ke thi tooltip co ca cac gia tri — cung tieng Viet.
+        bus.emit("sik", "status", {"PARAM.BATT_CAPACITY": 5200.0, "PARAM.FS_THR_ENABLE": 1.0,
+                                   "SENSOR.gps": "ok", "FOO.bar": 1})
         st._flush()
         row = {st.model.item(r, 0).text(): r for r in range(st.model.rowCount())}
         cap = st.model.item(row["PARAM.BATT_CAPACITY"], 2).text()
-        assert "Battery capacity" in cap and cap.endswith("[mAh]"), cap
+        assert "Dung lượng pin" in cap and cap.endswith("[mAh]"), cap
         fs = st.model.item(row["PARAM.FS_THR_ENABLE"], 0).toolTip()
-        assert "1: Enabled always RTL" in fs and "Các giá trị" in fs, fs
-        n_meta = len(param_doc._meta())
-        assert n_meta > 1000, f"param_meta.json chi co {n_meta} tham so"
+        assert "1: Bật — luôn RTL" in fs and "Các giá trị" in fs, fs
+        assert "GPS" in st.model.item(row["SENSOR.gps"], 2).text()
+        assert st.model.item(row["FOO.bar"], 2).text() == "", "bia mo ta cho truong la"
+        n_meta, n_vi = len(param_doc._meta()), len(param_doc._load(param_doc.META_VI))
+        assert n_meta > 1000 and n_vi > 800, (n_meta, n_vi)
 
         # Doi ngon ngu: hang DA NAM trong bang phai doi tooltip theo, khong chi
         # hang moi them sau do.
         i18n.set_lang("en")
         tip_en = st.model.item(row["PARAM.ATC_RAT_RLL_P"], 0).toolTip()
         assert "roll axis" in tip_en and "P gain" in tip_en, tip_en
+        # Doi sang English: moi cot Giai thich dang nam trong bang doi theo, khong
+        # con chu Viet nao lan vao (nguoi dung bao 19/09: hai thu tieng tron nhau).
+        assert "Battery capacity" in st.model.item(row["PARAM.BATT_CAPACITY"], 2).text()
+        assert "Roll angle" in st.model.item(row["ATTITUDE.roll"], 2).text()
+        assert "1: Enabled always RTL" in st.model.item(row["PARAM.FS_THR_ENABLE"], 0).toolTip()
     finally:
         i18n.set_lang(was)
-    print(f"  ok  giai thich tham so: {n_doc} ten viet tay (vi/en) + {n_meta} tu metadata "
-          "ArduPilot, vao cot Giai thich + tooltip cua hang PARAM.*, doi theo ngon ngu")
+    print(f"  ok  giai thich: {n_doc} tham so viet tay + {n_vi} dich tieng Viet + {n_meta} "
+          "metadata ArduPilot, truong telemetry tu MAVLink; cot Giai thich + tooltip, doi theo ngon ngu")
 
 
 def check_flight_alerts(app):

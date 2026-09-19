@@ -76,7 +76,7 @@
 | 44 | Ghi vết lệnh ở ba nơi | Tra lại được mọi lệnh đã bấm cùng kết quả: thanh trạng thái, tab Thông báo và `logs/commands.log` | 4.7 |
 | 45 | Laptop cầm toàn quyền | Node trên máy tính nhúng không lái được drone. Mọi lệnh chỉ đi từ laptop | 2.3 |
 | 46 | Chặn đóng cửa sổ khi đang ARM | Tránh đóng nhầm app lúc cánh quạt đang quay: phải bấm đóng lần hai trong 3 s | 4.11 |
-| 47 | Đọc cảnh báo thành tiếng | Nghe được cảnh báo mà không phải nhìn màn hình ("Sẵn sàng arm", "Mất tín hiệu", "Về nhà ngay"…), kể cả **mọi dòng lỗi đỏ** của bộ điều khiển bay (trừ PreArm). Có cả tiếng Việt và tiếng Anh | 4.14 |
+| 47 | Đọc cảnh báo thành tiếng | Nghe được cảnh báo mà không phải nhìn màn hình ("Sẵn sàng arm", "Mất tín hiệu", "Về nhà ngay"…), kể cả **mọi dòng lỗi đỏ** của bộ điều khiển bay (trừ PreArm), lúc ARM/DISARM và lúc đổi mode. Đọc chậm, giọng nữ. Có cả tiếng Việt và tiếng Anh | 4.14 |
 
 ## 6. Các tab khác
 
@@ -84,7 +84,7 @@
 |---|---|---|---|---|
 | 48 | Trạng thái | Bảng mọi trường MAVLink | Tra bất kỳ con số nào drone gửi lên, có ô lọc và nút tạm dừng. Dữ liệu đã cũ thì chuyển xám | 4.5, 5.1 |
 | 49 | Trạng thái | `SENSOR.*` giải mã | Biết ngay cảm biến nào đang hỏng | 4.5 |
-| 50 | Trạng thái | Cột Giải thích tham số | Mỗi hàng `PARAM.*` có một dòng giải thích ngay trong bảng (tiếng Việt cho 144 tham số viết tay, tiếng Anh của ArduPilot cho phần còn lại), tooltip kèm các giá trị. Phủ 1 036/1 037 tham số của FC thật | 4.5, 4.11 |
+| 50 | Trạng thái | Cột Giải thích | Mỗi hàng có một dòng giải thích ngay trong bảng, theo ngôn ngữ đang chọn: 1 036/1 037 tham số FC thật và 328/328 trường telemetry có tiếng Việt; tooltip kèm ý nghĩa các giá trị | 4.5, 4.11 |
 | 51 | Điều khiển | Lệnh thường + trạng thái node ROS 2 | ARM, đổi mode, cất cánh bằng chuột. Thấy node nào đang chạy trên máy tính nhúng | 4.6 |
 | 52 | Điều khiển | Khối trạng thái bay | Xem SẴN SÀNG ARM, CÒN và các cảnh báo mà không phải quay sang màn bay | 4.14 |
 | 53 | Thông báo | Dòng thời gian thông báo | Đọc lại toàn bộ lỗi và kết quả lệnh, có lọc theo mức. Số cảnh báo chưa đọc hiện ngay trên tên tab | 4.7, 4.11 |

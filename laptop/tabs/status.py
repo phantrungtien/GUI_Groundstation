@@ -191,9 +191,10 @@ class StatusTab(QWidget):
         """Tham so nay la gi: cot Giai thich (nguoi dung chon 19/09 — re chuot
         moi thay la khong ai biet ma re), kem tooltip day du ca cac gia tri.
 
-        Hang khong phai PARAM.* de trong: khong bia mo ta cho field thuong.
+        Hang telemetry lay mo ta tu dinh nghia MAVLink (param_doc.field) — khong
+        co thi de trong, khong bia.
         """
-        text = tip = ""
+        text = tip = param_doc.field(key)
         if key.startswith("PARAM."):
             name = key.split(".", 1)[-1]
             text = tip = param_doc.doc(name)

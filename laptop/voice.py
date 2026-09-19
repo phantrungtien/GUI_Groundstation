@@ -19,7 +19,7 @@ REPEAT_S = 30.0  # "ve nha ngay" con dung thi nhac lai sau chung nay
 # ung thi chinh ba so nay (pitch/rate trong khoang -1..1, 0 = mac dinh).
 VOICE_VARIANTS = ("Annie", "female3", "female2")
 PITCH = 0.5
-RATE = 0.1
+RATE = -0.2  # nguoi dung 20/09: doc cham lai (truoc 0.1). Am = cham hon
 
 
 def enabled():

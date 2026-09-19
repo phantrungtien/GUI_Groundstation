@@ -22,8 +22,16 @@ from pathlib import Path
 from core import i18n
 
 # Mo ta MOI tham so, tieng Anh, tu metadata cua ArduPilot — xem
-# tools/build_param_meta.py. Dung khi tham so khong co dong tieng Viet o duoi.
+# tools/build_param_meta.py. Dung khi tham so khong co dong viet tay o duoi.
 META = Path(__file__).with_name("param_meta.json")
+# Ban dich tieng Viet cho 901 tham so FC that co (log .bin ArduCopter V4.7.0):
+# {ten: [ten de doc, mo ta, cac gia tri]}. Dich may (Claude, 19/09) theo mau —
+# RC1..16/SERVO1..16 dung chung mot cau — nen doc lai khi nghi ngo; ten mode, ten
+# thiet bi, giao thuc giu nguyen tieng Anh nhu quy uoc cua app.
+META_VI = Path(__file__).with_name("param_meta_vi.json")
+# Mo ta tung truong telemetry (MSG.field) tu dinh nghia MAVLink cua pymavlink, kem
+# ban dich: {key: [en, vi, don vi]}. Chi cac truong da thay tren FC that + SITL.
+FIELD_DOC = Path(__file__).with_name("field_doc.json")
 
 # --- manh de ghep ho PID ---------------------------------------------------
 
@@ -380,12 +388,21 @@ def _compose(name):
     return None
 
 
-@functools.lru_cache(maxsize=1)
-def _meta():
+@functools.lru_cache(maxsize=None)
+def _load(path):
     try:
-        return json.loads(META.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):  # thieu file: chi con mo ta viet tay, khong phai loi
         return {}
+
+
+def _meta():
+    return _load(META)
+
+
+def _vi(name):
+    """Ban dich tieng Viet [ten, mo ta, gia tri] neu dang chon tieng Viet va co."""
+    return _load(META_VI).get(name) if i18n.lang() == "vi" else None
 
 
 def doc(name):
@@ -402,11 +419,27 @@ def doc(name):
     if not m:
         return ""
     human, text, units, _ = m
+    vi = _vi(name)
+    if vi and vi[1]:
+        human, text = vi[0] or human, vi[1]
     s = f"{human} — {text}" if human and text else human or text
     return f"{s} [{units}]" if units else s
 
 
 def values(name):
-    """"0: Disabled, 1: Enabled..." cho tham so kieu liet ke, "" neu khong co."""
+    """"0: Tắt, 1: Bật..." cho tham so kieu liet ke, "" neu khong co."""
+    vi = _vi(name)
+    if vi and vi[2]:
+        return vi[2]
     m = _meta().get(name)
     return m[3] if m else ""
+
+
+def field(key):
+    """Giai thich mot hang telemetry `MSG.field` (hoac `MSG.field[i]`), "" neu khong co."""
+    f = _load(FIELD_DOC).get(key.split("[", 1)[0])
+    if not f:
+        return ""
+    en, vi, units = f
+    s = vi if i18n.lang() == "vi" and vi else en
+    return f"{s} [{units}]" if units else s

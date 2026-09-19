@@ -2,7 +2,7 @@
 
 **Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `e05fc1d` (19/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Ba mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
 - **Số đo ở mục 5–8** lấy tại phiên bản `7319e8a` ngày 13–14/08/2026, trên bố cục cũ. Phần làm thêm sau đó mô tả ở mục 4.11–4.12 và nghiệm thu ở mục 9.
-- **Phần làm ngày 19/09/2026** (ô CÒN, SẴN SÀNG ARM, cảnh báo đứng yên, giọng nói, tự nối lại USB, giữ 2 s chọn điểm, chạm đúp z20, bỏ thao tác giữ-2-giây của DISARM) mô tả ở mục 4.14, **không có ảnh chụp**; nghiệm thu bằng `selfcheck` và `e2e_sitl` (mục 9). **Phụ lục A** liệt kê toàn bộ tính năng theo mã nguồn hiện tại.
+- **Phần làm ngày 19/09/2026** (ô CÒN, SẴN SÀNG ARM, cảnh báo đứng yên, giọng nói, tự nối lại USB, giữ 2 s chọn điểm, chạm đúp z20, bỏ thao tác giữ-2-giây của DISARM) mô tả ở mục 4.14, phần làm tối 19/09 – 20/09 (giọng nói đọc lỗi đỏ/ARM/mode, bản đồ gọn hơn, cột Giải thích tiếng Việt) ở mục 4.15; cả hai **không có ảnh chụp**; nghiệm thu bằng `selfcheck` và `e2e_sitl` (mục 9). **Phụ lục A** liệt kê toàn bộ tính năng theo mã nguồn hiện tại.
 - **Toàn bộ chín ảnh chụp lại ngày 18/09/2026** trên bố cục hiện tại — bộ ảnh cũ đã xoá hẳn vì nó tả một giao diện không còn tồn tại (tab Bay cũ gỡ ở `14ec366`). Danh mục hình ở cuối báo cáo ghi rõ hình nào chụp trên máy bay thật, hình nào trên mô phỏng.
 
 **Chế độ chạy:** ROS 2 Humble + ArduPilot SITL + MAVROS (profile `SITL + ROS2 (sitl_mission.launch.py)`); ảnh 18/09 chụp trên cả profile máy bay thật `SiK radio` lẫn profile SITL
@@ -493,6 +493,25 @@ Chạy với số thật của MicoAir743, **cả bốn** cảnh báo chưa-ARM 
 
 **Gỡ bỏ:** bản sao thứ hai của đường kết nối nằm trong `Backend` (~110 dòng, chỉ `e2e_sitl` dùng) cùng ngăn kéo kết nối trong màn QML (80 dòng) đã xoá; `e2e_sitl` nay kết nối qua đúng `MainWindow.connect_to`, nên bộ kiểm phủ luôn tự nối lại USB, video và việc hỏi tham số.
 
+### 4.15 Bổ sung tối 19/09 – 20/09/2026: giọng nói, bản đồ gọn hơn, cột Giải thích
+
+Cũng không có ảnh; nghiệm thu bằng `selfcheck` 45/45 và `e2e_sitl` 58/58 trong 167 s trên SITL khởi động lạnh (20/09).
+
+**Giọng nói đọc thêm ba loại sự kiện.** (1) **Mọi dòng lỗi đỏ** của bộ điều khiển bay: "Lỗi: <câu của FC>", mỗi dòng một lần lúc nó hiện, xếp hàng sau câu đang đọc chứ không cắt ngang, tối đa 3 câu mỗi nhịp; bỏ các câu `PreArm:` vì dòng SẴN SÀNG ARM đã nói và FC nhắc lại chúng mỗi ~31 s. (2) **ARM / DISARM**: "Đã arm", "Đã disarm". (3) **Đổi mode**: "Chế độ LOITER" — tên mode giữ nguyên chữ của FC. Hai loại sau chỉ đọc khi giá trị **đổi từ một giá trị đã biết**: vừa kết nối vào một máy bay đang nằm đất thì không được nghe "Đã disarm" như thể có ai vừa tắt máy. Tốc độ đọc giảm từ 0,1 xuống −0,2 theo yêu cầu người dùng.
+
+**Bản đồ bớt những thứ dễ đọc nhầm.** Khi bộ điều khiển bay **không bật rào** (`FENCE_ENABLE = 0`) thì không vẽ rào nào — trước đây vẽ xám đứt nét, vẫn bị đọc thành "có rào". Dải chữ dưới bản đồ bỏ zoom, toạ độ tâm, "nháy đôi để bám lại" và tên nguồn ảnh; chỉ còn cảnh báo (khoảng cách tới rào, HOME TẠM, đường bay đang tới điểm nào, CHƯA NẠP), và ẩn hẳn khi không có gì để nói.
+
+**Camera không kết nối được** thì ô video ghi "Chưa kết nối được camera" thay cho tên lỗi và địa chỉ `http://…`; hai thứ đó vẫn nằm trong log video để dò lỗi.
+
+**Tab Trạng thái có cột Giải thích.** Trước đó phần giải thích chỉ nằm trong tooltip và chỉ có cho 144 tham số viết tay, nên phần lớn hàng rê chuột vào không thấy gì. Nay mỗi hàng có một dòng ngay trong bảng, theo ngôn ngữ đang chọn:
+
+| Loại hàng | Nguồn mô tả | Độ phủ đo được |
+|---|---|---|
+| Tham số `PARAM.*` | Dòng viết tay (144) → bản dịch tiếng Việt `core/param_meta_vi.json` (901) → mô tả tiếng Anh của ArduPilot `core/param_meta.json` (5 771, dựng từ `apm.pdef.xml` bản master của Mission Planner, đúng tên SI của 4.7-dev) | 1 036/1 037 tham số trong log `.bin` của FC thật (ArduCopter V4.7.0) có tiếng Việt; thiếu `GND_EFFECT_COMP` |
+| Trường telemetry `MSG.field` | Định nghĩa MAVLink của pymavlink, kèm đơn vị và bản dịch — `core/field_doc.json` | 328/328 trường thấy trên `.tlog` SiK thật và SITL |
+
+Tooltip thêm ý nghĩa các giá trị của tham số kiểu liệt kê (`FS_THR_ENABLE` → "1: Bật — luôn RTL…"). Bản dịch do máy làm, theo mẫu (RC1..16, SERVO1..16 dùng chung một câu) nên cần đọc lại khi nghi ngờ; tên mode, tên thiết bị và giao thức giữ nguyên tiếng Anh theo quy ước của ứng dụng. Mã nguồn ArduPilot 4.6.3 trên máy sinh ra tên cũ (`RTL_ALT`, `WPNAV_SPEED`) nên không dùng được làm nguồn — một ví dụ nữa cho việc nguồn tài liệu phải khớp đúng firmware đang bay.
+
 ---
 
 ## 5. Telemetry
@@ -684,7 +703,7 @@ Ngoài phiên chạy mô tả ở trên, phần mềm mang theo bốn lớp ki�
 | Công cụ | Phạm vi | Kết quả |
 |---|---|---|
 | `tools/selfcheck.py` | Phép kiểm không cần SITL: chuẩn hoá NED→ENU, lọc nguồn, trọng tài đa nguồn, nút khẩn cấp đi trước kiểm tra quyền, khoá nút ở chế độ phát lại, quét cổng USB, chốt chặn TAKEOFF, cấu trúc nhiệm vụ waypoint, giải mã MJPEG, cùng các phép kiểm cho mục 4.11–4.12 | PASS 29/29 (13/08) → 38/38 (23/08) → 44/44 (17/09) → **45/45 (19/09)** |
-| `tools/e2e_sitl.py` | 58 bài trong **một chuyến bay trên ArduCopter SITL thật**, kết nối qua đúng `MainWindow.connect_to` của ứng dụng rồi đi đúng đường ngón tay đi | PASS 53/53 trong 169 s (17/09) → **58/58 trong 175 s** (19/09, `e05fc1d`, SITL khởi động lạnh) |
+| `tools/e2e_sitl.py` | 58 bài trong **một chuyến bay trên ArduCopter SITL thật**, kết nối qua đúng `MainWindow.connect_to` của ứng dụng rồi đi đúng đường ngón tay đi | PASS 53/53 trong 169 s (17/09) → 58/58 trong 175 s (19/09, `e05fc1d`) → **58/58 trong 167 s** (20/09, SITL khởi động lạnh) |
 | `tools/measure_bandwidth.py` | Byte/s thực theo từng loại message trên cổng đang cắm | 2 899 B/s, 82,2 msg/s (mục 5.2) |
 | `tools/compare_gcs.py` | Đối chiếu từng con số với MAVProxy trên **cùng một luồng gói tin**, ở hai trạng thái tĩnh | Toạ độ khớp tuyệt đối; mọi đại lượng khác lệch nhỏ hơn nửa đơn vị hiển thị [4] |
 

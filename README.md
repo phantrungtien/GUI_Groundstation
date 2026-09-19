@@ -259,7 +259,7 @@ SAPI trên Windows). Đọc **khi trạng thái đổi**, không đọc lại m�
 sàng arm", "Mất tín hiệu", "Sắp phải về", "Pin yếu/rất yếu, còn N phần trăm";
 riêng **"Về nhà ngay" nhắc lại mỗi 30 s** còn đúng. Ngôn ngữ theo tab Cài đặt
 (`vi_VN` / `en_US`, đổi giữa chuyến là câu sau đổi theo). Giọng nữ, cao: biến thể
-`+Annie` (không có thì `female3`, `female2`), pitch 0,5, rate 0,1 — ba hằng số
+`+Annie` (không có thì `female3`, `female2`), pitch 0,5, rate −0,2 (chậm lại 20/09, trước là 0,1) — ba hằng số
 đầu file. Không có engine TTS thì im lặng, app vẫn chạy. Tắt ở tab Cài đặt.
 
 **ARM / DISARM / đổi mode cũng được đọc**: "Đã arm", "Đã disarm", "Chế độ LOITER"
@@ -414,15 +414,24 @@ nhau là 24 cơ hội gõ nhầm, và thêm một hệ số mới thì không ph
 Cái không theo khuôn (`MOT_*`, `WPNAV_*`, `ANGLE_MAX`…) ghi thẳng ở `EXPLICIT`.
 
 **Cột Giải thích** (thêm 19/09 — rê chuột mới thấy là không ai biết mà rê): mọi
-hàng `PARAM.*` có một dòng mô tả ngay trong bảng, tooltip thêm cả các giá trị của
-tham số kiểu liệt kê (`FS_THR_ENABLE` → `1: Enabled always RTL, …`). Tham số có
-dòng tiếng Việt viết tay thì dùng dòng đó; còn lại lấy mô tả **tiếng Anh** của
-ArduPilot kèm đơn vị, từ `core/param_meta.json` (5 771 tham số). Đo trên log `.bin`
-thật của FC (ArduCopter V4.7.0): **1 036/1 037** tham số có giải thích — thiếu
-`GND_EFFECT_COMP`. File dựng từ `apm.pdef.xml` mà Mission Planner tải về (bản
-master, đúng tên SI của 4.7-dev; mã nguồn `~/ardupilot` 4.6.3 thì ra tên cũ):
-`python3 tools/build_param_meta.py`. Field thường (`ATTITUDE.roll`…) **không** bịa
-mô tả — cột để trống.
+hàng có một dòng mô tả ngay trong bảng, theo **ngôn ngữ đang chọn**; tooltip thêm cả
+các giá trị của tham số kiểu liệt kê (`FS_THR_ENABLE` → `1: Bật — luôn RTL, …`).
+
+- **Tham số `PARAM.*`**: dòng viết tay (144) → bản dịch tiếng Việt
+  `core/param_meta_vi.json` (901 tham số) → mô tả tiếng Anh của ArduPilot
+  `core/param_meta.json` (5 771, dùng khi chọn English hoặc tham số lạ). Đo trên
+  log `.bin` thật của FC (ArduCopter V4.7.0): **1 036/1 037** tham số có giải thích
+  tiếng Việt, 0 cái rơi về tiếng Anh; thiếu `GND_EFFECT_COMP`.
+- **Trường telemetry** (`ATTITUDE.roll`, `VIBRATION.vibration_x`…): mô tả từ định
+  nghĩa MAVLink của pymavlink kèm đơn vị, có bản dịch — `core/field_doc.json`, phủ
+  **328/328** trường thấy trên `.tlog` SiK thật + SITL. Trường lạ thì để trống, không bịa.
+
+Bản dịch do máy làm (Claude, 19/09), theo mẫu: RC1..16, SERVO1..16 dùng chung một
+câu. Tên mode, tên thiết bị, giao thức giữ nguyên tiếng Anh như quy ước của app —
+nên danh sách giá trị kiểu `RCx_OPTION`, `SERVOx_FUNCTION` vẫn là chữ ArduPilot.
+Mô tả tiếng Anh dựng từ `apm.pdef.xml` Mission Planner tải về (bản master, đúng tên
+SI của 4.7-dev): `python3 tools/build_param_meta.py`. Tham số mới sau khi đổi
+firmware sẽ hiện tiếng Anh cho tới khi được dịch thêm vào `param_meta_vi.json`.
 
 ### Ngôn ngữ — tiếng Việt / English
 
