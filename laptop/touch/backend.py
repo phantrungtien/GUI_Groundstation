@@ -247,6 +247,9 @@ class Backend(QObject):
              else "voice.rtl_soon", repeat=self._rtl_lvl == "crit")
         lvl = batt_level(pct) if armed else None
         v.on("batt", lvl, "voice.batt_crit" if lvl == "crit" else "voice.batt_low", pct=pct)
+        v.change("armed", armed, "voice.armed" if armed else "voice.disarmed")
+        fc = s["fcMode"] or None
+        v.change("mode", fc, "voice.mode", name=fc)
         v.alerts(self.alerts.red())
 
     def _time_left(self, pct):

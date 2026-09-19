@@ -390,7 +390,7 @@ def check_tabs(app):
     # cot Gia tri, nen kiem dung o do — mat mau la mat canh bao, mat co that.
     from laptop.tabs.status import STALE_COLOR
 
-    assert st.model.columnCount() == 2, st.model.columnCount()
+    assert st.model.columnCount() == 3, st.model.columnCount()  # Field, Gia tri, Giai thich
     song = st.model.item(0, 1).foreground().color().name()
     st._seen["ATTITUDE.roll"] = time.time() - 10
     st._age()
@@ -1016,7 +1016,7 @@ def check_fence(app):
     va FENCE_RADIUS/FENCE_ALT_MAX doc bang PARAM_VALUE. Check nay dung dung nhung
     con so do, khong bia.
     """
-    from laptop.widgets.map_widget import FENCE_IN, FENCE_OFF, fence_shapes, meters_per_px
+    from laptop.widgets.map_widget import FENCE_IN, fence_shapes, meters_per_px
 
     # PARAM_VALUE FENCE_* va HOME_POSITION phai ra topic rieng, khong chim vao STATUS
     assert normalize("PARAM_VALUE", {"param_id": "FENCE_RADIUS\x00", "param_value": 150.0}) == (
@@ -1068,12 +1068,12 @@ def check_fence(app):
     cx, cy = img.width() // 2, img.height() // 2
     assert img.pixel(cx + r_px, cy) == FENCE_IN.rgb(), "vanh rao khong nam o dung ban kinh"
 
-    # FENCE_ENABLE = 0: van ve (de biet rao nam dau) nhung phai khac han ve mau,
-    # va dai chu phai noi thang la TAT.
+    # FENCE_ENABLE = 0: FC khong chan -> KHONG ve rao (ve ra la bi doc nham thanh
+    # "co rao"), va dai chu cung khong nhac toi rao.
     bus.emit("sik", "fence", {"FENCE_ENABLE": 0.0})
-    assert ft.map._fence_note() == t("map.fence_off"), ft.map._fence_note()
+    assert ft.map._fence_note() == "", ft.map._fence_note()
     img = ft.map.grab().toImage()
-    assert img.pixel(cx + r_px, cy) == FENCE_OFF.rgb(), "rao TAT phai doi mau, khong duoc bien mat"
+    assert img.pixel(cx + r_px, cy) != FENCE_IN.rgb(), "rao TAT ma van ve vanh rao"
 
     # Ngat ket noi: rao, home, vet bay cua drone cu phai bien mat
     ft.attach(None, None)
@@ -1094,7 +1094,7 @@ def check_fence(app):
     bus.emit("sik", "ack", {"command": 400, "result": 0})  # ARM: cai nay moi la cua nut
     assert not ct.cmd._pending and "chấp nhận" in logs[-1], logs
     ct.close()
-    print("  ok  geofence: vong tron quanh home + da giac, TAT thi ve dut net")
+    print("  ok  geofence: vong tron quanh home + da giac, FC TAT rao thi khong ve")
 
 
 def check_waypoints(app):
@@ -1872,6 +1872,20 @@ def check_param_doc(app):
         assert all(st.model.item(row["PARAM.ATC_RAT_RLL_P"], c).toolTip() == tip
                    for c in range(st.model.columnCount()))
         assert st.model.item(row["ATTITUDE.roll"], 0).toolTip() == "", "bia mo ta cho field thuong"
+        # Cot Giai thich (cot 3): cung chu voi tooltip, hang thuong de trong.
+        assert st.model.item(row["PARAM.ATC_RAT_RLL_P"], 2).text() == tip
+        assert st.model.item(row["ATTITUDE.roll"], 2).text() == ""
+        # Tham so khong co dong viet tay: lay mo ta ArduPilot (file ArduPilot master),
+        # kem don vi; kieu liet ke thi tooltip co ca cac gia tri.
+        bus.emit("sik", "status", {"PARAM.BATT_CAPACITY": 5200.0, "PARAM.FS_THR_ENABLE": 1.0})
+        st._flush()
+        row = {st.model.item(r, 0).text(): r for r in range(st.model.rowCount())}
+        cap = st.model.item(row["PARAM.BATT_CAPACITY"], 2).text()
+        assert "Battery capacity" in cap and cap.endswith("[mAh]"), cap
+        fs = st.model.item(row["PARAM.FS_THR_ENABLE"], 0).toolTip()
+        assert "1: Enabled always RTL" in fs and "Các giá trị" in fs, fs
+        n_meta = len(param_doc._meta())
+        assert n_meta > 1000, f"param_meta.json chi co {n_meta} tham so"
 
         # Doi ngon ngu: hang DA NAM trong bang phai doi tooltip theo, khong chi
         # hang moi them sau do.
@@ -1880,8 +1894,8 @@ def check_param_doc(app):
         assert "roll axis" in tip_en and "P gain" in tip_en, tip_en
     finally:
         i18n.set_lang(was)
-    print(f"  ok  giai thich tham so: {n_doc} ten co mo ta (ghep tu khuon + bang "
-          "viet tay), vao tooltip cua hang PARAM.*, doi theo ngon ngu")
+    print(f"  ok  giai thich tham so: {n_doc} ten viet tay (vi/en) + {n_meta} tu metadata "
+          "ArduPilot, vao cot Giai thich + tooltip cua hang PARAM.*, doi theo ngon ngu")
 
 
 def check_flight_alerts(app):
@@ -2479,6 +2493,26 @@ def check_touch_flight(app):
             b.refresh()
         said = [x for x in b.voice.spoken if x.startswith("Lỗi")]
         assert said == ["Lỗi: EKF variance"], b.voice.spoken
+
+        # --- ARM / DISARM / doi mode: doc khi DOI, khong doc lan dau thay -------
+        b.voice.spoken.clear()
+        for _ in range(3):
+            b.refresh()  # dang GUIDED + ARM tu tren: khong doi -> im
+        state(mode="LOITER", armed=True, landed=False)
+        for _ in range(3):
+            b.refresh()
+        state(mode="LOITER", armed=False, landed=True)
+        for _ in range(3):
+            b.refresh()
+        said = [x for x in b.voice.spoken if x.startswith(("Chế độ", "Đã"))]
+        assert said == ["Chế độ LOITER", "Đã disarm"], b.voice.spoken
+        b.voice.reset()
+        b.voice.spoken.clear()
+        b.refresh()  # vua noi lai: gia tri dau tien khong duoc doc
+        assert not [x for x in b.voice.spoken if x.startswith(("Chế độ", "Đã"))], b.voice.spoken
+        state(mode="LOITER", armed=True, landed=True)
+        b.refresh()
+        assert "Đã arm" in b.voice.spoken, b.voice.spoken
 
         # --- cham dong loi tren man bay -> tab Thong bao, dung dong do ---------
         bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),

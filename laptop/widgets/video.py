@@ -216,7 +216,7 @@ class VideoSource(QObject):
                     if type(e) is not last_err:
                         _log(f"error {type(e).__name__}: {e}")
                     last_err = type(e)
-                    self.note = ("vid.error", {"err": type(e).__name__})
+                    self.note = ("vid.error", {})  # loai loi + dia chi nam o log
                     time.sleep(RETRY_S)
 
 
@@ -254,9 +254,9 @@ class VideoView(QWidget):
             p.setPen(QColor(theme.MUTED))
             # `note` la (key, kwargs), dich luc VE chu khong luc dat: khung ve lai
             # deu dan nen doi ngon ngu la dong chu tu doi theo, khoi dang ky hook.
+            # Khong in dia chi http len man: nguoi bay khong lam gi duoc voi no, con
+            # nguoi sua loi thi doc o log (`_log`: start <url>, error <loai>).
             text = t(src.note[0], **src.note[1]) if src is not None else t("vid.no_source")
-            if src is not None and src.url:
-                text += f"\n{src.url}"
             p.drawText(0, 0, w, h, Qt.AlignCenter | Qt.TextWordWrap, text)
         else:
             p.fillRect(0, 0, w, h, QColor(theme.BG_DEEP))

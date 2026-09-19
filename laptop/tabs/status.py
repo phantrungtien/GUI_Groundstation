@@ -67,8 +67,8 @@ class StatusTab(QWidget):
         self.count.setStyleSheet(f"color:{theme.MUTED};")
         self.adapter = None
 
-        self.model = QStandardItemModel(0, 2, self)
-        self.model.setHorizontalHeaderLabels(["", ""])
+        self.model = QStandardItemModel(0, 3, self)
+        self.model.setHorizontalHeaderLabels(["", "", ""])
         self.proxy = QSortFilterProxyModel(self)
         self.proxy.setSourceModel(self.model)
         self.proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
@@ -83,8 +83,9 @@ class StatusTab(QWidget):
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.view.verticalHeader().setVisible(False)
         self.view.setAlternatingRowColors(True)
-        self.view.setColumnWidth(0, 320)  # con hai cot thi rong ra, bot phai cuon ngang
-        self.view.setColumnWidth(1, 200)
+        self.view.setColumnWidth(0, 320)
+        self.view.setColumnWidth(1, 160)
+        self.view.horizontalHeader().setStretchLastSection(True)  # cot giai thich an het phan con lai
 
         top = QHBoxLayout()
         top.addWidget(self.search, 1)
@@ -116,9 +117,10 @@ class StatusTab(QWidget):
         self.freeze.setText(t("st.freeze"))
         self.btn_pid.setToolTip(t("st.pid_tip"))
         self.count.setText(t("st.count", n=len(self._rows)))
-        self.model.setHorizontalHeaderLabels([t("st.col_field"), t("st.col_value")])
+        self.model.setHorizontalHeaderLabels(
+            [t("st.col_field"), t("st.col_value"), t("st.col_doc")])
         for key, row in self._rows.items():
-            self._tip([self.model.item(row, c) for c in range(2)], key)
+            self._tip([self.model.item(row, c) for c in range(3)], key)
         # Hang SENSOR.* mang chu chu khong mang so, nen phai dich lai tai cho —
         # doi voi hang so thi doi ngon ngu khong lam gi ca.
         for key, ma in self._sensor.items():
@@ -179,21 +181,27 @@ class StatusTab(QWidget):
         self._age()
 
     def _add_row(self, key, value):
-        items = [QStandardItem(key), QStandardItem(fmt(key, value))]
+        items = [QStandardItem(key), QStandardItem(fmt(key, value)), QStandardItem()]
         self._tip(items, key)
         self.model.appendRow(items)
         self._rows[key] = items[0].row()
         self.count.setText(t("st.count", n=len(self._rows)))
 
     def _tip(self, items, key):
-        """Tham so nay la gi — gan vao ca hai o de re chuot cho nao cung ra.
+        """Tham so nay la gi: cot Giai thich (nguoi dung chon 19/09 — re chuot
+        moi thay la khong ai biet ma re), kem tooltip day du ca cac gia tri.
 
-        Cot rieng thi ~350 hang con lai bo trong, ma bang nay von da phai cuon
-        ngang. Tooltip khong ton mot pixel nao cua bang.
+        Hang khong phai PARAM.* de trong: khong bia mo ta cho field thuong.
         """
-        text = param_doc.doc(key.split(".", 1)[-1]) if key.startswith("PARAM.") else ""
+        text = tip = ""
+        if key.startswith("PARAM."):
+            name = key.split(".", 1)[-1]
+            text = tip = param_doc.doc(name)
+            if vals := param_doc.values(name):
+                tip = f"{text}\n\n{t('st.values')}: {vals}"
+        items[2].setText(text)
         for it in items:
-            it.setToolTip(text)
+            it.setToolTip(tip)
 
     def _age(self):
         """Field ngung cap nhat phai xam di — dung hinh ma van den la noi doi.

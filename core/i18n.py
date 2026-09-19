@@ -283,6 +283,8 @@ STR = {
     "sensor.fail_off": ("HỎNG (tắt)", "FAULT (off)"),
     "st.col_field": ("Field", "Field"),
     "st.col_value": ("Giá trị", "Value"),
+    "st.col_doc": ("Giải thích", "Description"),
+    "st.values": ("Các giá trị", "Values"),
 
     # --- tab Messages -----------------------------------------------------
     "msg.level": ("Mức độ:", "Level:"),
@@ -357,7 +359,7 @@ STR = {
     "vid.not_connected": ("chưa kết nối", "not connected"),
     "vid.connecting": ("đang nối...", "connecting..."),
     "vid.lost": ("mất video", "video lost"),
-    "vid.error": ("không có video ({err})", "no video ({err})"),
+    "vid.error": ("Chưa kết nối được camera", "Camera not connected"),
 
     # --- ban do -----------------------------------------------------------
     "map.no_tiles": ("không có tile offline cho z{z} — lưới toạ độ thay thế\n"
@@ -366,9 +368,7 @@ STR = {
                      "(put tiles in assets/tiles/{{z}}/{{x}}/{{y}}.png)"),
     "map.upscaled": ("ảnh thô z{tz} phóng to {k} lần — chưa tải chi tiết cho vùng này",
                      "coarse z{tz} imagery blown up {k}× — no detail downloaded here"),
-    "map.unfollow": ("nháy đôi để bám lại theo drone", "double-click to re-follow the drone"),
     "map.fence_err": ("rào: {err}", "fence: {err}"),
-    "map.fence_off": ("rào TẮT", "fence OFF"),
     "map.fence_on": ("rào BẬT", "fence ON"),
     "map.fence_notype": ("⚠ rào BẬT nhưng FENCE_TYPE=0 — FC không chặn gì cả",
                          "⚠ fence ON but FENCE_TYPE=0 — the FC blocks nothing"),
@@ -541,6 +541,9 @@ STR = {
     "safe.rtl_soon": ("Sắp phải về — còn {left}, về mất ~{need}", "Return soon — {left} left, return takes ~{need}"),
     "voice.ready": ("Sẵn sàng arm", "Ready to arm"),
     "voice.alert": ("Lỗi: {text}", "Error: {text}"),
+    "voice.armed": ("Đã arm", "Armed"),
+    "voice.disarmed": ("Đã disarm", "Disarmed"),
+    "voice.mode": ("Chế độ {name}", "Mode {name}"),
     "voice.lost": ("Mất tín hiệu", "Signal lost"),
     "voice.rtl_soon": ("Sắp phải về", "Return soon"),
     "voice.rtl_now": ("Về nhà ngay", "Return now"),

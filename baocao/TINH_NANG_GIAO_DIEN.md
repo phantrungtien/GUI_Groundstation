@@ -84,7 +84,7 @@
 |---|---|---|---|---|
 | 48 | Trạng thái | Bảng mọi trường MAVLink | Tra bất kỳ con số nào drone gửi lên, có ô lọc và nút tạm dừng. Dữ liệu đã cũ thì chuyển xám | 4.5, 5.1 |
 | 49 | Trạng thái | `SENSOR.*` giải mã | Biết ngay cảm biến nào đang hỏng | 4.5 |
-| 50 | Trạng thái | 63 tham số PID + tooltip | Đọc tham số điều khiển, rê chuột lên là thấy giải thích, không phải tra tài liệu | 4.5, 4.11 |
+| 50 | Trạng thái | Cột Giải thích tham số | Mỗi hàng `PARAM.*` có một dòng giải thích ngay trong bảng (tiếng Việt cho 144 tham số viết tay, tiếng Anh của ArduPilot cho phần còn lại), tooltip kèm các giá trị. Phủ 1 036/1 037 tham số của FC thật | 4.5, 4.11 |
 | 51 | Điều khiển | Lệnh thường + trạng thái node ROS 2 | ARM, đổi mode, cất cánh bằng chuột. Thấy node nào đang chạy trên máy tính nhúng | 4.6 |
 | 52 | Điều khiển | Khối trạng thái bay | Xem SẴN SÀNG ARM, CÒN và các cảnh báo mà không phải quay sang màn bay | 4.14 |
 | 53 | Thông báo | Dòng thời gian thông báo | Đọc lại toàn bộ lỗi và kết quả lệnh, có lọc theo mức. Số cảnh báo chưa đọc hiện ngay trên tên tab | 4.7, 4.11 |

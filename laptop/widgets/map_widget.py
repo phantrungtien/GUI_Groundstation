@@ -74,9 +74,6 @@ HOME = QColor(theme.WARN)
 TEXT = QColor(theme.MUTED)
 FENCE_IN = QColor("#e8913c")       # vung duoc phep bay
 FENCE_OUT = QColor(theme.CRIT)     # vung cam vao
-# Rao dang TAT ve dut net, nhung phai SANG: xam toi thi chim han vao anh ve tinh
-# va "rao dang tat" nhin y het "khong co rao" — hai chuyen rat khac nhau.
-FENCE_OFF = QColor("#d6e0e8")
 # Duong bay da nap. Mau phai khac han vet bay (xanh duong): mot cai la KE HOACH,
 # cai kia la thu drone DA bay qua — nhin nham hai thu nay la hieu sai man hinh.
 WP_LINE = QColor("#a96fd6")
@@ -366,7 +363,6 @@ class MapWidget(QWidget):
         # ghi cong), dong 2 URL template de tai bu tile thieu khi co mang.
         src = TILE_DIR / "SOURCE.txt"
         lines = src.read_text().splitlines() if src.exists() else []
-        self.credit = lines[0].strip() if lines else ""
         url = lines[1].strip() if len(lines) > 1 else DEFAULT_TILE_URL
         self.fetcher = None
         if ONLINE_TILES and url:
@@ -595,18 +591,18 @@ class MapWidget(QWidget):
     def _draw_fence(self, p, cx, cy):
         """Rao: vong tron quanh HOME (FENCE_RADIUS) va cac da giac tai tu FC.
 
-        FENCE_ENABLE = 0 -> ve xam, dut net. Rao co dinh nghia nhung dang TAT ma
-        ve nhu dang bat la noi doi ve phia nguy hiem: nguoi bay tuong minh duoc
-        chan lai o do.
+        FENCE_ENABLE = 0 -> KHONG ve gi (nguoi dung chot 19/09). Ve mot rao ma FC
+        khong chan, du dut net, van bi doc nham thanh "co rao" — nguoi bay tuong
+        minh duoc chan lai o do. Dai chu duoi ban do van noi "rao TAT".
         """
         f = self.fence
-        on = bool(f.get("FENCE_ENABLE", 0))
+        if not f.get("FENCE_ENABLE", 0):
+            return
         ftype = int(f.get("FENCE_TYPE", 0) or 0)
         radius = f.get("FENCE_RADIUS") or 0
 
         def pen(cam_vao):
-            color = FENCE_OFF if not on else (FENCE_OUT if cam_vao else FENCE_IN)
-            return QPen(color, 2, Qt.SolidLine if on else Qt.DashLine)
+            return QPen(FENCE_OUT if cam_vao else FENCE_IN, 2)
 
         p.setBrush(Qt.NoBrush)
         if radius > 0 and self.home and ftype & FENCE_TYPE_CIRCLE:
@@ -636,7 +632,7 @@ class MapWidget(QWidget):
         if f.get("err"):
             return t("map.fence_err", err=f["err"])
         if not f.get("FENCE_ENABLE", 0):
-            return t("map.fence_off")
+            return ""  # FC khong bat rao: khong ve, khong noi (nguoi dung chot 19/09)
         ftype = int(f.get("FENCE_TYPE", 0) or 0)
         if not ftype:
             # FENCE_ENABLE = 1 nhung khong bat loai rao nao: FC KHONG chan gi ca.
@@ -902,20 +898,15 @@ class MapWidget(QWidget):
         if self.pos:
             self._draw_drone(p, self._to_px(*self.pos, cx, cy))
 
-        # Chu de tren anh ve tinh thi chim han. Ke mot dai toi mo phia sau — re hon
-        # ve vien chu, va ngoai nang doc duoc that.
+        # Dai chu chi con canh bao (rao, HOME TAM, duong bay, CHUA NAP) — zoom, toa
+        # do tam, "nhay doi de bam lai" va ten nguon anh da bo 19/09 cho do roi.
+        # Khong con gi thi khong ke dai. Chu tren anh ve tinh thi chim han, nen ke
+        # mot dai toi mo phia sau.
+        note = "  ·  ".join(x for x in (self._fence_note(), self._home_note(),
+                                        self._wp_note(), self._draft_note()) if x)
+        if not note:
+            return
         p.setFont(QFont("", 8))
-        note = f"z{self.zoom}  {self.center[0]:.5f}, {self.center[1]:.5f}"
-        fence = self._fence_note()
-        if fence:
-            note += f"  ·  {fence}"
-        for extra in (self._home_note(), self._wp_note(), self._draft_note()):
-            if extra:
-                note += f"  ·  {extra}"
-        if not self.follow:
-            note += f"  ·  {t('map.unfollow')}"
-        if self.credit:
-            note += f"  ·  {self.credit}"
         strip = QRect(0, self.height() - 16, self.width(), 16)
         p.fillRect(strip, QColor(0, 0, 0, 140))
         p.setPen(QColor(200, 208, 214))

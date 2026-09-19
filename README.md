@@ -262,6 +262,11 @@ riêng **"Về nhà ngay" nhắc lại mỗi 30 s** còn đúng. Ngôn ngữ the
 `+Annie` (không có thì `female3`, `female2`), pitch 0,5, rate 0,1 — ba hằng số
 đầu file. Không có engine TTS thì im lặng, app vẫn chạy. Tắt ở tab Cài đặt.
 
+**ARM / DISARM / đổi mode cũng được đọc**: "Đã arm", "Đã disarm", "Chế độ LOITER"
+— chỉ khi giá trị **đổi** từ một giá trị đã biết. Vừa kết nối (hay telemetry
+chập chờn, giá trị chưa biết) thì không đọc, nên nối vào drone đang nằm đất
+không nghe "Đã disarm" như thể có ai vừa tắt máy. Tên mode giữ nguyên chữ của FC.
+
 **Dòng lỗi đỏ cũng được đọc**: `"Lỗi: <câu của FC>"`, mỗi dòng một lần lúc nó
 hiện (hết hạn 10 s rồi quay lại thì đọc lại), xếp hàng sau câu đang đọc chứ không
 cắt ngang, tối đa 3 câu mỗi nhịp. Bỏ `PreArm:` — dòng SẴN SÀNG ARM đã nói, và FC
@@ -301,6 +306,13 @@ không tồn tại, và làm thế một lần thì lần sau họ không tin co
 
 `FENCE_ENABLE = 1` mà `FENCE_TYPE = 0` thì FC **không chặn gì cả** — dải chữ nói
 thẳng `⚠ rào BẬT nhưng FENCE_TYPE=0`, chứ không hiện "rào BẬT" như trước.
+
+`FENCE_ENABLE = 0` (FC không bật rào) thì bản đồ **không vẽ rào nào** — trước
+đây vẽ xám đứt nét, vẫn bị đọc nhầm thành "có rào". Dải chữ cũng không nhắc tới rào.
+
+**Dải chữ dưới bản đồ chỉ còn cảnh báo** (rào, HOME TẠM, đường bay, CHƯA NẠP);
+zoom, toạ độ tâm, "nháy đôi để bám lại" và tên nguồn ảnh đã bỏ. Không có gì
+để nói thì dải chữ ẩn hẳn.
 
 Chỉ hiện **một** số: cái **gần nhất**. Liệt kê cả ba thì dải chữ dài ra mà người
 bay vẫn phải tự so xem cái nào sắp chạm — đúng cái việc đang muốn làm hộ. Vùng
@@ -401,8 +413,16 @@ hai bảng mảnh (trục nào × hệ số nào) chứ không viết tay từng
 nhau là 24 cơ hội gõ nhầm, và thêm một hệ số mới thì không phải thêm dòng nào.
 Cái không theo khuôn (`MOT_*`, `WPNAV_*`, `ANGLE_MAX`…) ghi thẳng ở `EXPLICIT`.
 
-Không làm cột riêng: bảng có ~350 hàng mà chỉ 63 hàng có mô tả, cột đó sẽ trống
-85%. Field thường (`ATTITUDE.roll`…) **không** bịa mô tả — thiếu thì im lặng.
+**Cột Giải thích** (thêm 19/09 — rê chuột mới thấy là không ai biết mà rê): mọi
+hàng `PARAM.*` có một dòng mô tả ngay trong bảng, tooltip thêm cả các giá trị của
+tham số kiểu liệt kê (`FS_THR_ENABLE` → `1: Enabled always RTL, …`). Tham số có
+dòng tiếng Việt viết tay thì dùng dòng đó; còn lại lấy mô tả **tiếng Anh** của
+ArduPilot kèm đơn vị, từ `core/param_meta.json` (5 771 tham số). Đo trên log `.bin`
+thật của FC (ArduCopter V4.7.0): **1 036/1 037** tham số có giải thích — thiếu
+`GND_EFFECT_COMP`. File dựng từ `apm.pdef.xml` mà Mission Planner tải về (bản
+master, đúng tên SI của 4.7-dev; mã nguồn `~/ardupilot` 4.6.3 thì ra tên cũ):
+`python3 tools/build_param_meta.py`. Field thường (`ATTITUDE.roll`…) **không** bịa
+mô tả — cột để trống.
 
 ### Ngôn ngữ — tiếng Việt / English
 

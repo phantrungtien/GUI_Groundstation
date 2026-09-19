@@ -93,6 +93,17 @@ class Voice:
             self._said_at[event] = now
             self.say(key, **kw)
 
+    def change(self, event, value, key, **kw):
+        """Doc khi `value` DOI tu mot gia tri da biet (ARM, mode). None = chua
+        biet: bo qua, khong ghi de — noi vao hay chap chon telemetry khong duoc
+        doc ra "disarm" / "che do STABILIZE" nhu the vua co ai doi."""
+        if value is None:
+            return
+        prev = self._last.get(event)
+        self._last[event] = value
+        if prev is not None and value != prev:
+            self.say(key, **kw)
+
     def alerts(self, red):
         """Doc moi dong loi DO vua hien (suon: moi xuat hien, hoac het han roi
         quay lai). PreArm bo qua — dong SAN SANG ARM da noi, va FC nhac PreArm

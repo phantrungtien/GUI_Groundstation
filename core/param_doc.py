@@ -15,7 +15,15 @@ firmware va theo khung, ma dong chu nay thi khong. Muon con so thi nhin chinh
 cot Gia tri ben canh.
 """
 
+import functools
+import json
+from pathlib import Path
+
 from core import i18n
+
+# Mo ta MOI tham so, tieng Anh, tu metadata cua ArduPilot — xem
+# tools/build_param_meta.py. Dung khi tham so khong co dong tieng Viet o duoi.
+META = Path(__file__).with_name("param_meta.json")
 
 # --- manh de ghep ho PID ---------------------------------------------------
 
@@ -372,13 +380,33 @@ def _compose(name):
     return None
 
 
+@functools.lru_cache(maxsize=1)
+def _meta():
+    try:
+        return json.loads(META.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # thieu file: chi con mo ta viet tay, khong phai loi
+        return {}
+
+
 def doc(name):
     """Mot dong giai thich cho tham so `name`, theo ngon ngu dang chon.
 
-    Tra ve "" neu chua co mo ta — nguoi goi tu quyet dinh im lang (khong gan
-    tooltip) chu khong hien ra mot cai tooltip rong.
+    Uu tien dong viet tay (co tieng Viet); khong co thi lay mo ta cua ArduPilot
+    (tieng Anh) kem don vi. Tra ve "" neu ca hai deu khong co — nguoi goi tu
+    quyet dinh im lang chu khong hien mot o rong gia vo la co.
     """
     pair = EXPLICIT.get(name) or _compose(name)
-    if not pair:
+    if pair:
+        return pair[0] if i18n.lang() == "vi" else pair[1]
+    m = _meta().get(name)
+    if not m:
         return ""
-    return pair[0] if i18n.lang() == "vi" else pair[1]
+    human, text, units, _ = m
+    s = f"{human} — {text}" if human and text else human or text
+    return f"{s} [{units}]" if units else s
+
+
+def values(name):
+    """"0: Disabled, 1: Enabled..." cho tham so kieu liet ke, "" neu khong co."""
+    m = _meta().get(name)
+    return m[3] if m else ""
