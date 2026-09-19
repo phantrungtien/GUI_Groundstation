@@ -24,7 +24,8 @@ phải rồi bấm **Ket noi**. Mặc định im lặng an toàn hơn mặc đ�
 ### Cài phụ thuộc (một lần)
 
 ```bash
-pip install --user PySide6 pymavlink pyyaml websockets pyserial
+pip install --user PySide6 pymavlink pyyaml websockets pyserial piper-tts
+python3 tools/fetch_voices.py      # giong doc Piper, ~120 MB, vao assets/voices/
 sudo usermod -aG dialout $USER      # quyen doc cong serial — DANG XUAT/DANG NHAP lai
 ```
 
@@ -254,18 +255,29 @@ bảng trên là để biết khi nào nó sẽ bật lại.
 
 ### Đọc cảnh báo thành tiếng
 
-`laptop/voice.py` (Qt TextToSpeech — speech-dispatcher/espeak-ng trên Linux,
-SAPI trên Windows). Đọc **khi trạng thái đổi**, không đọc lại mỗi nhịp: "Sẵn
+`laptop/voice.py`. **Engine: Piper** — giọng nơ-ron chạy trên máy, không cần
+mạng: giọng Việt `vi_VN-vais1000-medium`, giọng Anh `en_US-amy-medium` (cả hai giọng
+nữ, ~60 MB mỗi giọng, ở `assets/voices/` — **không nằm trong git**, tải bằng
+`python3 tools/fetch_voices.py`). Đổi từ espeak ngày 20/09: espeak đọc tiếng Việt sai
+dấu, nghe như máy. Đo trên laptop: nạp giọng ~0,5 s một lần, tổng hợp 0,03–0,11 s
+mỗi câu, phát qua `QAudioSink`; `LENGTH_SCALE = 1,35` (>1 là chậm hơn), cách câu
+0,25 s. Thiếu `piper-tts` hoặc thiếu file giọng thì tự quay về Qt TextToSpeech
+(speech-dispatcher/espeak-ng trên Linux, SAPI trên Windows — Windows thường **không
+có** giọng Việt). Khi đóng gói app thì mang theo `assets/voices/` là đủ.
+
+Đọc **khi trạng thái đổi**, không đọc lại mỗi nhịp: "Sẵn
 sàng arm", "Mất tín hiệu", "Sắp phải về", "Pin yếu/rất yếu, còn N phần trăm";
 riêng **"Về nhà ngay" nhắc lại mỗi 30 s** còn đúng. Ngôn ngữ theo tab Cài đặt
 (`vi_VN` / `en_US`, đổi giữa chuyến là câu sau đổi theo). Giọng nữ, cao: biến thể
-`+Annie` (không có thì `female3`, `female2`), pitch 0,5, rate −0,2 (chậm lại 20/09, trước là 0,1) — ba hằng số
-đầu file. Không có engine TTS thì im lặng, app vẫn chạy. Tắt ở tab Cài đặt.
+`+Annie` (không có thì `female3`, `female2`), pitch 0,5, rate −0,4 — chỉ dùng cho
+espeak dự phòng. Không có engine nào thì im lặng, app vẫn chạy. Tắt ở tab Cài đặt.
 
 **ARM / DISARM / đổi mode cũng được đọc**: "Đã arm", "Đã disarm", "Chế độ LOITER"
 — chỉ khi giá trị **đổi** từ một giá trị đã biết. Vừa kết nối (hay telemetry
 chập chờn, giá trị chưa biết) thì không đọc, nên nối vào drone đang nằm đất
-không nghe "Đã disarm" như thể có ai vừa tắt máy. Tên mode giữ nguyên chữ của FC.
+không nghe "Đã disarm" như thể có ai vừa tắt máy. Tên mode giữ nguyên chữ của FC. Riêng
+`RTL` / `SMART_RTL` đọc đầy đủ "return to launch" / "smart return to launch" (cả trong
+câu lỗi của FC) — chỉ đổi chữ đọc, màn hình vẫn ghi `RTL`.
 
 **Dòng lỗi đỏ cũng được đọc**: `"Lỗi: <câu của FC>"`, mỗi dòng một lần lúc nó
 hiện (hết hạn 10 s rồi quay lại thì đọc lại), xếp hàng sau câu đang đọc chứ không
@@ -783,7 +795,7 @@ laptop/
   commands.py    # logic lenh (ARM/TAKEOFF/RTL/goto/waypoint) — MOT instance dung
                  # chung cho man bay cam ung va tab Dieu khien
   safety.py      # thoi gian RTL, kiem failsafe, % pin theo dien ap (khong Qt)
-  voice.py       # doc canh bao thanh tieng (Qt TTS)
+  voice.py       # doc canh bao thanh tieng (Piper, du phong Qt TTS)
   touch/         # man bay cam ung kieu DJI: backend.py (state cho QML) + qml/
   tabs/          # status, control, messages, analysis, settings
   widgets/       # map, compass, attitude, video, trajectory3d, alerts
@@ -799,6 +811,7 @@ tools/
   e2e_ros2.py      # nghiem thu tren stack ROS2 that
   ros2_bridge.py   # chay tren COMPANION: ROS2 <-> WebSocket
   fetch_tiles.py   # tai tile ban do offline
+  fetch_voices.py  # tai giong doc Piper vao assets/voices/
   mjpeg_server.py  # chay tren COMPANION: /dev/video* hoac topic anh ROS2 -> MJPEG
   fire_tracker.py  # bam vet lua/khoi YOLO ONNX, ve len khung MJPEG
   video_timeline.sh  # ghep nhip video Pi + GUI len mot truc thoi gian

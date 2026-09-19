@@ -2522,6 +2522,22 @@ def check_touch_flight(app):
         state(mode="LOITER", armed=True, landed=True)
         b.refresh()
         assert "Đã arm" in b.voice.spoken, b.voice.spoken
+        # RTL doc day du, khong doc tat — ca ten mode lan cau loi cua FC.
+        state(mode="RTL", armed=True, landed=False)
+        b.refresh()
+        assert "Chế độ return to launch" in b.voice.spoken, b.voice.spoken
+        b.voice.say("voice.alert", text="Failsafe: RTL, SmartRTL")
+        assert b.voice.spoken[-1] == "Lỗi: Failsafe: return to launch, smart return to launch", \
+            b.voice.spoken[-1]
+        # Giong Piper (neu da tai): tong hop duoc ca hai thu tieng, do dai hop ly.
+        # Khong phat ra loa — enabled() da tat o dau selfcheck.
+        from laptop.voice import _Piper
+        if b.voice._piper is not None:
+            for lang, txt in (("vi", "Về nhà ngay"), ("en", "Return now")):
+                if _Piper.has(lang):
+                    pcm, rate = b.voice._piper.pcm(txt, lang)
+                    dur = len(pcm) / 2 / rate
+                    assert 0.4 < dur < 3.0, (lang, dur)
 
         # --- cham dong loi tren man bay -> tab Thong bao, dung dong do ---------
         bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),

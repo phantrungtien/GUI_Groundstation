@@ -1,6 +1,6 @@
 # Báo cáo: Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `59fc2e7` (20/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Ba mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
+**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `59fc2e7` cộng phần đổi giọng đọc sang Piper cùng ngày (20/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Ba mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
 - **Số đo ở mục 5–8** lấy tại phiên bản `7319e8a` ngày 13–14/08/2026, trên bố cục cũ. Phần làm thêm sau đó mô tả ở mục 4.11–4.12 và nghiệm thu ở mục 9.
 - **Phần làm ngày 19/09/2026** (ô CÒN, SẴN SÀNG ARM, cảnh báo đứng yên, giọng nói, tự nối lại USB, giữ 2 s chọn điểm, chạm đúp z20, bỏ thao tác giữ-2-giây của DISARM) mô tả ở mục 4.14, phần làm tối 19/09 – 20/09 (giọng nói đọc lỗi đỏ/ARM/mode, bản đồ gọn hơn, cột Giải thích tiếng Việt) ở mục 4.15; cả hai **không có ảnh chụp**; nghiệm thu bằng `selfcheck` và `e2e_sitl` (mục 9). **Phụ lục A** liệt kê toàn bộ tính năng theo mã nguồn hiện tại.
 - **Toàn bộ chín ảnh chụp lại ngày 18/09/2026** trên bố cục hiện tại — bộ ảnh cũ đã xoá hẳn vì nó tả một giao diện không còn tồn tại (tab Bay cũ gỡ ở `14ec366`). Danh mục hình ở cuối báo cáo ghi rõ hình nào chụp trên máy bay thật, hình nào trên mô phỏng.
@@ -122,7 +122,7 @@ laptop/          # tầng giao diện
   commands.py    # logic lệnh (ARM · TAKEOFF · RTL · goto · waypoint), MỘT thể
                  # hiện dùng chung cho màn bay cảm ứng và tab Control
   safety.py      # thời gian RTL, kiểm failsafe, % pin theo điện áp (không Qt)
-  voice.py       # đọc cảnh báo thành tiếng (Qt TextToSpeech)
+  voice.py       # đọc cảnh báo thành tiếng (Piper, dự phòng Qt TextToSpeech)
   touch/         # màn bay cảm ứng QML: backend.py (trạng thái) + qml/ + items.py
   tabs/          # status · control · messages · analysis · settings
   widgets/       # map · compass · attitude · video · trajectory3d · alerts
@@ -481,7 +481,7 @@ Thời gian RTL tính theo đúng chuỗi bước của ArduCopter: leo tới `R
 
 Chạy với số thật của MicoAir743, **cả bốn** cảnh báo chưa-ARM đều bật: failsafe pin và GCS đang tắt, `BATT_LOW_VOLT = 10,8 V` là 2,70 V/cell trên pin 4S, và pin 3,82 V/cell ≈ 45 % trong khi bộ điều khiển bay báo 99 % (vì nó coi pin đầy lúc cắm). Cùng bộ số đó, `WP_SPD = 1 m/s` nên RTL từ 500 m mất ~8 phút 51 giây. Tức là trước phần này, chiếc máy bay thật đang có bốn lỗi cấu hình an toàn mà không màn hình nào nói ra. (Sau đó failsafe trên bộ điều khiển bay đã được bật đủ.)
 
-**Đọc cảnh báo thành tiếng** (`laptop/voice.py`, Qt TextToSpeech — speech-dispatcher/espeak-ng trên Linux, SAPI trên Windows). Chỉ đọc **khi trạng thái đổi**: "Sẵn sàng arm", "Mất tín hiệu", "Sắp phải về", "Pin yếu, còn N phần trăm"; riêng "Về nhà ngay" nhắc lại mỗi 30 s còn đúng. Ngôn ngữ theo tab Cài đặt, đổi giữa chuyến thì câu sau đổi theo. Không có engine TTS thì im lặng và ứng dụng vẫn chạy; tắt được ở tab Cài đặt.
+**Đọc cảnh báo thành tiếng** (`laptop/voice.py`; engine lúc đầu là Qt TextToSpeech — speech-dispatcher/espeak-ng trên Linux, SAPI trên Windows — nay là Piper, xem mục 4.15). Chỉ đọc **khi trạng thái đổi**: "Sẵn sàng arm", "Mất tín hiệu", "Sắp phải về", "Pin yếu, còn N phần trăm"; riêng "Về nhà ngay" nhắc lại mỗi 30 s còn đúng. Ngôn ngữ theo tab Cài đặt, đổi giữa chuyến thì câu sau đổi theo. Không có engine TTS thì im lặng và ứng dụng vẫn chạy; tắt được ở tab Cài đặt.
 
 **Rút cáp USB rồi cắm lại — tự nối lại.** Đang có dữ liệu mà cổng biến mất thì ứng dụng giữ nguyên profile, banner đỏ ghi "mất cổng … — cắm lại là tự kết nối", và quét cổng mỗi giây. Thiết bị được nhận lại theo **VID:PID:số serial** chứ không theo tên cổng: cắm lại ra `ttyACM1` vẫn nhận, cắm một radio khác vào thì không nối nhầm. Chỉ áp cho cổng serial — TCP/UDP đã có `autoreconnect` của pymavlink, còn REPLAY không có gì để cắm lại. Bấm **Ngắt** là thôi chờ.
 
@@ -497,7 +497,18 @@ Chạy với số thật của MicoAir743, **cả bốn** cảnh báo chưa-ARM 
 
 Cũng không có ảnh; nghiệm thu bằng `selfcheck` 45/45 và `e2e_sitl` 58/58 trong 167 s trên SITL khởi động lạnh (20/09).
 
-**Giọng nói đọc thêm ba loại sự kiện.** (1) **Mọi dòng lỗi đỏ** của bộ điều khiển bay: "Lỗi: <câu của FC>", mỗi dòng một lần lúc nó hiện, xếp hàng sau câu đang đọc chứ không cắt ngang, tối đa 3 câu mỗi nhịp; bỏ các câu `PreArm:` vì dòng SẴN SÀNG ARM đã nói và FC nhắc lại chúng mỗi ~31 s. (2) **ARM / DISARM**: "Đã arm", "Đã disarm". (3) **Đổi mode**: "Chế độ LOITER" — tên mode giữ nguyên chữ của FC. Hai loại sau chỉ đọc khi giá trị **đổi từ một giá trị đã biết**: vừa kết nối vào một máy bay đang nằm đất thì không được nghe "Đã disarm" như thể có ai vừa tắt máy. Tốc độ đọc giảm từ 0,1 xuống −0,2 theo yêu cầu người dùng.
+**Giọng nói đọc thêm ba loại sự kiện.** (1) **Mọi dòng lỗi đỏ** của bộ điều khiển bay: "Lỗi: <câu của FC>", mỗi dòng một lần lúc nó hiện, xếp hàng sau câu đang đọc chứ không cắt ngang, tối đa 3 câu mỗi nhịp; bỏ các câu `PreArm:` vì dòng SẴN SÀNG ARM đã nói và FC nhắc lại chúng mỗi ~31 s. (2) **ARM / DISARM**: "Đã arm", "Đã disarm". (3) **Đổi mode**: "Chế độ LOITER" — tên mode giữ nguyên chữ của FC. Hai loại sau chỉ đọc khi giá trị **đổi từ một giá trị đã biết**: vừa kết nối vào một máy bay đang nằm đất thì không được nghe "Đã disarm" như thể có ai vừa tắt máy. `RTL` / `SMART_RTL` đọc đầy đủ "return to launch" / "smart return to launch", kể cả trong câu lỗi của FC — "RTL" đọc tắt thì không ai nghe ra; chữ trên màn hình vẫn là `RTL`.
+
+**Đổi engine đọc sang Piper (20/09).** espeak-ng — engine phía sau speech-dispatcher — tổng hợp theo luật ghép âm: đọc tiếng Việt sai dấu, nghe như máy, và chỉnh tốc độ/độ cao giọng không sửa được điều đó. Piper là giọng nơ-ron chạy ngay trên máy, không cần mạng — đúng điều kiện ngoài bãi bay: giọng Việt `vi_VN-vais1000-medium`, giọng Anh `en_US-amy-medium`, cả hai giọng nữ, chọn theo ngôn ngữ giao diện. Số đo trên laptop phát triển:
+
+| Đại lượng | Giá trị |
+|---|---|
+| Nạp một giọng (một lần, ở câu đầu tiên của ngôn ngữ đó) | ~0,5 s |
+| Tổng hợp một câu cảnh báo | 0,03 – 0,11 s |
+| Ba câu liên tiếp ("Về nhà ngay" → "Lỗi: EKF variance" → "Chế độ return to launch"), phát thật qua loa | xong sau 4,4 s, không câu nào đè câu nào |
+| Dung lượng mỗi giọng | 60,3 MB |
+
+Vì tổng hợp nhanh hơn độ dài câu hàng chục lần, câu được tạo lúc cần và phát PCM qua `QAudioSink` với hàng đợi riêng — không cần tạo sẵn file. `LENGTH_SCALE = 1,35` làm giọng chậm lại, mỗi câu cách nhau 0,25 s. File giọng nằm ở `assets/voices/`, **ngoài git** như bản đồ offline, tải bằng `python3 tools/fetch_voices.py`; khi đóng gói ứng dụng thì mang theo thư mục đó là đủ. Thiếu gói `piper-tts` hoặc thiếu file giọng thì tự quay về Qt TextToSpeech — điều này quan trọng trên Windows, nơi SAPI mặc định thường không có giọng Việt. Chưa thử cài `piper-tts` trên Windows.
 
 **Bản đồ bớt những thứ dễ đọc nhầm.** Khi bộ điều khiển bay **không bật rào** (`FENCE_ENABLE = 0`) thì không vẽ rào nào — trước đây vẽ xám đứt nét, vẫn bị đọc thành "có rào". Dải chữ dưới bản đồ bỏ zoom, toạ độ tâm, "nháy đôi để bám lại" và tên nguồn ảnh; chỉ còn cảnh báo (khoảng cách tới rào, HOME TẠM, đường bay đang tới điểm nào, CHƯA NẠP), và ẩn hẳn khi không có gì để nói.
 
@@ -825,7 +836,7 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 | 55 | Phân tích | Đọc log | `.tlog`/`.bin` từ đĩa hoặc kéo từ thẻ SD của FC qua telemetry | `tabs/analysis.py`, `core/` | 4.11 |
 | 56 | Phân tích | Đồ thị + quỹ đạo 3D | Tối đa 4 đồ thị; chuẩn hoá 0–1; lọc điểm `lat = lon = 0`; chế độ trực tiếp 60 s | `tabs/analysis.py`, `widgets/trajectory3d.py` | 4.11 |
 | 57 | Cài đặt | Song ngữ Việt ↔ Anh | Đổi ngay không khởi động lại; nhớ bằng `QSettings`; `selfcheck` đối chiếu từng cặp | `core/i18n.py`, `tabs/settings.py` | 4.11 |
-| 58 | Cài đặt | Đọc cảnh báo thành tiếng | Qt TTS, giọng nữ, tốc độ −0,2; đọc khi trạng thái đổi: sẵn sàng ARM, mất tín hiệu, pin, VỀ NHÀ NGAY (nhắc mỗi 30 s), lỗi đỏ của FC (trừ PreArm), ARM/DISARM, đổi mode; bật/tắt | `laptop/voice.py` | 4.14, 4.15 |
+| 58 | Cài đặt | Đọc cảnh báo thành tiếng | Giọng nơ-ron Piper chạy trên máy (Việt `vais1000`, Anh `amy`, giọng nữ), dự phòng Qt TTS; đọc khi trạng thái đổi: sẵn sàng ARM, mất tín hiệu, pin, VỀ NHÀ NGAY (nhắc mỗi 30 s), lỗi đỏ của FC (trừ PreArm), ARM/DISARM, đổi mode; RTL đọc đầy đủ "return to launch"; bật/tắt | `laptop/voice.py`, `assets/voices/` | 4.14, 4.15 |
 | 59 | Chung | Bảng màu thống nhất | Mọi màu từ `laptop/theme.py` | `laptop/theme.py` | 4.11 |
 
 ---

@@ -8,6 +8,9 @@ logs/
 #   python3 tools/fetch_tiles.py --lat ... --lon ... --km 2 --zoom 13-19 --source google
 assets/tiles/
 
+# Giong doc Piper: ~60 MB moi giong, tai lai bang  python3 tools/fetch_voices.py
+assets/voices/
+
 # Trang thai phien lam viec, khong lien quan toi du an
 .remember/
 

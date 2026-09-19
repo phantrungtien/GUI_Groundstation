@@ -76,7 +76,7 @@
 | 44 | Ghi vết lệnh ở ba nơi | Tra lại được mọi lệnh đã bấm cùng kết quả: thanh trạng thái, tab Thông báo và `logs/commands.log` | 4.7 |
 | 45 | Laptop cầm toàn quyền | Node trên máy tính nhúng không lái được drone. Mọi lệnh chỉ đi từ laptop | 2.3 |
 | 46 | Chặn đóng cửa sổ khi đang ARM | Tránh đóng nhầm app lúc cánh quạt đang quay: phải bấm đóng lần hai trong 3 s | 4.11 |
-| 47 | Đọc cảnh báo thành tiếng | Nghe được cảnh báo mà không phải nhìn màn hình ("Sẵn sàng arm", "Mất tín hiệu", "Về nhà ngay"…), kể cả **mọi dòng lỗi đỏ** của bộ điều khiển bay (trừ PreArm), lúc ARM/DISARM và lúc đổi mode. Đọc chậm, giọng nữ. Có cả tiếng Việt và tiếng Anh | 4.14 |
+| 47 | Đọc cảnh báo thành tiếng | Nghe được cảnh báo mà không phải nhìn màn hình ("Sẵn sàng arm", "Mất tín hiệu", "Về nhà ngay"…), kể cả **mọi dòng lỗi đỏ** của bộ điều khiển bay (trừ PreArm), lúc ARM/DISARM và lúc đổi mode; RTL đọc đầy đủ "return to launch". Giọng nơ-ron Piper chạy trên máy, không cần mạng — đọc tiếng Việt đúng dấu, rõ hơn giọng máy cũ. Có cả tiếng Việt và tiếng Anh | 4.14, 4.15 |
 
 ## 6. Các tab khác
 
