@@ -1,6 +1,6 @@
 # Báo cáo: Giao diện trạm điều khiển mặt đất cho ArduCopter — vận hành qua ROS 2/MAVROS
 
-**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `e05fc1d` (19/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Ba mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
+**Đối tượng khảo sát:** ứng dụng `GUI_NATIVE` (PySide6), phiên bản mã nguồn `59fc2e7` (20/09/2026 — commit cuối cùng chạm tới `laptop/`, `core/`, `tools/`). Ba mốc thời gian không trùng nhau, và chỗ nào trong báo cáo cũng ghi rõ mình thuộc mốc nào:
 - **Số đo ở mục 5–8** lấy tại phiên bản `7319e8a` ngày 13–14/08/2026, trên bố cục cũ. Phần làm thêm sau đó mô tả ở mục 4.11–4.12 và nghiệm thu ở mục 9.
 - **Phần làm ngày 19/09/2026** (ô CÒN, SẴN SÀNG ARM, cảnh báo đứng yên, giọng nói, tự nối lại USB, giữ 2 s chọn điểm, chạm đúp z20, bỏ thao tác giữ-2-giây của DISARM) mô tả ở mục 4.14, phần làm tối 19/09 – 20/09 (giọng nói đọc lỗi đỏ/ARM/mode, bản đồ gọn hơn, cột Giải thích tiếng Việt) ở mục 4.15; cả hai **không có ảnh chụp**; nghiệm thu bằng `selfcheck` và `e2e_sitl` (mục 9). **Phụ lục A** liệt kê toàn bộ tính năng theo mã nguồn hiện tại.
 - **Toàn bộ chín ảnh chụp lại ngày 18/09/2026** trên bố cục hiện tại — bộ ảnh cũ đã xoá hẳn vì nó tả một giao diện không còn tồn tại (tab Bay cũ gỡ ở `14ec366`). Danh mục hình ở cuối báo cáo ghi rõ hình nào chụp trên máy bay thật, hình nào trên mô phỏng.
@@ -133,15 +133,15 @@ tools/           # công cụ đo, kiểm thử, tải ảnh bản đồ, cầu 
 
 Quy tắc phụ thuộc một chiều: `laptop/` được phép gọi `core/`, chiều ngược lại thì không. Nhờ vậy toàn bộ logic xử lý dữ liệu kiểm thử được mà không cần dựng cửa sổ, và đó là điều kiện để bộ `selfcheck` chạy được 45 phép kiểm trong khoảng hai phút mà không cần SITL.
 
-**Quy mô mã nguồn.** Bốn mốc: `7319e8a` (phiên bản lấy số đo ở mục 5–8), `affa8d8` (phiên bản viết báo cáo), `f3ebff1` (sau khi gộp hai màn bay — mục 4.12), và `e05fc1d` (hiện tại, sau phần an toàn 19/09 — mục 4.14):
+**Quy mô mã nguồn.** Năm mốc: `7319e8a` (phiên bản lấy số đo ở mục 5–8), `affa8d8` (phiên bản viết báo cáo), `f3ebff1` (sau khi gộp hai màn bay — mục 4.12), `e05fc1d` (sau phần an toàn 19/09 — mục 4.14), và `59fc2e7` (hiện tại — mục 4.15; chưa tính ba file dữ liệu JSON mô tả tham số/trường):
 
-| Thành phần | `7319e8a` | `affa8d8` | `f3ebff1` | `e05fc1d` |
-|---|---|---|---|---|
-| `core/` (bus, trọng tài, quyền, hai adapter, bộ đọc log, bảng chữ song ngữ) | 1 280 | 2 055 | 2 955 | 3 016 |
-| `laptop/` (cửa sổ chính, 7 tab, widget vẽ tay, logic lệnh, bảng màu chung) | 3 131 | 4 568 | 5 412 | 5 882 |
-| `laptop/touch/qml/` (màn bay cảm ứng, QML) | — | — | 911 | 947 |
-| `tools/` (kiểm thử, đo đạc, cầu nối, tải ảnh bản đồ, máy chủ video) | 3 947 | 5 310 | 6 605 | 7 009 |
-| **Tổng** | **8 358** | **11 933** | **15 883** | **16 854** |
+| Thành phần | `7319e8a` | `affa8d8` | `f3ebff1` | `e05fc1d` | `59fc2e7` |
+|---|---|---|---|---|---|
+| `core/` (bus, trọng tài, quyền, hai adapter, bộ đọc log, bảng chữ song ngữ) | 1 280 | 2 055 | 2 955 | 3 016 | 3 092 |
+| `laptop/` (cửa sổ chính, 7 tab, widget vẽ tay, logic lệnh, bảng màu chung) | 3 131 | 4 568 | 5 412 | 5 882 | 5 916 |
+| `laptop/touch/qml/` (màn bay cảm ứng, QML) | — | — | 911 | 947 | 947 |
+| `tools/` (kiểm thử, đo đạc, cầu nối, tải ảnh bản đồ, máy chủ video) | 3 947 | 5 310 | 6 605 | 7 009 | 7 103 |
+| **Tổng** | **8 358** | **11 933** | **15 883** | **16 854** | **17 058** |
 
 Con số `laptop/` tăng ít hơn phần thêm vào vì cùng đợt đó **817 dòng chết bị xoá** (`14ec366`): mã không còn ai gọi tới thì không được nằm lại trong cây, kể cả khi nó vẫn chạy được.
 
@@ -293,9 +293,9 @@ Hai hình trên đều chụp trên bàn, nơi không có định vị vệ tinh
 
 Tab này không khai báo trước một trường nào. Adapter trải phẳng `msg.to_dict()` của **mọi** message thành các cặp `TÊN_MESSAGE.field` rồi đẩy lên bus dưới topic `status`; bảng chỉ việc hiển thị. Đổi firmware hay bật thêm message thì bảng tự dài ra, không phải sửa mã.
 
-Bốn chức năng phụ trợ: ô lọc theo tên (gõ `SENSOR.` là thấy ngay cảm biến nào hỏng), nút tạm dừng để đọc một giá trị đang nhảy, dấu hiệu quá hạn cho từng hàng, và nút đọc 63 tham số PID theo yêu cầu.
+Bốn chức năng phụ trợ: ô lọc theo tên (gõ `SENSOR.` là thấy ngay cảm biến nào hỏng), nút tạm dừng để đọc một giá trị đang nhảy, dấu hiệu quá hạn cho từng hàng, và nút đọc bảng tham số của bộ điều khiển bay theo yêu cầu.
 
-Hai chi tiết của bảng này đã đổi sau phiên chụp ảnh. Thứ nhất, **hai cột Nguồn và Tuổi bị bỏ**, còn lại đúng hai cột Field và Giá trị: ở chế độ thật mọi hàng đều mang cùng một nguồn `sik`, nên cột nguồn lặp lại một chữ suốt 300 hàng mà không thêm thông tin nào, còn cột tuổi thì con số nhảy liên tục làm mắt khó bám — thông tin "hàng này đã cũ" nay thể hiện bằng cách chuyển chữ sang xám. Nguồn phát vẫn hiện đầy đủ ở thanh telemetry, nơi hai nguồn thật sự tranh nhau. Thứ hai, nhóm `SENSOR.*` được adapter giải mã sẵn từ mặt nạ bit thành tên bộ cảm biến, và 63 tham số PID mỗi cái mang một dòng giải thích trong tooltip, đổi theo ngôn ngữ đang chọn. Tham số phải hỏi mới có vì bộ điều khiển bay không tự gửi; hỏi cả 1 431 tham số sẽ chiếm đường truyền vài chục giây, nên chỉ nhóm liên quan tới điều khiển và dẫn đường được hỏi.
+Ba chi tiết của bảng này đã đổi theo thời gian. Thứ nhất, **hai cột Nguồn và Tuổi bị bỏ**, còn Field và Giá trị: ở chế độ thật mọi hàng đều mang cùng một nguồn `sik`, nên cột nguồn lặp lại một chữ suốt 300 hàng mà không thêm thông tin nào, còn cột tuổi thì con số nhảy liên tục làm mắt khó bám — thông tin "hàng này đã cũ" nay thể hiện bằng cách chuyển chữ sang xám. Nguồn phát vẫn hiện đầy đủ ở thanh telemetry, nơi hai nguồn thật sự tranh nhau. Thứ hai, nhóm `SENSOR.*` được adapter giải mã sẵn từ mặt nạ bit thành tên bộ cảm biến. Thứ ba, từ 20/09 có **cột Giải thích** thứ ba cho mọi hàng, theo ngôn ngữ đang chọn (mục 4.15). Tham số phải hỏi mới có vì bộ điều khiển bay không tự gửi. Ban đầu chỉ hỏi 63 tham số PID theo một danh sách ghim cứng; từ 23/08 nút này kéo **cả bảng** (1 037 tham số trên FC thật), vì firmware 4.7-dev đổi tên hàng loạt sang đơn vị SI — 30/63 tên trong danh sách cũ không còn tồn tại và FC im lặng chứ không báo sai. Giá phải trả: ~9 s qua USB, ước ~20 s qua SiK và chiếm gần hết đường truyền trong lúc đó, nên nó là nút bấm chứ không tự làm lúc kết nối.
 
 Về hiệu năng: dữ liệu được gom lại và vẽ mỗi 200 ms thay vì vẽ theo từng gói. Với khoảng 82 message/s, mỗi message nhiều trường, việc vẽ từng cái một là lãng phí thấy rõ và làm giao diện giật.
 
@@ -387,7 +387,7 @@ Phần này làm sau khi đã chụp ảnh và lấy số ở các mục 5–8, 
 
 Việc này trùng với `MAVExplorer.py` có sẵn kèm `pymavlink`; tab trong ứng dụng cốt để không phải thoát ra giữa buổi bay, còn đào sâu — FFT, so hai log, lọc theo chế độ bay — thì vẫn nên mở MAVExplorer.
 
-**Song ngữ Việt – Anh.** Toàn bộ chữ trong giao diện đi qua một bảng tra 207 mục hai thứ tiếng; tab Cài đặt đổi ngôn ngữ ngay lúc đang chạy, mọi widget viết lại chữ tại chỗ, và lựa chọn được nhớ cho lần chạy sau. Kèm theo đó, 63 tham số PID mỗi cái có một dòng giải thích hiện trong tooltip khi rê chuột lên hàng `PARAM.*` — đọc `ATC_RAT_RLL_FLTD` mà không phải tra tài liệu ArduPilot ở cửa sổ khác.
+**Song ngữ Việt – Anh.** Toàn bộ chữ trong giao diện đi qua một bảng tra hai thứ tiếng (207 mục lúc đó, nay 282); tab Cài đặt đổi ngôn ngữ ngay lúc đang chạy, mọi widget viết lại chữ tại chỗ, và lựa chọn được nhớ cho lần chạy sau. Kèm theo đó, 63 tham số PID mỗi cái có một dòng giải thích hiện trong tooltip khi rê chuột lên hàng `PARAM.*` — đọc `ATC_RAT_RLL_FLTD` mà không phải tra tài liệu ArduPilot ở cửa sổ khác.
 
 **Thanh telemetry mở rộng.** Thêm ba thông tin lấy từ nhận xét khi bay thật: **trạng thái ARM nói thành lời** (chế độ bay không nói được cánh quạt có quay hay không — `GUIDED` đúng cả lúc đang nằm im lẫn lúc đang bay, nên viên trạng thái phân biệt rõ "đã ARM, còn dưới đất" với "đang bay"), **đồng hồ giờ bay** tính từ sườn lên của cờ `armed` chứ không từ lúc bấm nút (lệnh ARM có thể bị từ chối, và con số phải đếm từ lúc động cơ thật sự sống), và **khoảng cách về nhà**. Màu pin bám vào phần trăm bộ điều khiển bay báo (≤ 30 % vàng, ≤ 20 % đỏ) chứ không bám vào điện áp — điện áp vẫn là con số hiện ra vì người bay quen đọc nó, nhưng ngưỡng thì lấy theo phần trăm. Ô GPS xét đủ ba điều kiện: kiểu định vị, số vệ tinh (≥ 8) và HDOP (≤ 2,0); đủ vệ tinh mà HDOP xấu vẫn phải là màu cảnh báo.
 
@@ -521,7 +521,7 @@ Tooltip thêm ý nghĩa các giá trị của tham số kiểu liệt kê (`FS_T
 Tab Trạng thái liệt kê **297 trường** ở thời điểm chụp (Hình 5), gồm mọi trường số của mọi message MAVLink mà bộ điều khiển bay gửi lên, cộng các trường cảm biến đã giải mã và tham số PID đọc theo yêu cầu. Hàng quá hạn chuyển xám, nên một trường đứng yên vì hỏng phân biệt được với một trường đứng yên vì đại lượng không đổi.
 
 ![Hình 5](anh/05_trang_thai.png)
-*Hình 5 — Tab Trạng thái với 297 trường và ô lọc theo tên, đọc từ máy bay thật qua SiK. Bảng còn hai cột Field và Giá trị (mục 4.5). Con số này không cố định giữa các phiên: ba lần đo trong cùng buổi chiều 18/09 cho 301, 302 rồi 297, vì bảng chỉ mọc thêm khi bộ điều khiển bay thật sự gửi message đó lên, và mỗi phiên nó gửi một tập hơi khác nhau.*
+*Hình 5 — Tab Trạng thái với 297 trường và ô lọc theo tên, đọc từ máy bay thật qua SiK. Lúc chụp bảng còn hai cột Field và Giá trị; từ 20/09 có thêm cột Giải thích (mục 4.15). Con số này không cố định giữa các phiên: ba lần đo trong cùng buổi chiều 18/09 cho 301, 302 rồi 297, vì bảng chỉ mọc thêm khi bộ điều khiển bay thật sự gửi message đó lên, và mỗi phiên nó gửi một tập hơi khác nhau.*
 
 ### 5.2 Tải đường truyền
 
@@ -658,9 +658,9 @@ Trước khi có tấm hình trên, cùng buổi chiều hôm đó đã xảy ra
 
 Truy ngược xuống máy tính nhúng cùng ngày cho thấy chuỗi hỏng đầy đủ, và **không tầng nào trong chuỗi báo lỗi**: webcam UVC (Microdia `0c45:636b`) ngừng đẩy khung lúc 15:07:37 — nhân không ghi một dòng `dmesg` nào, thiết bị vẫn liệt kê trên USB, `/dev/video0` vẫn mở; `v4l2src` của GStreamer kẹt trong `poll()` vô hạn nên ống dữ liệu im; luồng đọc của `run_gui.py` kẹt theo trong `stdout.read()`; và hàm `read()` trả về khung cuối **không kèm dấu thời gian**, nên máy chủ ảnh cứ nén lại đúng khung đó và phát ra 11,6 fps. Chính máy tính nhúng in `[mjpeg] nguon 0.0 Hz` mỗi 5 giây suốt 28 phút — con số đúng đã được tính và in ra, chỉ là **không ai đọc nó**. Nhiệt độ 62,6 °C, `throttled=0x0`: không phải do bóp xung.
 
-Khi đỉnh khoảng ngắt vượt ngưỡng 4,0 s của bộ đọc, ứng dụng đóng kết nối và thử lại; ô video chuyển sang xám kèm lý do và địa chỉ đang gọi. Đây là hành vi đúng thiết kế chứ không phải lỗi — và nó cho thấy giá trị của quyết định "không đóng băng khung cuối": ở tình huống này người vận hành biết ngay mình đang không có hình, thay vì nhìn một khung hình 5 giây tuổi.
+Khi đỉnh khoảng ngắt vượt ngưỡng 4,0 s của bộ đọc, ứng dụng đóng kết nối và thử lại; ô video chuyển sang xám kèm lý do (từ 20/09 chỉ ghi "Chưa kết nối được camera"; loại lỗi và địa chỉ đang gọi nằm trong log video). Đây là hành vi đúng thiết kế chứ không phải lỗi — và nó cho thấy giá trị của quyết định "không đóng băng khung cuối": ở tình huống này người vận hành biết ngay mình đang không có hình, thay vì nhìn một khung hình 5 giây tuổi.
 
-Đo được ngay sau đó, khi máy tính nhúng còn sống mà camera thì không: ô video chuyển xám và ghi `không có video (URLError)` cùng đúng địa chỉ đang gọi, trong khi nửa SiK vẫn 2 179 B/s, mất 0,0%. Người vận hành biết ngay mình không có hình — đúng điều mà **28 phút phát lại một khung chết đã không cho họ biết**.
+Đo được ngay sau đó, khi máy tính nhúng còn sống mà camera thì không: ô video chuyển xám và ghi `không có video (URLError)` cùng đúng địa chỉ đang gọi (dòng chữ lúc đó; nay là "Chưa kết nối được camera"), trong khi nửa SiK vẫn 2 179 B/s, mất 0,0%. Người vận hành biết ngay mình không có hình — đúng điều mà **28 phút phát lại một khung chết đã không cho họ biết**.
 
 **Kết cục của sự cố.** Ba cách dựng lại bằng phần mềm đều thất bại: khởi động lại container (systemd tự làm 346 lần, đều chết vì `--device /dev/video0` trỏ vào một node không còn), unbind/bind cổng USB, và `authorized` 0→1. Nhân trả `can't set config #1, error -71` mỗi lần — firmware webcam treo ở mức thiết bị, không tầng nào phía trên gỡ được. **Rút ra cắm lại là cách duy nhất chạy**, và cắm sang cổng khác (`4-1` trên `xhci-hcd.1` → `2-2` trên `xhci-hcd.0`) thì lên ngay. Phép đo xác nhận đã sống thật chứ không phải sống giả như lần trước: 14 khung liên tiếp đọc từ luồng, **14 mã băm khác nhau**, 11,9 fps — so với 1 mã băm trên 12 khung lúc hỏng.
 
@@ -764,7 +764,7 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 
 ## Phụ lục A — Bảng tổng hợp tính năng giao diện
 
-Đối chiếu với mã nguồn `e05fc1d` (19/09/2026). Cột "Mục" trỏ tới phần phân tích trong báo cáo. 59 tính năng, chia theo nơi người vận hành gặp chúng; cách nghiệm thu chung ghi ở mục 9 (`selfcheck` 45/45, `e2e_sitl` 58/58).
+Đối chiếu với mã nguồn `59fc2e7` (20/09/2026). Cột "Mục" trỏ tới phần phân tích trong báo cáo. 59 tính năng, chia theo nơi người vận hành gặp chúng; cách nghiệm thu chung ghi ở mục 9 (`selfcheck` 45/45, `e2e_sitl` 58/58).
 
 | # | Nhóm | Tính năng | Chi tiết chính | Mã nguồn | Mục |
 |---|---|---|---|---|---|
@@ -799,7 +799,7 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 | 29 | Bản đồ | Ký hiệu máy bay | Tam giác chỉ hướng mũi; chưa biết hướng thì vẽ hình tròn | `map_widget.py` | 4.11 |
 | 30 | Bản đồ | Vệt bay | Tối đa 3 000 điểm | `map_widget.py` | 4.3 |
 | 31 | Bản đồ | Điểm home | Từ `HOME_POSITION`; chưa có thì dải chữ nói rõ là home đoán | `map_widget.py` | 4.3 |
-| 32 | Bản đồ | Hàng rào geofence | Tròn + đa giác, vẽ và đo theo bit `FENCE_TYPE`; khoảng cách tới rào gần nhất | `map_widget.py` | 4.3, 4.11 |
+| 32 | Bản đồ | Hàng rào geofence | Tròn + đa giác, vẽ và đo theo bit `FENCE_TYPE`; FC tắt rào (`FENCE_ENABLE = 0`) thì không vẽ gì; khoảng cách tới rào gần nhất | `map_widget.py` | 4.3, 4.11, 4.15 |
 | 33 | Waypoint | Đặt điểm bằng giữ 2 s | Vòng tiến trình; thả sớm/kéo là huỷ; tối đa 50 điểm; bản nháp nét đứt | `Main.qml`, `commands.py` | 6.1, 4.14 |
 | 34 | Waypoint | Độ cao điểm | 6 mức 10–80 m + ô nhập 1–120 m, kẹp hai tầng, `Binding` giữ đồng bộ | `Main.qml`, `commands.py` | 6.1 |
 | 35 | Waypoint | Nạp lên bộ điều khiển bay | Tự chèn home + TAKEOFF + LAND; gửi lại tối đa 5 lần; nạp đè lúc AUTO phải xác nhận hai lần | `core/adapters/sik.py` | 6.1–6.2 |
@@ -814,18 +814,18 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 | 44 | Lệnh | Ghi vết lệnh ba nơi | Thanh trạng thái + tab Messages `[APP]` + `logs/commands.log` | `commands.py` | 4.7 |
 | 45 | Lệnh | Quyền điều khiển | `/gcs/authority` chốt `"gcs"`; node trên máy tính nhúng không lái được | `tools/ros2_bridge.py` | 2.3 |
 | 46 | Lệnh | Chặn đóng cửa sổ khi ARM | Lần đầu bị từ chối, bấm lại trong 3 s; không dùng hộp thoại | `laptop/app.py` | 4.11 |
-| 47 | Tab Status | Bảng mọi trường MAVLink | Không khai trước trường nào; ô lọc; tạm dừng; hàng quá `STALE` chuyển xám; vẽ gom 200 ms | `tabs/status.py` | 4.5, 5.1 |
+| 47 | Tab Status | Bảng mọi trường MAVLink | Không khai trước trường nào; ô lọc; tạm dừng; hàng quá `STALE` chuyển xám; vẽ gom 200 ms; cột Giải thích theo ngôn ngữ (328/328 trường telemetry) | `tabs/status.py`, `core/field_doc.json` | 4.5, 4.15 |
 | 48 | Tab Status | `SENSOR.*` giải mã | 31 hàng từ ba bitmask `SYS_STATUS`, dịch lúc vẽ | `core/adapters/sik.py` | 4.5 |
-| 49 | Tab Status | 63 tham số PID + tooltip | Đọc theo yêu cầu; mỗi tham số một dòng giải thích hai thứ tiếng | `core/param_doc.py` | 4.5, 4.11 |
+| 49 | Tab Status | Đọc bảng tham số + giải thích | Nút kéo cả bảng tham số (1 037 trên FC thật); cột Giải thích tiếng Việt cho 1 037/1 037, tooltip kèm ý nghĩa các giá trị | `core/param_doc.py`, `core/param_meta*.json` | 4.5, 4.15 |
 | 50 | Tab Control | Lệnh thường + trạng thái node ROS 2 | ARM/DISARM, mode, TAKEOFF; dòng node chỉ đọc | `tabs/control.py` | 4.6 |
 | 51 | Tab Control | Khối trạng thái bay | SẴN SÀNG ARM, CÒN, cảnh báo — cùng dữ liệu `Backend.state` | `tabs/control.py` | 4.14 |
 | 52 | Tab Messages | Dòng thời gian thông báo | STATUSTEXT + `[APP]`; lọc 4 mức; 2 000 dòng; chỉ tự cuộn khi đang ở cuối; số cảnh báo chưa đọc trên tên tab | `tabs/messages.py` | 4.7, 4.11 |
-| 53 | Camera | Luồng MJPEG | Cổng 8080 riêng; hạn chờ từng lần đọc; luôn vẽ khung mới nhất; mất tín hiệu thì ô xám, không đóng băng; fps đo ở đầu nhận | `widgets/video.py` | 7 |
+| 53 | Camera | Luồng MJPEG | Cổng 8080 riêng; hạn chờ từng lần đọc; luôn vẽ khung mới nhất; mất tín hiệu thì ô xám "Chưa kết nối được camera", không đóng băng; fps đo ở đầu nhận | `widgets/video.py` | 7, 4.15 |
 | 54 | Camera | Địa chỉ video | Suy từ `remote`, hoặc khoá `video` riêng (profile SITL lấy camera Pi) | `widgets/video.py` | 7.1, 4.14 |
 | 55 | Phân tích | Đọc log | `.tlog`/`.bin` từ đĩa hoặc kéo từ thẻ SD của FC qua telemetry | `tabs/analysis.py`, `core/` | 4.11 |
 | 56 | Phân tích | Đồ thị + quỹ đạo 3D | Tối đa 4 đồ thị; chuẩn hoá 0–1; lọc điểm `lat = lon = 0`; chế độ trực tiếp 60 s | `tabs/analysis.py`, `widgets/trajectory3d.py` | 4.11 |
 | 57 | Cài đặt | Song ngữ Việt ↔ Anh | Đổi ngay không khởi động lại; nhớ bằng `QSettings`; `selfcheck` đối chiếu từng cặp | `core/i18n.py`, `tabs/settings.py` | 4.11 |
-| 58 | Cài đặt | Đọc cảnh báo thành tiếng | Qt TTS; đọc khi trạng thái đổi; "Về nhà ngay" nhắc mỗi 30 s; bật/tắt | `laptop/voice.py` | 4.14 |
+| 58 | Cài đặt | Đọc cảnh báo thành tiếng | Qt TTS, giọng nữ, tốc độ −0,2; đọc khi trạng thái đổi: sẵn sàng ARM, mất tín hiệu, pin, VỀ NHÀ NGAY (nhắc mỗi 30 s), lỗi đỏ của FC (trừ PreArm), ARM/DISARM, đổi mode; bật/tắt | `laptop/voice.py` | 4.14, 4.15 |
 | 59 | Chung | Bảng màu thống nhất | Mọi màu từ `laptop/theme.py` | `laptop/theme.py` | 4.11 |
 
 ---
