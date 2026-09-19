@@ -71,6 +71,14 @@ Baud tự chọn: `ttyUSB*` → 57600 (radio SiK) · `ttyACM*` → 115200 (Pixha
 
 Thiếu quyền thì dòng đó hiện `⚠ khong co quyen` kèm lệnh cần chạy.
 
+**Rút cáp USB rồi cắm lại — app tự nối lại.** Đang có dữ liệu mà cổng biến mất
+thì app **giữ nguyên profile**, banner đỏ ghi *"mất cổng /dev/ttyACM0 — cắm lại là
+tự kết nối"*, và quét cổng mỗi giây. Nhận lại thiết bị theo **VID:PID:số serial**
+chứ không theo tên cổng — cắm lại ra `ttyACM1` vẫn nhận, cắm một radio khác vào
+thì không nối nhầm. Nối lại giữ nguyên baud/sysid/`remote`. Bấm **Ngắt** là thôi
+chờ. Chỉ áp cho cổng serial: tcp/udp đã có `autoreconnect` của pymavlink, REPLAY
+không có gì để cắm lại, và cổng hỏng ngay từ lần mở đầu vẫn hiện hộp lỗi như cũ.
+
 ### SIM — chạy với SITL + ROS2
 
 Ba terminal:
@@ -92,6 +100,18 @@ cd ~/GUI_NATIVE && python3 -m laptop.app
 ```
 
 Rồi chọn profile **`SITL + ROS2 (sitl_mission.launch.py)`**.
+
+**Video khi mô phỏng vẫn lấy từ Pi.** Địa chỉ video bình thường suy từ `remote`
+(`ws://<máy>:8765` → `http://<máy>:8080/stream`), nhưng với SITL nửa ROS2 chạy
+ngay trên laptop (`127.0.0.1`) còn camera nằm trên Pi — nên profile SITL có key
+`video` riêng:
+
+```yaml
+video: "http://hoaibac-desktop.local:8080/stream"
+```
+
+Có `video` thì dùng nó, không có thì suy từ `remote` như cũ. Video chạy độc lập
+với nửa ROS2 (`laptop/widgets/video.py: video_url`).
 
 **Cổng nào cắm vào đâu:** MAVProxy giữ TCP 5760, MAVROS giữ UDP 14550. SITL còn
 mở sẵn **5762/5763** — app cắm vào 5763, không phải sửa launch file bên ROS2.
@@ -115,13 +135,13 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 
 | Tab | Nội dung |
 |---|---|
-| **Bay** | **Màn cảm ứng QML kiểu DJI** (`laptop/touch/`), mở sẵn khi bật app. Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên, cần ảo, waypoint bằng chạm. Ô camera PiP hiện khi có video; chạm vào nó là camera phóng cả tab. **Mọi lệnh phải trượt để xác nhận** — kể cả RTL/LAND; cắt động cơ cũng chỉ trượt, hậu quả (rơi tự do) ghi ngay trên thanh trượt |
+| **Bay** | **Màn cảm ứng QML kiểu DJI** (`laptop/touch/`), mở sẵn khi bật app. Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên (có ô **CÒN** — thời gian bay còn lại), dòng **SẴN SÀNG ARM** + cảnh báo đứng yên (failsafe, pin, **VỀ NHÀ NGAY**), dòng lỗi nổi giữa-trên, cần ảo, waypoint bằng **giữ 2 s**. Ô camera PiP hiện khi có video; chạm vào nó là camera phóng cả tab. **Mọi lệnh phải trượt để xác nhận** — kể cả RTL/LAND; cắt động cơ cũng chỉ trượt, hậu quả (rơi tự do) ghi ngay trên thanh trượt |
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*`. Hai cột: `Field` và `Giá trị`. Field ngừng cập nhật quá `STALE` giây thì **giá trị xám đi** — đứng hình mà vẫn đen là nói dối |
-| **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) |
-| **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`) |
+| **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) · cùng dòng SẴN SÀNG ARM / CÒN / cảnh báo như màn Bay |
+| **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`). Chạm một dòng lỗi trên màn Bay là nhảy tới đúng dòng đó ở đây |
 | **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay) |
 | **Phân tích** | Đọc `.tlog`/`.bin` từ đĩa hoặc kéo log thẳng từ thẻ SD của FC qua telemetry. Tối đa 4 đồ thị, quỹ đạo 3D, chế độ trực tiếp giữ 60 s gần nhất từ bus |
-| **Cài đặt** | Ngôn ngữ giao diện |
+| **Cài đặt** | Ngôn ngữ giao diện · bật/tắt đọc cảnh báo thành tiếng |
 
 ### Ký hiệu drone trên bản đồ
 
@@ -174,6 +194,78 @@ xếp thành cụm nên vị trí nhoè ra. Đo thật trên bàn: `fix_type=1, 
 vệ tinh một mình thì ô đó hiện số `0` trắng tinh như mọi số khác.
 
 Rê chuột lên ô để biết **điều kiện nào trượt**, không chỉ biết là nó vàng.
+
+### Ô CÒN — thời gian bay còn lại, theo dòng động cơ đang ăn
+
+Ô **CÒN** cạnh ô `T` ở thanh dưới màn Bay, chỉ hiện khi đang ARM, có số **ngay
+từ lúc ARM**:
+
+```
+CÒN = (BATT_CAPACITY − mAh đã xài − mốc failsafe) ÷ dòng điện
+```
+
+- `BATT_CAPACITY`, `BATT_LOW_MAH`, `BATT_CRT_MAH` app tự hỏi FC lúc kết nối.
+  Mốc failsafe = `BATT_LOW_MAH`, không có thì `BATT_CRT_MAH`, cả hai 0 thì 20%
+  dung lượng (mục F của quy trình).
+- mAh đã xài lấy `BATTERY_STATUS.current_consumed` của FC (đo trên log thật: khớp
+  tự tích phân dòng điện, lệch 1,2 mAh sau 716 s). Dòng điện làm mượt ~5 s.
+- ≤ 3 phút vàng, ≤ 1 phút đỏ. Dòng < 0,1 A (nhiễu) thì `--`.
+
+**Ba điều phép tính không tự đảm bảo:** FC coi pin **đầy lúc cắm** (cắm pin dùng
+dở là ô CÒN báo dư — xem cảnh báo "pin không đầy" dưới đây), cảm biến dòng phải
+hiệu chỉnh đúng (`BATT_AMP_PERVLT`), và failsafe **theo điện áp** có thể kích
+trước mốc mAh.
+
+**Bẫy:** tham số FC chỉ về **một lần**. Đọc qua `REGISTRY` là chết sau
+`STALE = 2 s` và ô CÒN hiện `--` suốt chuyến — nên `Backend` giữ tham số riêng
+(`_params`, topic `param`).
+
+### SẴN SÀNG ARM và cảnh báo đứng yên
+
+Dòng **SẴN SÀNG ARM** (xanh) ở giữa-trên màn Bay theo bit `PREARM_CHECK` của
+`SYS_STATUS` — cùng nguồn Mission Planner/QGC dùng. Chưa sẵn sàng thì vàng
+**CHƯA SẴN SÀNG ARM: <lý do>**, lý do lấy từ các dòng `PreArm:` FC nhắc mỗi
+~31 s (giữ 40 s cho khỏi nháy). Đã ARM hoặc mất số liệu thì ẩn. Dòng lỗi nổi lên
+**đè lên** nó.
+
+Ngay dưới là **cảnh báo đứng yên** — không tự tắt, còn đúng thì còn hiện
+(`laptop/safety.py`):
+
+| Lúc | Cảnh báo | Điều kiện |
+|---|---|---|
+| chưa ARM | Failsafe pin TẮT | `BATT_FS_LOW_ACT = BATT_FS_CRT_ACT = 0` |
+| chưa ARM | Failsafe mất RC / mất GCS TẮT | `FS_THR_ENABLE = 0` / `FS_GCS_ENABLE = 0` |
+| chưa ARM | `BATT_LOW_VOLT` sai số cell | ngoài 3,3–3,9 V/cell (số cell = ⌈V / 4,25⌉) |
+| chưa ARM | Pin có thể KHÔNG đầy lúc cắm | % theo điện áp nghỉ (đường LiPo) thấp hơn % FC ≥ 25 điểm, dòng < 1 A |
+| đang bay | **VỀ NHÀ NGAY** (đỏ) / Sắp phải về (vàng) | CÒN ≤ thời gian RTL + 30 s / + 90 s |
+
+Thời gian RTL tính theo đúng chuỗi bước ArduCopter: leo tới `RTL_ALT`, bay ngang
+về (`RTL_SPEED`, 0 = `WP_SPD`), lơ lửng `RTL_LOIT_TIME`, hạ nhanh tới
+`LAND_ALT_LOW`, hạ chậm `LAND_SPEED`. App hỏi **cả tên cũ lẫn tên SI** của
+4.7-dev (`RTL_ALT` cm ↔ `RTL_ALT_M` m…). Thiếu tham số nào thì im lặng — không
+nói "tắt" thay cho "chưa biết".
+
+Chạy với số thật của MicoAir743 (tham số 07/09, pin 19/09) thì **cả bốn** cảnh
+báo chưa-ARM đều bật: failsafe pin và GCS đang tắt, `BATT_LOW_VOLT = 10,8 V` là
+2,70 V/cell trên pin 4S, và pin 3,82 V/cell ≈ 45% trong khi FC báo 99%. Cũng với
+số đó, `WP_SPD = 1 m/s` nên **RTL từ 500 m mất ~8 phút 51 giây**.
+
+### Đọc cảnh báo thành tiếng
+
+`laptop/voice.py` (Qt TextToSpeech — speech-dispatcher/espeak-ng trên Linux,
+SAPI trên Windows). Đọc **khi trạng thái đổi**, không đọc lại mỗi nhịp: "Sẵn
+sàng arm", "Mất tín hiệu", "Sắp phải về", "Pin yếu/rất yếu, còn N phần trăm";
+riêng **"Về nhà ngay" nhắc lại mỗi 30 s** còn đúng. Ngôn ngữ theo tab Cài đặt
+(`vi_VN` / `en_US`, đổi giữa chuyến là câu sau đổi theo). Giọng nữ, cao: biến thể
+`+Annie` (không có thì `female3`, `female2`), pitch 0,5, rate 0,1 — ba hằng số
+đầu file. Không có engine TTS thì im lặng, app vẫn chạy. Tắt ở tab Cài đặt.
+
+### Chạm đúp — về drone, phóng tới z20
+
+Chạm đúp bản đồ: tâm về drone, bật bám theo, và **zoom 20** (`FOLLOW_ZOOM`) dù
+đang ở z5. Ngón tay rung vài px không làm hỏng — bản đồ chỉ bắt đầu kéo khi đi
+quá `startDragDistance` (trước đây rung 2 px ở lần chạm thứ hai là tắt bám, bản
+đồ đứng im). Chưa có vị trí GPS thì giữ nguyên zoom và nói ra.
 
 ### Dấu X home có thể là home GIẢ — dải chữ nói rõ
 
@@ -230,7 +322,8 @@ Trước đây PreArm, failsafe, crash chỉ vào tab Thông báo: phải rời 
   dòng đỏ ra khỏi màn hình. Thừa thì dòng cuối ghi `(+k)` — không cắt im lặng.
 - Nguồn: STATUSTEXT của FC, envelope `text` của companion, và kết quả lệnh của
   chính app (từ chối = đỏ, gửi mà link câm = vàng). Ngắt kết nối là xoá sạch.
-- Click xuyên qua xuống bản đồ như mọi overlay khác — không bấm để tắt được.
+- **Chạm vào dòng lỗi** là mở tab Thông báo, chọn sẵn đúng dòng đó (bỏ đuôi
+  `×n`/`(+k)` khi so), để đọc cả lịch sử quanh nó.
 
 **Companion muốn đẩy thông báo lên đây** (phát hiện lửa, người, vật cản…) thì
 gửi qua WebSocket 8765 đúng khuôn này — GUI không phải sửa gì:
@@ -336,8 +429,10 @@ tên node đang chạy. Mất nó là mất tầm nhìn, không phải mất quy
 
 ### Đường bay waypoint — đọc và ghi
 
-Chạm (hoặc chạm-giữ) trên bản đồ mở bảng: **đặt waypoint** (tối đa 50), **bay
-tới đây**, **nạp lên FC**, hoặc **xoá đường bay trên FC**. Độ cao có sáu mức bấm
+**Giữ 2 s** trên bản đồ mở bảng: **đặt waypoint** (tối đa 50), **bay tới đây**,
+**nạp lên FC**, hoặc **xoá đường bay trên FC**. Trong lúc giữ có vòng tròn chạy
+quanh ngón tay; thả sớm hoặc kéo bản đồ là huỷ, chạm một cái không làm gì — chạm
+nhầm không được thành chọn điểm. Độ cao có sáu mức bấm
 nhanh (10/15/20/30/50/80 m) **và một ô nhập số** cho con số khác — ô nhập có nút
 ± nên ngoài bãi không phải gọi bàn phím ảo lên che màn hình. Giới hạn 1–120 m
 (`WP_ALT_MIN`/`WP_ALT_MAX` trong `laptop/commands.py`), kẹp cả ở ô nhập lẫn ở
@@ -349,6 +444,12 @@ do ArduPilot tự giữ); đường tím nhạt đứt nét là đường **đan
 
 Đang bay AUTO mà nạp đè thì phải bấm hai lần — FC nhảy sang WP1 của đường mới
 ngay khi nhận.
+
+**Cất cánh** (nút ▲ trên màn Bay): chip 3/5/10/20/30 m **và ô nhập số** 1–120 m,
+kẹp cả ở QML lẫn `Backend.act`. FC phải ở GUIDED **và đã ARM** — chưa ARM thì
+app nói thẳng *"drone CHƯA ARM"* và không gửi. Bộ kiểm "độ cao không đổi sau 6 s"
+chỉ chạy khi FC **chấp nhận** đúng lần takeoff đó (trước đây FC từ chối vẫn bị
+báo "FC đã nhận…").
 
 ### Bản đồ
 
@@ -392,7 +493,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 44 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 45 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_sitl.py       # 53 bai mot chuyen bay tren ArduCopter SITL that
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
@@ -635,13 +736,15 @@ laptop/
   theme.py       # bang mau + QSS dung chung, widget khong tu che ma hex
   commands.py    # logic lenh (ARM/TAKEOFF/RTL/goto/waypoint) — MOT instance dung
                  # chung cho man bay cam ung va tab Dieu khien
+  safety.py      # thoi gian RTL, kiem failsafe, % pin theo dien ap (khong Qt)
+  voice.py       # doc canh bao thanh tieng (Qt TTS)
   touch/         # man bay cam ung kieu DJI: backend.py (state cho QML) + qml/
   tabs/          # status, control, messages, analysis, settings
   widgets/       # map, compass, attitude, video, trajectory3d, alerts
                  # telemetry_bar.py gio CHI con nguong pin/GPS, khong con widget
 
 tools/
-  selfcheck.py     # 44 check, khong can SITL
+  selfcheck.py     # 45 check, khong can SITL
   e2e_sitl.py      # 53 bai mot chuyen bay tren ArduCopter SITL that
   compare_gcs.py   # so tung con so voi MAVProxy tren cung mot luong goi
   check_halves.py  # hai nua hong doc lap, nguon gia
@@ -656,5 +759,5 @@ tools/
   soak.py          # bai chay lien tuc
 ```
 
-Khoảng 8 370 dòng Python trong `core/` + `laptop/`, 910 dòng QML, và 6 600 nữa
+Khoảng 9 010 dòng Python trong `core/` + `laptop/`, 1 030 dòng QML, và 7 020 nữa
 trong `tools/`. (`find core laptop -name '*.py' | xargs wc -l`)
