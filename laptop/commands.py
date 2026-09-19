@@ -4,7 +4,7 @@ Tach ra tu tab Dieu khien de hai giao dien dung CHUNG mot ban: tab Dieu khien
 cua app laptop (`laptop/tabs/control.py`) va man bay cam ung (`touch/`). Chot an
 toan viet hai lan la hai cho de lech nhau; lech o day la lech tren may bay that.
 
-Giao dien lo phan XAC NHAN (bam lai 3 s, giu 2 s, thanh truot). Cai o day chi lo:
+Giao dien lo phan XAC NHAN (bam lai 3 s, thanh truot). Cai o day chi lo:
 lenh co duoc gui khong, gui gi, va FC tra loi ra sao.
 
 Doc nguyen tac 2.1 truoc khi sua: RTL/LAND/DISARM di `escape()` -> nhanh ESCAPE
@@ -23,6 +23,7 @@ from core.i18n import t
 MODES = ["STABILIZE", "ALT_HOLD", "LOITER", "GUIDED", "AUTO", "POSHOLD", "BRAKE"]
 
 # MAV_RESULT — chu nam trong bang chu (core/i18n.py), key "ack.<so>"
+TAKEOFF_CMD = 22  # MAV_CMD_NAV_TAKEOFF
 ACK_CMD = {400: "ARM/DISARM", 22: "TAKEOFF", 20: "RTL", 21: "LAND", 176: "cmd.mode",
            16: "goto"}
 ACK_TIMEOUT = 3.0  # giay cho FC tra loi truoc khi coi la khong co phan hoi
@@ -83,6 +84,8 @@ class Commands(QObject):
         # co nghia la "da lam" — day la ca de nham nhat vi giao dien trong nhu
         # thanh cong.
         self._pending = {}  # action -> deadline
+        self._climb_seq = 0       # lan takeoff thu may — timer cu khong kiem lan moi
+        self._takeoff_ok = None   # ACK cua lan takeoff gan nhat: True/False/None
         self._ack_timer = QTimer(self)
         self._ack_timer.timeout.connect(self._check_pending)
         self._ack_timer.start(500)
@@ -149,6 +152,13 @@ class Commands(QObject):
         if fc and fc != "GUIDED":
             self.say("log.takeoff_need_guided", 4, mode=fc)
             return False
+        # Chua ARM: FC tra THAT BAI chung chung. Noi thang ly do. Chi chan khi
+        # BIET chac la chua ARM — mat telemetry (None) thi van gui, FC tu quyet.
+        if REGISTRY.value("heartbeat.armed") is False:
+            self.say("log.takeoff_need_arm", 4)
+            return False
+        self._climb_seq += 1
+        self._takeoff_ok = None  # ACK TAKEOFF se dien vao — xem _on_ack
         self.cmd("takeoff", {"alt": alt})
         # "FC chap nhan" != "drone dang len". Neu mot node ROS2 dang stream setpoint
         # vao GUIDED thi lenh takeoff bi chinh cai stream do de len ngay sau do:
@@ -156,10 +166,16 @@ class Commands(QObject):
         # sau DISARM_DELAY. Khong doi chieu do cao thi giao dien trong y het thanh cong.
         QTimer.singleShot(
             CLIMB_CHECK_S * 1000,
-            lambda a0=REGISTRY.value("position.alt_rel", 0.0): self.check_climb(a0))
+            lambda a0=REGISTRY.value("position.alt_rel", 0.0), n=self._climb_seq:
+                self.check_climb(a0, n))
         return True
 
-    def check_climb(self, alt0):
+    def check_climb(self, alt0, seq=None):
+        # Chi doi chieu khi FC da CHAP NHAN dung lan takeoff nay. Do that 19/09
+        # 16:06:46: takeoff luc chua ARM -> FC TU CHOI, 6 s sau van hien "FC da
+        # nhan nhung do cao khong doi" — sai ca su that lan ly do.
+        if seq is not None and (seq != self._climb_seq or self._takeoff_ok is not True):
+            return
         alt = REGISTRY.value("position.alt_rel")
         if alt is None or alt - alt0 >= 1.0:
             return
@@ -246,8 +262,9 @@ class Commands(QObject):
         the ngay khi ga roi khoi min (do that: ga 1496 -> ack=4, 3/3 lan).
 
         Tren troi hoac khong biet do cao: van la lenh thuong. Muon cat dong co
-        that thi `force_disarm()` — giao dien phai bat mot dong tac co chu y (giu
-        2 s), mot cu bam nham khong duoc phep lam roi may bay.
+        that thi `force_disarm()` — giao dien phai bat mot dong tac co chu y (bam
+        lai / truot het, kem hau qua hien ngay do), mot cu bam nham khong duoc
+        phep lam roi may bay.
         """
         self.escape("disarm", {"force": True} if self.on_ground() else None)
 
@@ -304,6 +321,8 @@ class Commands(QObject):
             return
         name = t(ACK_CMD[cmd])  # ten khong co trong bang chu thi t() tra lai chinh no
         self._pending.clear()  # FC da tra loi -> khong con cho gi nua
+        if cmd == TAKEOFF_CMD:
+            self._takeoff_ok = res == 0
         if res != 0:
             self.say("log.fc_denied", 3, name=name, why=t(f"ack.{res}"))
         else:

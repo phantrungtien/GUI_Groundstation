@@ -44,6 +44,9 @@
   conn: "tcp:127.0.0.1:5763"
   sysid: 254
   remote: "ws://127.0.0.1:8765"
+  # Nua ROS2 o tren chay NGAY TREN laptop, con camera van nam tren Pi — nen video
+  # phai khai rieng. Bo dong nay thi app di tim video o 127.0.0.1:8080 (khong co).
+  video: "http://hoaibac-desktop.local:8080/stream"
 
 - name: "Phat lai chuyen bay (.tlog)"
   mode: REPLAY

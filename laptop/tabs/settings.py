@@ -9,6 +9,7 @@ phep lam mat ket noi. Xem core/i18n.py.
 """
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QGroupBox,
     QLabel,
     QRadioButton,
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from core import i18n
 from core.i18n import t
-from laptop import theme
+from laptop import theme, voice
 
 
 class SettingsTab(QWidget):
@@ -42,15 +43,22 @@ class SettingsTab(QWidget):
         self.note.setWordWrap(True)
         self.note.setStyleSheet(f"color:{theme.MUTED};")
 
+        # Giong noi: mac dinh BAT. Tat o day (vd bay trong phong hop) — luu lai.
+        self.voice = QCheckBox()
+        self.voice.setChecked(voice.enabled())
+        self.voice.toggled.connect(voice.set_enabled)
+
         lay = QVBoxLayout(self)
         lay.addWidget(self.box)
         lay.addWidget(self.note)
+        lay.addWidget(self.voice)
         lay.addStretch(1)
         i18n.on_change(self._retext)
 
     def _retext(self):
         self.box.setTitle(t("set.lang_box"))
         self.note.setText(t("set.lang_note"))
+        self.voice.setText(t("set.voice"))
         # Doi ngon ngu tu noi khac (hay khoi phuc tu QSettings) van phai lam nut
         # o day nhay theo — nut radio la thu HIEN trang thai, khong phai nguon.
         for code, b in self.buttons.items():

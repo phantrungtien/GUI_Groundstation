@@ -31,12 +31,21 @@ from laptop.widgets.alerts import ERR_SEV, AlertBook
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
 from laptop.widgets.map_widget import MapWidget
-from laptop.widgets.telemetry_bar import batt_level, gps_level
-from laptop.widgets.video import VideoSource, VideoView, url_for
+from laptop.widgets.telemetry_bar import (batt_level, gps_level, left_level, reserve_mah,
+                                           time_left_s)
+from laptop.widgets.video import VideoSource, VideoView, video_url
 from laptop.touch.items import WIDGETS
+from laptop import safety
+from laptop.voice import Voice
 
 LIVE = ("REAL", "SIM")
 DIVERGE_M = 5.0  # hai nguon vi tri lech hon chung nay thi keu — giong tab Bay cu
+PREARM_KEEP_S = 40.0  # FC nhac ly do PreArm moi ~31 s (do that log 144628)
+AMPS_TAU_S = 5.0  # lam muot dong dien: ga nhay mot phat thi so phut khong nhay theo
+
+
+def _mmss(sec):
+    return f"{int(sec) // 60}:{int(sec) % 60:02d}"
 
 
 def _newest(pattern):
@@ -53,6 +62,7 @@ class Backend(QObject):
     stateChanged = Signal()
     profilesChanged = Signal()
     langChanged = Signal()
+    openMessage = Signal(str)  # cham dong loi -> app.py mo tab Thong bao toi dong do
 
     def __init__(self, profiles=None, cmd=None, video_src=None, owns_connection=False,
                  parent=None):
@@ -68,6 +78,13 @@ class Backend(QObject):
         self.adapter = self.remote = self.profile = self.mode = None
         self.last_seen = {}
         self._armed_at = None
+        # Tham so FC gui MOT lan luc ket noi (pin, failsafe, RTL — WATCH_PARAMS
+        # o sik.py). KHONG doc tu REGISTRY: o do moi gia tri qua STALE = 2 s la coi
+        # nhu khong co — do that 19/09 (log 151442): BATT_CAPACITY ve o giay 0,1,
+        # toi giay 2 thi o CON da thanh "--" mai.
+        self._params = {}
+        self._amps = None      # dong dien da lam muot (A)
+        self._amps_at = 0.0
         self._state = {}
         self._wp_confirm = 0.0   # lan bam "nap" dau khi dang bay AUTO
         self._stick = (0.0, 0.0, 0.0)  # can ao: (dong, bac, len), tam [-1, 1]
@@ -83,6 +100,8 @@ class Backend(QObject):
                        compass=self.compass, attitude=self.attitude)
 
         self.alerts = AlertBook()
+        self.voice = Voice()
+        self._rtl_lvl = None
         self.cmd = cmd or Commands(self)
         if self.owns:
             # Nam trong app laptop thi ket qua lenh di qua MainWindow._on_cmd_log
@@ -95,8 +114,15 @@ class Backend(QObject):
                                                    from_fc=True))
         bus.on("fence", lambda e: self.map.set_fence(e["data"]))
         bus.on("wp", self._on_wp)
-        bus.on("text", lambda e: self.alerts.push(e["data"].get("text"),
-                                                  e["data"].get("severity", 6)))
+        bus.on("param", lambda e: self._params.update(e["data"]))
+        bus.on("text", self._on_text)
+        # San sang ARM: bit PREARM_CHECK trong SYS_STATUS — cung nguon Mission
+        # Planner/QGC dung. Do that 19/09 tren MicoAir743: log 144628 co loi
+        # PreArm -> bit False ca phien; log 155159 khong loi -> True tu giay dau.
+        # Doc tu topic `status` qua bus: REGISTRY bo qua topic nay (SKIP_TOPICS).
+        self._prearm = None     # ("ok"/"fail"/..., ts)
+        self._prearm_why = {}   # ly do PreArm FC vua noi -> ts
+        bus.on("status", self._on_status)
         i18n.signals.changed.connect(lambda _l: self.langChanged.emit())
 
         self._timer = QTimer(self)
@@ -129,6 +155,10 @@ class Backend(QObject):
     wpAlts = Property("QVariantList", lambda self: list(WP_ALTS), constant=True)
     wpAltMin = Property(int, lambda self: WP_ALT_MIN, constant=True)
     wpAltMax = Property(int, lambda self: WP_ALT_MAX, constant=True)
+
+    @Slot(str)
+    def showMessage(self, text):
+        self.openMessage.emit(text)
 
     @Slot(str, "QVariantMap", str, result=str)
     def tf(self, key, args, _lang=""):
@@ -189,13 +219,14 @@ class Backend(QObject):
         self.attitude.set_attitude(v("attitude.roll"), v("attitude.pitch"))
 
         armed = v("heartbeat.armed")
+        pct = v("battery.remaining")
         if armed and self._armed_at is None:
             self._armed_at = time.time()  # suon len cua armed, khong phai luc bam
         elif not armed and armed is not None:
             self._armed_at = None
+        left = self._time_left(pct) if self._armed_at is not None else None
 
         fix, sats, hdop = v("gps.fix_type"), v("gps.sats"), v("gps.hdop")
-        pct = v("battery.remaining")
         div = REGISTRY.position_divergence_m()
         dist = None
         if self.map.pos and self.map.home and self.map.home_from_fc:
@@ -218,9 +249,12 @@ class Backend(QObject):
             "flightTime": 0 if self._armed_at is None else int(time.time() - self._armed_at),
             "battPct": pct, "volt": v("battery.voltage"),
             "battLevel": batt_level(pct) or "ok",
+            "battLeft": left, "leftLevel": left_level(left) or "ok",
             "sats": sats, "gpsLevel": gps_level(fix, sats, hdop)[0] or "ok",
-            "hasVideo": bool(self.profile and self.profile.get("remote")),
+            "hasVideo": bool(self.profile and video_url(self.profile)),
             "alerts": [{"text": s, "crit": sev <= ERR_SEV} for s, sev in self.alerts.shown()],
+            "ready": self._ready(armed is True),
+            "warns": self._warns(armed, left, dist),
             # --- duong bay -----------------------------------------------
             "draftN": len(self.map.draft),
             "draftFull": len(self.map.draft) >= WP_MAX,
@@ -235,7 +269,90 @@ class Backend(QObject):
             # day vao `alerts`: no lap lai 5 Hz, vao do la dem "xN" chay loan.
             "diverge": div if div is not None and div > DIVERGE_M else None,
         }
+        self._announce(key, level, pct, armed)
         self.stateChanged.emit()
+
+    def _announce(self, status_key, status_level, pct, armed):
+        """Doc thanh tieng khi trang thai DOI — xem laptop/voice.py."""
+        v, s = self.voice, self._state
+        v.on("lost", status_key == "touch.st_lost", "voice.lost")
+        r = s["ready"]
+        v.on("ready", bool(r and r["ok"]), "voice.ready")
+        v.on("rtl", self._rtl_lvl, "voice.rtl_now" if self._rtl_lvl == "crit"
+             else "voice.rtl_soon", repeat=self._rtl_lvl == "crit")
+        lvl = batt_level(pct) if armed else None
+        v.on("batt", lvl, "voice.batt_crit" if lvl == "crit" else "voice.batt_low", pct=pct)
+
+    def _time_left(self, pct):
+        """Giay bay con lai toi muc failsafe pin cua FC, theo dong dien da lam muot."""
+        v = REGISTRY.value
+        amps, now = v("battery.current"), time.time()
+        if amps is None:
+            self._amps = None
+        elif self._amps is None:
+            self._amps = amps
+        else:
+            k = min(1.0, (now - self._amps_at) / AMPS_TAU_S)
+            self._amps += k * (amps - self._amps)
+        self._amps_at = now
+        g = self._params.get
+        cap = g("BATT_CAPACITY")
+        return time_left_s(cap, v("battery.consumed_mah"), pct,
+                           reserve_mah(cap, g("BATT_LOW_MAH"), g("BATT_CRT_MAH")),
+                           self._amps)
+
+    def _on_text(self, env):
+        text = env["data"].get("text") or ""
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", "replace")
+        self.alerts.push(text, env["data"].get("severity", 6))
+        if text.startswith("PreArm:"):
+            self._prearm_why[text[len("PreArm:"):].strip()] = time.time()
+
+    def _on_status(self, env):
+        s = env["data"].get("SENSOR.prearm_check")
+        if s is not None:
+            self._prearm = (s, time.time())
+
+    def _ready(self, armed):
+        """(key, ly do) cho dong "san sang ARM". None = khong hien.
+
+        Chi hien khi dang ket noi, CHUA ARM va bit con tuoi. Ly do lay tu cac dong
+        "PreArm: ..." FC nhac lai moi ~31 s; giu 40 s de khong nhap nhay giua hai
+        lan nhac, va bo sach khi FC bao da san sang.
+        """
+        if not self.profile or armed or self._prearm is None \
+                or time.time() - self._prearm[1] > STALE:
+            return None
+        if self._prearm[0].startswith("ok"):
+            self._prearm_why.clear()
+            return {"ok": True, "text": t("touch.ready_arm")}
+        now = time.time()
+        why = [w for w, ts in self._prearm_why.items() if now - ts < PREARM_KEEP_S]
+        return {"ok": False, "text": t("touch.not_ready_arm") + (": " + "; ".join(why) if why else "")}
+
+    def _warns(self, armed, left, dist):
+        """Canh bao DUNG YEN (khong tu tat nhu AlertBook): [{text, crit}].
+
+        Chua ARM: kiem tham so failsafe va pin day chua (safety.preflight).
+        Dang bay: con du pin de ve nha khong (RTL uoc tu tham so FC).
+        """
+        self._rtl_lvl = None
+        if not self.profile or self.mode == "REPLAY":
+            return []
+        v = REGISTRY.value
+        if armed is not True:
+            return [{"text": t(k, **kw), "crit": False} for k, kw in
+                    safety.preflight(self._params, v("battery.voltage"),
+                                     v("battery.remaining"), v("battery.current"))]
+        if v("heartbeat.landed") is not False:
+            return []
+        need = safety.rtl_time_s(self._params, dist, v("position.alt_rel"))
+        lvl = self._rtl_lvl = safety.rtl_level(left, need)
+        if lvl is None:
+            return []
+        key = "safe.rtl_now" if lvl == "crit" else "safe.rtl_soon"
+        return [{"text": t(key, left=_mmss(left), need=_mmss(need)), "crit": lvl == "crit"}]
 
     def _auto_flying(self):
         """Dang bay theo chinh nhiem vu sap bi ghi de? True/False."""
@@ -259,9 +376,10 @@ class Backend(QObject):
         elif action == "disarm":
             c.kill()          # duoi dat -> force, tren troi -> lenh thuong (nhu nut do)
         elif action == "kill":
-            c.force_disarm()  # QML bat truot roi GIU 2 s — xem SlideConfirm.holdMs
+            c.force_disarm()  # truot het la di; hau qua ghi ngay tren thanh truot (touch.kill_note)
         elif action == "takeoff":
-            c.takeoff(float(arg or 5))
+            # Kep o day: o nhap QML go ra duoc bat cu gi, con so nay di thang FC.
+            c.takeoff(float(max(WP_ALT_MIN, min(WP_ALT_MAX, float(arg or 5)))))
         elif action in ("land", "rtl"):
             c.escape(action)
         elif action == "mode":
@@ -289,9 +407,8 @@ class Backend(QObject):
 
     @Slot()
     def mapFollow(self):
-        self.map.follow = True
-        if self.map.pos:
-            self.map.center = self.map.pos
+        if not self.map.recenter():
+            self.cmd.say("touch.no_gps_pos", 4)  # cham dup ma khong co gi de ve
 
     # ---- duong bay: cham-giu de dat diem ----------------------------------
     #
@@ -439,6 +556,7 @@ class Backend(QObject):
         if profile is None:
             self.profile = self.mode = self.adapter = None
             self.last_seen.clear()
+            self._prearm, self._prearm_why = None, {}
             # Xoa luon so lieu cu. `map.reset()` co xoa home, nhung `refresh()` chay
             # 5 Hz va no doc thang REGISTRY: con vi tri cu trong do la 200 ms sau no
             # DUNG LAI mot home moi ngay tai cho drone vua dung — X tren ban do nam
@@ -446,6 +564,8 @@ class Backend(QObject):
             # pin, ve tinh cung the: ngat roi ma van hien so cua chuyen truoc, va
             # con treo sang ca chuyen sau cho toi khi drone moi kip gui goi dau.
             REGISTRY.fields.clear()
+            self._params.clear()  # tham so cua drone cu khong duoc dung cho drone sau
+            self.voice.reset()
             self.map.reset()
             self.alerts.clear()  # loi cua drone cu khong duoc treo sang ket noi sau
             # Lenh dang cho COMMAND_ACK cung phai bo. Khong bo thi toi 3 s SAU khi
@@ -495,9 +615,9 @@ class Backend(QObject):
             self.remote.envelope.connect(bus.emit_envelope)
             self.remote.start()
             authority.register("remote", self.remote)
-            url = url_for(profile["remote"])
-            if url:
-                self.video_src.start(url)
+        url = video_url(profile)
+        if url:
+            self.video_src.start(url)
         self.refresh()
 
     @Slot()

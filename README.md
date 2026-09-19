@@ -115,7 +115,7 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 
 | Tab | Nội dung |
 |---|---|
-| **Bay** | **Màn cảm ứng QML kiểu DJI** (`laptop/touch/`), mở sẵn khi bật app. Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên, cần ảo, waypoint bằng chạm. Ô camera PiP hiện khi có video; chạm vào nó là camera phóng cả tab. **Mọi lệnh phải trượt để xác nhận** — kể cả RTL/LAND; cắt động cơ là trượt + giữ 2 s |
+| **Bay** | **Màn cảm ứng QML kiểu DJI** (`laptop/touch/`), mở sẵn khi bật app. Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên, dòng lỗi nổi giữa-trên, cần ảo, waypoint bằng chạm. Ô camera PiP hiện khi có video; chạm vào nó là camera phóng cả tab. **Mọi lệnh phải trượt để xác nhận** — kể cả RTL/LAND; cắt động cơ cũng chỉ trượt, hậu quả (rơi tự do) ghi ngay trên thanh trượt |
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*`. Hai cột: `Field` và `Giá trị`. Field ngừng cập nhật quá `STALE` giây thì **giá trị xám đi** — đứng hình mà vẫn đen là nói dối |
 | **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`) |
@@ -499,7 +499,7 @@ Nghĩa là **vị trí cần ga quyết định nút DISARM có ăn hay không**
 đoán được lúc cần ngắt gấp. Nên cả hai nút DISARM (nút đỏ và nút thường) chia
 theo **đang ở dưới đất hay không**, không theo cần ga:
 
-| Đang ở dưới đất? | Bấm một phát | Giữ 2 giây |
+| Đang ở dưới đất? | Bấm một phát | Bấm lại trong 3 s (màn cảm ứng: trượt hết) |
 |---|---|---|
 | **có** | **force ngay** — ga ở mức nào cũng ngắt được | — |
 | **không** (FC báo đang bay) | lệnh thường (FC từ chối nếu nó tin là đang bay) | force |

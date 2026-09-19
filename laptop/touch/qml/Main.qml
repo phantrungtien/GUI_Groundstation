@@ -3,7 +3,7 @@ import QtQuick.Controls
 import Gcs 1.0
 
 // Man bay cam ung kieu DJI. Moi lenh deu phai TRUOT de xac nhan (nguoi dung chot
-// 15/09/2026, ke ca RTL/LAND/DISARM). Cat dong co thi truot roi GIU 2 s.
+// 15/09/2026, ke ca RTL/LAND/DISARM). Cat dong co cung chi truot, hau qua ghi ngay tren thanh.
 //
 // Khong co logic an toan nao o file nay: bam nut chi mo thanh truot, truot het
 // thi goi backend.act() -> laptop/commands.py.
@@ -26,6 +26,7 @@ Item {
     // Cham-giu ban do thay cho menu chuot phai cua tab Bay cu: nho lai diem vua
     // cham de "dat waypoint o day" / "bay toi day" con biet la o dau.
     property bool wpOpen: false
+    readonly property int holdMs: 2000  // giu bao lau moi chon diem tren ban do
     property real wpX: 0
     property real wpY: 0
     // Can ao. Giu o day chu khong trong MouseArea de hai nut leo/ha dung chung.
@@ -73,7 +74,7 @@ Item {
             "land": tr("touch.do_land"), "rtl": tr("touch.do_rtl"),
             "kill": tr("touch.do_kill"), "mode": tr("touch.do_mode", {"name": pendingArg})
         }[pending] || ""
-        return tr(pending === "kill" ? "touch.slide_hold" : "touch.slide", {"what": what})
+        return tr("touch.slide", {"what": what})
     }
 
     // Het duong xuong drone (ngat, SiK dut, REPLAY) thi lenh dang cho bi huy:
@@ -105,31 +106,77 @@ Item {
         name: win.camBig ? "video" : "map"
         fps: win.camBig ? 30 : 5
     }
-    MouseArea {  // cham de chon diem, keo de di, cham dup de bam theo drone
+    MouseArea {  // GIU 2 s de chon diem, keo de di, cham dup de bam theo drone
+        id: mapArea
         anchors.fill: parent
         enabled: !win.camBig
+        pressAndHoldInterval: win.holdMs
         property point last
         property point down
         property bool dragged: false
-        onPressed: (m) => { last = Qt.point(m.x, m.y); down = last; dragged = false }
+        onPressed: (m) => {
+            last = Qt.point(m.x, m.y); down = last; dragged = false
+            holdRing.start()
+        }
+        onReleased: holdRing.stop()
+        onCanceled: holdRing.stop()
         onPositionChanged: (m) => {
+            // Chua qua nguong keo thi KHONG pan: pan (du 1 px) la tat bam theo
+            // drone. Do that: cham dup ma ngon tay rung 2 px o lan cham thu hai
+            // -> ban do khong ve cho drone, follow=False.
+            if (!dragged && Math.abs(m.x - down.x) + Math.abs(m.y - down.y)
+                    <= Qt.styleHints.startDragDistance)
+                return
+            dragged = true
+            holdRing.stop()  // keo ban do = khong chon diem
             backend.mapPan(m.x - last.x, m.y - last.y)
             last = Qt.point(m.x, m.y)
-            if (Math.abs(m.x - down.x) + Math.abs(m.y - down.y)
-                    > Qt.styleHints.startDragDistance)
-                dragged = true
             mainView.update()
         }
-        // CHAM MOT CAI la mo bang diem den ngay tai cho cham — dung cho menu
-        // chuot phai cua tab Bay cu ("bay toi day"). Truoc day chi co cham-giu:
-        // dung chuot thi phai giu du 800 ms moi ra, bam mot cai khong co gi xay
-        // ra va man hinh khong noi gi, nhin nhu ban do chet. Cham-giu VAN mo
-        // (quen tay kieu DJI). Keo ban do thi khong tinh la cham: khong co
-        // `dragged` thi keo xong la bang bat ra giua man hinh.
-        onClicked: (m) => { if (!dragged) win.openWp(m.x, m.y) }
+        // Chon diem (dat waypoint / bay toi day) phai GIU holdMs — nguoi dung
+        // chot 19/09: cham mot cai la nhan ngay thi de cham nham. Vong tron
+        // quanh ngon tay chay du mot vong trong luc giu, de biet con bao lau va
+        // biet tha ra la huy. Keo ban do thi khong tinh.
         onDoubleClicked: { win.wpOpen = false; backend.mapFollow(); mainView.update() }
         onWheel: (w) => { backend.mapZoom(w.angleDelta.y > 0 ? 1 : -1); mainView.update() }
-        onPressAndHold: (m) => win.openWp(m.x, m.y)
+        onPressAndHold: (m) => {
+            holdRing.stop()
+            if (!dragged)
+                win.openWp(m.x, m.y)
+        }
+    }
+    Item {  // vong tron dem nguoc luc giu de chon diem
+        id: holdRing
+        objectName: "holdRing"
+        property real p: 0
+        width: 76 * s; height: width
+        x: mapArea.down.x - width / 2
+        y: mapArea.down.y - height / 2
+        visible: p > 0
+        function start() { anim.restart() }
+        function stop() { anim.stop(); p = 0 }
+        NumberAnimation on p { id: anim; running: false; from: 0; to: 1; duration: win.holdMs }
+        onPChanged: ring.requestPaint()
+        Canvas {
+            id: ring
+            anchors.fill: parent
+            onPaint: {
+                var c = getContext("2d"), r = width / 2 - 5 * s
+                c.reset()
+                c.lineWidth = 6 * s
+                c.strokeStyle = "#66000000"
+                c.beginPath(); c.arc(width / 2, height / 2, r, 0, 2 * Math.PI); c.stroke()
+                c.strokeStyle = theme.ACCENT
+                c.beginPath()
+                c.arc(width / 2, height / 2, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * holdRing.p)
+                c.stroke()
+            }
+        }
+        Rectangle {  // cham giua: dung cho se chon
+            anchors.centerIn: parent
+            width: 8 * s; height: width; radius: width / 2
+            color: theme.ACCENT
+        }
     }
     PinchHandler {  // hai ngon: moi lan to/nho 1,5 lan = mot bac zoom
         target: null
@@ -245,8 +292,62 @@ Item {
         height: 84 * s
     }
 
+    // ---- dong "san sang ARM": nam CO DINH o day, loi noi len thi DE LEN no ----
+    Rectangle {
+        id: readyBar
+        objectName: "readyBar"
+        visible: !!st.ready
+        anchors { top: divergeBar.bottom; topMargin: 6 * s; horizontalCenter: parent.horizontalCenter }
+        width: Math.min(560 * s, win.width * 0.5)
+        height: rt.implicitHeight + 10 * s
+        radius: 8 * s
+        color: st.ready && st.ready.ok ? theme.OK : theme.WARN
+        Text {
+            id: rt
+            anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 8 * s }
+            text: st.ready ? st.ready.text : ""
+            // Mot dong: cao bang dong loi thi dong loi dau tien che kin no.
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+            color: theme.BG_DEEP
+            font.pixelSize: 14 * s
+            font.bold: true
+        }
+    }
+
+    // ---- canh bao DUNG YEN: failsafe/pin luc chua ARM, "ve nha ngay" luc bay ---
+    // Khac AlertBook: khong tu tat, con dung thi con hien. Dong loi noi len thi
+    // de len o day nhu de len dong san sang ARM.
+    Column {
+        objectName: "warnCol"
+        anchors { top: readyBar.visible ? readyBar.bottom : divergeBar.bottom; topMargin: 4 * s
+                  horizontalCenter: parent.horizontalCenter }
+        width: Math.min(560 * s, win.width * 0.5)
+        spacing: 4 * s
+        Repeater {
+            model: st.warns || []
+            delegate: Rectangle {
+                width: parent.width
+                height: wt.implicitHeight + 10 * s
+                radius: 8 * s
+                color: modelData.crit ? theme.CRIT : "#e6f4d35e"
+                Text {
+                    id: wt
+                    anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 8 * s }
+                    text: modelData.text
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    color: theme.BG_DEEP
+                    font.pixelSize: (modelData.crit ? 16 : 13) * s
+                    font.bold: true
+                }
+            }
+        }
+    }
+
     // ---- dong loi (AlertBook dung chung voi app laptop) ----------------------
     Column {
+        z: 1  // de len dong "san sang ARM" o cung cho
         anchors { top: divergeBar.bottom; topMargin: 6 * s; horizontalCenter: parent.horizontalCenter }
         width: Math.min(560 * s, win.width * 0.5)
         spacing: 4 * s
@@ -257,6 +358,8 @@ Item {
                 height: at.implicitHeight + 10 * s
                 radius: 8 * s
                 color: modelData.crit ? theme.CRIT : theme.WARN
+                // Cham = mo tab Thong bao toi dung dong nay, doc ca lich su quanh no
+                MouseArea { anchors.fill: parent; onClicked: backend.showMessage(modelData.text) }
                 Text {
                     id: at
                     anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 8 * s }
@@ -333,6 +436,11 @@ Item {
             Stat { label: "V.S"; value: num(st.vs, 1, " m/s") }
             Stat { label: "HDG"; value: num(st.heading, 0, "°") }
             Stat { label: "T"; value: st.flightTime ? mmss(st.flightTime) : "--"; tint: st.armed ? theme.CRIT : theme.TEXT }
+            Stat {
+                label: tr("touch.left")
+                value: st.battLeft === null || st.battLeft === undefined ? "--" : mmss(st.battLeft)
+                tint: st.battLeft === null || st.battLeft === undefined ? theme.TEXT : lvl(st.leftLevel)
+            }
         }
     }
 
@@ -570,6 +678,22 @@ Item {
                         onTap: { win.takeoffAlt = modelData; askTimer.restart() }
                     }
                 }
+                // Go so tuy y, giong o do cao waypoint. Kep hai dau o day, va
+                // backend.act kep lai lan nua — con so nay di thang xuong FC.
+                SpinBox {
+                    id: takeoffBox
+                    objectName: "takeoffAltBox"
+                    editable: true
+                    from: backend.wpAltMin
+                    to: backend.wpAltMax
+                    stepSize: 1
+                    height: 38 * s
+                    font.pixelSize: 14 * s
+                    textFromValue: function (v) { return v + " m" }
+                    valueFromText: function (txt) { return parseInt(txt) || takeoffBox.value }
+                    Binding on value { value: win.takeoffAlt }
+                    onValueModified: { win.takeoffAlt = value; askTimer.restart() }
+                }
             }
             Flow {
                 visible: win.pending === "modePick"
@@ -590,7 +714,8 @@ Item {
                 text: tr("touch.kill_note")
                 wrapMode: Text.Wrap
                 color: theme.CRIT
-                font.pixelSize: 13 * s
+                font.pixelSize: 15 * s
+                font.bold: true
             }
             SlideConfirm {
                 id: slider
@@ -600,7 +725,6 @@ Item {
                 height: 60 * s
                 text: slideText()
                 tint: danger(win.pending) ? theme.CRIT : theme.ACCENT
-                holdMs: win.pending === "kill" ? 2000 : 0
                 onConfirmed: {
                     var a = win.pending
                     var arg = a === "takeoff" ? String(win.takeoffAlt) : win.pendingArg

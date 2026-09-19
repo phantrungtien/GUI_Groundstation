@@ -71,6 +71,16 @@ def url_for(remote_url):
     return f"http://{host}:{VIDEO_PORT}/stream" if host else None
 
 
+def video_url(profile):
+    """Dia chi video cua mot profile: key `video` neu co, khong thi suy tu `remote`.
+
+    Key rieng can cho SITL: nua ROS2 chay NGAY TREN laptop (ws://127.0.0.1) con
+    camera van nam tren Pi — suy tu `remote` la di tim video o laptop, va man bay
+    trong tron du Pi dang phat.
+    """
+    return profile.get("video") or (url_for(profile["remote"]) if profile.get("remote") else None)
+
+
 def _read_frame(resp):
     """Doc mot phan multipart/x-mixed-replace, tra ve byte JPEG."""
     while True:  # nhay toi dong boundary

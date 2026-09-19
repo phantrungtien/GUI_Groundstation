@@ -16,6 +16,8 @@ Ngoai le duy nhat lam nut do bi khoa: che do REPLAY — luc do khong co gi o dau
 kia de ma gui lenh toi.
 """
 
+import html
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -123,7 +125,7 @@ class ControlTab(QWidget):
         #   FC bao DA HA CANH  -> bam mot phat la force 21196, ngat duoc ngay du
         #                         can ga dang o dau
         #   dang bay / KHONG BIET -> bam mot phat chi ra lenh thuong; muon force
-        #                         thi phai giu 2 giay
+        #                         thi BAM LAI trong CONFIRM_S giay
         #
         # Vi sao khong de bac thuong lo: ArduCopter/AP_Arming.cpp:788 chan disarm
         # tu GCS khi `land_complete` sai, va no sai ngay khi ga roi khoi min (do
@@ -131,15 +133,13 @@ class ControlTab(QWidget):
         # can ga quyet dinh nut co an hay khong — dieu khong ai doan duoc luc can
         # ngat gap.
         #
-        # Vi sao bac force phai kho bam khi dang bay: force luc do la tat dong co
-        # giua khong trung. Phai la mot dong tac co chu y, khong phai cu bam nham.
-        self._forced = False
-        self._kill_hold = QTimer(self)
-        self._kill_hold.setSingleShot(True)
-        self._kill_hold.setInterval(2000)
-        self._kill_hold.timeout.connect(self._force_disarm)
-        self.btn_kill.pressed.connect(self._kill_pressed)
-        self.btn_kill.released.connect(self._kill_released)
+        # Vi sao bac force can bam lai: force luc do la tat dong co giua khong
+        # trung. Khong bat giu nut: bam lai, va HAU QUA hien ngay canh nut trong
+        # luc cho bam lai.
+        self._kill_confirm = QTimer(self)
+        self._kill_confirm.setSingleShot(True)
+        self._kill_confirm.setInterval(int(CONFIRM_S * 1000))
+        self._kill_confirm.timeout.connect(self._kill_cancel)
         self.btn_kill.clicked.connect(self._kill_clicked)
 
         self.red_box = QGroupBox()
@@ -152,7 +152,15 @@ class ControlTab(QWidget):
         self.note.setAlignment(Qt.AlignCenter)
         self.note.setStyleSheet(f"color:{theme.WARN};")
 
+        # Cung trang thai voi man bay (san sang ARM, o CON, canh bao dung yen) —
+        # app.py day `Backend.state` vao day moi nhip. Tab nay la cho bam lenh,
+        # nguoi dung khong phai quay sang man bay de biet co ARM duoc chua.
+        self.flight = QLabel()
+        self.flight.setWordWrap(True)
+        self.flight.setTextFormat(Qt.RichText)
+
         lay = QVBoxLayout(self)
+        lay.addWidget(self.flight)
         lay.addWidget(normal)
         lay.addWidget(self.mission_box)
         lay.addStretch(1)
@@ -203,6 +211,21 @@ class ControlTab(QWidget):
         else:
             self.note.setText("")
 
+    def show_flight(self, st):
+        """Nhan `Backend.state` (5 Hz) -> mot khoi chu: san sang ARM, o CON, canh bao."""
+        rows = []
+        r = st.get("ready")
+        if r:
+            rows.append((theme.OK if r["ok"] else theme.WARN, r["text"]))
+        left = st.get("battLeft")
+        if left is not None:
+            col = {"crit": theme.CRIT, "warn": theme.WARN}.get(st.get("leftLevel"), theme.TEXT)
+            rows.append((col, f"{t('touch.left')}  {left // 60}:{left % 60:02d}"))
+        for w in st.get("warns") or []:
+            rows.append((theme.CRIT if w["crit"] else theme.WARN, w["text"]))
+        self.flight.setText("<br>".join(
+            f'<span style="color:{c};font-weight:bold;">{html.escape(s)}</span>' for c, s in rows))
+
     def _on_mission_state(self, env):
         """Companion bao moi giay: node nao dang chay that.
 
@@ -225,27 +248,28 @@ class ControlTab(QWidget):
             self.mission_now.setStyleSheet(f"color:{theme.MUTED};")
 
     # --- DISARM hai bac ---
-    def _kill_pressed(self):
-        self._forced = False
-        self.btn_kill.setText(t("ctl.hold_kill"))
-        self._kill_hold.start()
-
-    def _kill_released(self):
-        self._kill_hold.stop()
-        self.btn_kill.setText("DISARM")
-
     def _kill_clicked(self):
-        # Tha tay sau khi da force thi KHONG gui them lenh thuong: no chi lam ban
-        # log va lam nguoi doc tuong lenh force da that bai.
-        if self._forced:
-            self._forced = False
+        if self._kill_confirm.isActive():
+            self._force_disarm()
             return
         self.cmd.kill()
+        if self.cmd.on_ground() is True:
+            return  # kill() da force roi, khong con gi de xac nhan
+        self._kill_confirm.start()
+        self.btn_kill.setText(t("ctl.again_kill"))
+        self.note.setText(t("touch.kill_note"))
+        self.note.setStyleSheet(f"color:{theme.CRIT};font-weight:bold;")
+
+    def _kill_cancel(self):
+        self._kill_confirm.stop()
+        self.btn_kill.setText("DISARM")
+        self.note.setStyleSheet(f"color:{theme.WARN};")
+        self.set_mode(self.mode)  # tra lai dong ghi chu theo che do
 
     def _force_disarm(self):
-        self._forced = True
-        self.btn_kill.setText(t("ctl.killed"))
+        self._kill_cancel()
         self.cmd.force_disarm()
+        self.btn_kill.setText(t("ctl.killed"))
 
     def _takeoff_cancel(self):
         """Het gio cho, hoac da bam lan hai: tra nut ve nguyen trang."""

@@ -3,6 +3,7 @@
 Day thuong la cho duy nhat FC noi ro no tu choi lenh vi ly do gi ("PreArm: ...").
 """
 
+import re
 import time
 
 from PySide6.QtCore import Qt, Signal
@@ -133,6 +134,23 @@ class MessagesTab(QWidget):
         while self.list.count() > MAX_ROWS:
             self.list.takeItem(self.list.count() - 1)
         self.count.setText(str(self.list.count()))
+
+    def show_text(self, text):
+        """Cham dong loi tren man bay -> nhay toi dong do o day (moi nhat khop truoc).
+
+        Bo duoi AlertBook gan them ("  ×N" khi gop dong trung, "  (+k)" khi cat
+        bot) roi so 40 ky tu dau. Dong dang bi bo loc an thi hien rieng no ra —
+        nguoi ta cham vao de doc, khong phai de doi bo loc.
+        """
+        needle = re.sub(r"(  ×\d+)?(  \(\+\d+\))?$", "", text).strip()[:40]
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            if needle and needle in item.text():
+                item.setHidden(False)
+                self.list.setCurrentItem(item)
+                self.list.scrollToItem(item, QAbstractItemView.PositionAtCenter)
+                return True
+        return False
 
     def _apply_filter(self):
         t = self._threshold()

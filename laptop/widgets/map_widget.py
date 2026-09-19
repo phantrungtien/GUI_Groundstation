@@ -27,6 +27,7 @@ from laptop import theme
 from core.adapters.sik import WP_MAX
 
 TILE = 256
+FOLLOW_ZOOM = 20  # cham dup ve drone thi phong toi day (tile Google toi z21)
 from core.field import haversine_m
 from core.i18n import t
 
@@ -500,10 +501,22 @@ class MapWidget(QWidget):
         self._drag = None
 
     def mouseDoubleClickEvent(self, _):
+        self.recenter()
+
+    def recenter(self):
+        """Cham/nhap dup: ve dung cho drone, bam theo, va phong toi FOLLOW_ZOOM.
+
+        Nguoi dung chot 19/09: dang o z5 ma cham dup chi doi tam thi van khong
+        thay drone dau — phai phong vao luon. True neu co vi tri de ve.
+        """
         self.follow = True
-        if self.pos:
-            self.center = self.pos
+        if not self.pos:
+            return False
+        self.center = self.pos
+        self.zoom = FOLLOW_ZOOM
+        self._zooms = None
         self.update()
+        return True
 
     def latlon_at(self, point):
         """Diem tren widget -> (lat, lon). Dung cho click-to-goto."""

@@ -130,7 +130,7 @@ nhánh nào khác. Chỉ bị khoá ở chế độ REPLAY.
 
 **Nút đỏ DISARM chia theo đang-ở-dưới-đất, không theo cần ga:**
 
-| FC báo đang ở dưới đất? | Bấm một phát | Giữ 2 giây |
+| FC báo đang ở dưới đất? | Bấm một phát | Bấm lại trong 3 s (màn cảm ứng: trượt hết) |
 |---|---|---|
 | **có** | force ngay — ga ở mức nào cũng ngắt được | — |
 | **không** | lệnh thường (FC sẽ từ chối nếu nó tin là đang bay) | force |

@@ -44,6 +44,20 @@ def load_profiles(path=CONFIG):
     return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
 
 
+def usb_id(p):
+    """VID:PID:serial cua cong. None = khong phai USB that (khong co gi de nhan)."""
+    if p.vid is None:
+        return None
+    return f"{p.vid:04x}:{getattr(p, 'pid', 0) or 0:04x}:{getattr(p, 'serial_number', '') or ''}"
+
+
+def same_port(old, new):
+    """Cong `new` vua quet ra co phai thiet bi cua profile `old` khong."""
+    if old.get("usb_id") and new.get("usb_id"):
+        return old["usb_id"] == new["usb_id"]
+    return old.get("conn") == new.get("conn")
+
+
 def detect_serial(template=None):
     """Quet cong USB-serial DANG CAM, tra ve profile REAL cho tung cong.
 
@@ -82,6 +96,9 @@ def detect_serial(template=None):
             # USB CDC thi bo qua baud hoan toan.
             "bridge": bridge,
             "detected": True,
+            # Dau van tay cua thiet bi, de rut ra cam lai con nhan ra no: ten cong
+            # co the doi (ttyACM0 -> ttyACM1), con VID/PID/so serial thi khong.
+            "usb_id": usb_id(p),
             # Bay 2 cua ke hoach: khong o nhom `dialout` thi mo cong that bai voi
             # mot dong loi kho hieu. Bat o day de con noi thang phai lam gi.
             # Windows khong co khai niem nay va os.access("COM3") luon False, nen

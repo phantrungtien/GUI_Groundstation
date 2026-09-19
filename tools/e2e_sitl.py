@@ -51,7 +51,7 @@ from laptop.touch.backend import Backend  # noqa: E402
 # "undefined" — khong crash, chi im lang sai, nen phai diem danh.
 STATE_KEYS = (
     "connected live mode profile status statusLevel fcMode armed alt dist hs vs "
-    "heading flightTime battPct volt battLevel sats gpsLevel hasVideo alerts "
+    "heading flightTime battPct volt battLevel battLeft leftLevel sats gpsLevel hasVideo alerts "
     "draftN draftFull wpAlt hasWp wpOver nudgeWhy diverge"
 ).split()
 

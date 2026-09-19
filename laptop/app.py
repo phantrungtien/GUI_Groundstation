@@ -21,7 +21,8 @@ from core.adapters.remote import RemoteAdapter
 from core.adapters.sik import STALE, SikAdapter
 from core.field import REGISTRY
 from core.i18n import t
-from laptop.connection import ROOT, ConnectionPanel, ModeBanner, load_profiles
+from laptop.connection import (ROOT, ConnectionPanel, ModeBanner, detect_serial,
+                               load_profiles, same_port)
 from laptop.link_faults import LinkFaults
 from laptop.link_status import LinkStatus
 from laptop.replay_bar import ReplayBar
@@ -30,7 +31,7 @@ from laptop.tabs.control import ControlTab
 from laptop.tabs.messages import MessagesTab
 from laptop.tabs.settings import SettingsTab
 from laptop.tabs.status import StatusTab
-from laptop.widgets.video import VideoSource, VideoView, url_for
+from laptop.widgets.video import VideoSource, VideoView, video_url
 from laptop.theme import QSS
 from laptop.touch.backend import Backend as TouchBackend
 from laptop.touch.view import make_view
@@ -41,6 +42,7 @@ TITLE = "GCS — ArduCopter"
 # Giay de bam dong lan hai khi drone dang ARM. Cung con so voi CONFIRM_S cua
 # TAKEOFF — hai cho xac nhan giong nhau thi nhip tay cung phai giong nhau.
 CLOSE_CONFIRM_S = 3.0
+RECONNECT_MS = 1000  # nhip quet cong USB trong luc cho cam lai
 
 
 def mount(page, widget):
@@ -97,6 +99,8 @@ class MainWindow(QMainWindow):
         # `laptop/commands.py` voi tab Dieu khien.
         self.touch = TouchBackend(profiles, cmd=self.control_tab.cmd, video_src=self.video)
         self.touch_view = make_view(self.touch)
+        self.touch.openMessage.connect(self._open_message)
+        self.touch.stateChanged.connect(lambda: self.control_tab.show_flight(self.touch.state))
         mount(self.ui.Flight, self.touch_view)
         self.ui.tabWidget.setCurrentWidget(self.ui.Flight)
 
@@ -137,6 +141,13 @@ class MainWindow(QMainWindow):
         self.ui.statusbar.addPermanentWidget(self.link_status)
         bus.on("*", self.link_status.on_envelope)
 
+        # Rut day USB giua chung: giu nguon cu, quet cong moi giay, thay dung thiet
+        # bi do cam lai thi tu noi. Chi cho cong serial — tcp/udp da co
+        # `autoreconnect` cua pymavlink, con REPLAY thi khong co gi de "cam lai".
+        self._reconnect = QTimer(self)
+        self._reconnect.setInterval(RECONNECT_MS)
+        self._reconnect.timeout.connect(self._try_reconnect)
+
         # Banner phai bam theo suc khoe link, khong phai theo mode da chon.
         self._health = QTimer(self)
         self._health.timeout.connect(self._refresh_banner)
@@ -156,6 +167,10 @@ class MainWindow(QMainWindow):
         self._show_unread(self._unread)  # doi ngon ngu khong duoc nuot mat con so
         self.conn_dock.setWindowTitle(t("dock.conn"))
         self.faults_dock.setWindowTitle(t("dock.faults"))
+
+    def _open_message(self, text):
+        self.ui.tabWidget.setCurrentWidget(self.ui.Messages)
+        self.messages_tab.show_text(text)
 
     def _show_unread(self, n):
         """So canh bao chua doc, gan sau ten tab Thong bao."""
@@ -205,11 +220,11 @@ class MainWindow(QMainWindow):
             self.remote.start()
             authority.register("remote", self.remote)
 
-            # Video di cung nua WiFi va chi nua do — SiK (~470-3200 B/s) khong du
-            # cho noi mot khung JPEG. Khong co `remote` thi khong co video, dung.
-            url = url_for(profile["remote"])
-            if url:
-                self.video.start(url)
+        # Video di duong WiFi rieng — SiK (~470-3200 B/s) khong du cho noi mot
+        # khung JPEG. Dia chi: key `video`, khong thi suy tu `remote` (video_url).
+        url = video_url(profile)
+        if url:
+            self.video.start(url)
 
         self.control_tab.set_mode(self.mode)
         self.status_tab.attach(self.adapter)
@@ -232,6 +247,9 @@ class MainWindow(QMainWindow):
         suy tu "adapter dang chay": `udp:` mo bao gio cung thanh cong.
         """
         if not self.profile:
+            return
+        if self._reconnect.isActive():
+            self.banner.show_lost(self.profile, t("conn.replug", port=self.profile["conn"]))
             return
         now = time.time()
 
@@ -258,6 +276,7 @@ class MainWindow(QMainWindow):
             self.banner.show_profile(self.profile)
 
     def disconnect(self):
+        self._reconnect.stop()  # bam Ngat = thoi cho cam lai
         for name, attr in (("sik", "adapter"), ("remote", "remote")):
             a = getattr(self, attr, None)
             if a:
@@ -297,8 +316,34 @@ class MainWindow(QMainWindow):
         self._stop_sik()
         if was_flying:
             self.banner.show_lost(profile, why)
+            if profile and self._replugable(profile):
+                self._reconnect.start()
         else:
             QMessageBox.critical(self, t("conn.fail_title"), why)
+
+    @staticmethod
+    def _replugable(profile):
+        conn = profile.get("conn") or ""
+        return profile.get("mode") == "REAL" and bool(conn) and \
+            not conn.startswith(("tcp:", "udp:", "udpin:", "udpout:"))
+
+    def _try_reconnect(self):
+        """Nhip RECONNECT_MS: cong cua nguon cu da quay lai chua?
+
+        Mo cong co the van that bai (FC dang khoi dong, udev chua kip cap quyen) —
+        luc do `_on_failed` chay lai va tu bat timer nay tiep, nen khong can dem
+        so lan o day.
+        """
+        p = self.profile
+        if p is None or self.adapter is not None:
+            self._reconnect.stop()
+            return
+        for q in detect_serial(p):
+            if same_port(p, q) and q.get("writable", True):
+                self._reconnect.stop()
+                self.ui.statusbar.showMessage(t("conn.replugged", port=q["conn"]), 5000)
+                self.connect_to({**p, "conn": q["conn"]})
+                return
 
     def _stop_sik(self):
         if self.adapter:

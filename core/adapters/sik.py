@@ -46,6 +46,20 @@ WP_UP_TRIES = 5
 # Bon tham so quyet dinh hinh cua rao. Ban kinh va tran do cao khong nam trong
 # danh sach nhiem vu ma la tham so — phai hoi rieng.
 FENCE_PARAMS = ("FENCE_ENABLE", "FENCE_TYPE", "FENCE_RADIUS", "FENCE_ALT_MAX")
+# Tham so cho man bay: pin (thoi gian con lai), failsafe (kiem luc ket noi), RTL
+# (uoc thoi gian ve nha). FC khong tu gui, phai hoi nhu rao. Moi NHOM la cac ten
+# thay the nhau: ArduCopter 4.7-dev doi sang SI (RTL_ALT cm -> RTL_ALT_M m), co
+# mot ten trong nhom la du — FC im lang voi ten no khong co.
+WATCH_PARAMS = (
+    ("BATT_CAPACITY",), ("BATT_LOW_MAH",), ("BATT_CRT_MAH",),
+    ("BATT_FS_LOW_ACT",), ("BATT_FS_CRT_ACT",), ("BATT_LOW_VOLT",),
+    ("FS_THR_ENABLE",), ("FS_GCS_ENABLE",),
+    ("RTL_ALT_M", "RTL_ALT"), ("RTL_SPEED_MS", "RTL_SPEED"), ("WP_SPD", "WPNAV_SPEED"),
+    ("WP_SPD_UP", "WPNAV_SPEED_UP"), ("WP_SPD_DN", "WPNAV_SPEED_DN"),
+    ("LAND_SPD_MS", "LAND_SPEED"), ("LAND_SPD_HIGH_MS", "LAND_SPEED_HIGH"),
+    ("LAND_ALT_LOW_M", "LAND_ALT_LOW"), ("RTL_LOIT_TIME",),
+)
+WATCH_NAMES = {n for g in WATCH_PARAMS for n in g}
 ASK_EVERY = 3.0  # giay giua hai lan hoi lai cai con thieu (rao + duong bay)
 ASK_MAX = 8      # bo cuoc sau ~24s: firmware khong co rao thi hoi mai vo ich
 
@@ -347,6 +361,14 @@ def normalize(name, d):
         # Rao di chung mot topic voi cac dinh da giac: ben ve chi phai nghe mot cho.
         return "fence", {param_id(d): d["param_value"]}
 
+    if name == "PARAM_VALUE" and param_id(d) in WATCH_NAMES:
+        return "param", {param_id(d): d["param_value"]}
+
+    if name == "BATTERY_STATUS":
+        # mAh da xai tu luc cam pin — FC dem bang dong dien, chinh hon % (buoc 1%).
+        c = d["current_consumed"]
+        return "battery", {"consumed_mah": c if c >= 0 else None}
+
     return None
 
 
@@ -489,6 +511,7 @@ class SikAdapter(QThread):
 
         # Geofence + home: FC khong tu gui, phai hoi. Xem _fence_ask().
         self._fence = {}        # ten tham so FENCE_* -> gia tri da nhan
+        self._params = {}       # ten trong WATCH_PARAMS -> gia tri da nhan
         self._fence_items = {}  # seq -> (command, param1, lat, lon)
         self._fence_n = None    # so muc FC bao co; None = chua hoi duoc
         self._home_seen = False
@@ -792,6 +815,9 @@ class SikAdapter(QThread):
 
     # ---- geofence --------------------------------------------------------
 
+    def _params_done(self):
+        return all(any(n in self._params for n in g) for g in WATCH_PARAMS)
+
     def _fence_done(self):
         return (
             self._home_seen
@@ -811,6 +837,7 @@ class SikAdapter(QThread):
         for n in FENCE_PARAMS:
             if n not in self._fence:
                 m.param_request_read_send(sysid, AUTOPILOT, n.encode(), -1)
+
         if not self._home_seen:
             m.command_long_send(
                 sysid, AUTOPILOT, mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE, 0,
@@ -848,6 +875,8 @@ class SikAdapter(QThread):
             self._home = (d["latitude"] / 1e7, d["longitude"] / 1e7)
         elif name == "PARAM_VALUE" and param_id(d).startswith("FENCE_"):
             self._fence[param_id(d)] = d["param_value"]
+        elif name == "PARAM_VALUE" and param_id(d) in WATCH_NAMES:
+            self._params[param_id(d)] = d["param_value"]
         elif name == "MISSION_COUNT" and d.get("mission_type") == FENCE:
             # Dem lai tu dau: FC vua noi hien co bao nhieu muc.
             self._fence_n = d["count"]
@@ -1288,12 +1317,17 @@ class SikAdapter(QThread):
                 # heartbeat dau), roi hoi lai cai con thieu cho toi khi du hoac
                 # het luot. Ba thu nay FC khong tu gui bao gio.
                 if (streams_sent and not self.muted
-                        and not (self._fence_done() and self._wp_done())
+                        and not (self._fence_done() and self._wp_done() and self._params_done())
                         and self._asks < ASK_MAX
                         and now - self._ask_at >= ASK_EVERY):
                     self._ask_at, self._asks = now, self._asks + 1
                     if not self._fence_done():
                         self._fence_ask(master)
+                    for g in WATCH_PARAMS:
+                        if not any(n in self._params for n in g):
+                            for n in g:
+                                master.mav.param_request_read_send(
+                                    master.target_system, AUTOPILOT, n.encode(), -1)
                     if not self._wp_done():
                         self._wp_ask(master)
 

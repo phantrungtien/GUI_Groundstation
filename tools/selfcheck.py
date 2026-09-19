@@ -191,6 +191,61 @@ def check_sensor_decode():
     print(f"  ok  giai ma {len(SENSOR_BITS)} bit cam bien cua SYS_STATUS (ra ma may)")
 
 
+def check_replug(app):
+    """Rut day USB cua FC roi cam lai: tu noi lai DUNG thiet bi do, qua cong moi.
+
+    Ten cong doi khi cam lai (ttyACM0 -> ttyACM1) nen phai nhan theo VID/PID/so
+    serial. Cam mot thiet bi KHAC vao thi khong duoc noi nham vao no.
+    """
+    import laptop.app as appmod
+    from core.adapters.sik import SikAdapter
+
+    win = appmod.MainWindow([])
+    calls, ports = [], []
+    orig = appmod.detect_serial
+    appmod.detect_serial = lambda tpl=None: list(ports)
+    win.connect_to = lambda p: calls.append(p)
+    prof = {"name": "MicoAir743", "mode": "REAL", "conn": "/dev/ttyACM0", "baud": 115200,
+            "sysid": 254, "usb_id": "1209:5741:ABC", "detected": True}
+    try:
+        win.profile, win.mode = prof, "REAL"
+        win.link_status.last_seen[SikAdapter.SRC] = time.time()  # da tung co du lieu
+        win._on_failed("device disconnected")
+        assert win._reconnect.isActive(), "rut day ma khong cho cam lai"
+        win._refresh_banner()
+        assert "cắm lại" in win.banner.text() and "ttyACM0" in win.banner.text(), \
+            win.banner.text()
+
+        win._try_reconnect()  # chua cam lai
+        assert not calls and win._reconnect.isActive()
+
+        ports[:] = [{"conn": "/dev/ttyUSB0", "usb_id": "0403:6001:X", "writable": True}]
+        win._try_reconnect()  # cam mot radio khac vao
+        assert not calls, f"noi nham vao thiet bi khac: {calls}"
+
+        ports.append({"conn": "/dev/ttyACM1", "usb_id": "1209:5741:ABC", "writable": True})
+        win._try_reconnect()  # FC cam lai, ten cong da doi
+        assert [c["conn"] for c in calls] == ["/dev/ttyACM1"], calls
+        assert calls[0]["sysid"] == 254 and calls[0]["baud"] == 115200, "mat cau hinh cu"
+        assert not win._reconnect.isActive()
+
+        # Bam Ngat trong luc cho: thoi cho
+        win._reconnect.start()
+        type(win).disconnect(win)
+        assert not win._reconnect.isActive(), "bam Ngat ma van tu noi lai"
+
+        # SITL qua tcp va REPLAY: khong co gi de cam lai
+        assert not win._replugable({"mode": "SIM", "conn": "tcp:127.0.0.1:5762"})
+        assert not win._replugable({"mode": "REAL", "conn": "udp:0.0.0.0:14550"})
+        assert not win._replugable({"mode": "REPLAY", "path": "logs/a.tlog"})
+    finally:
+        appmod.detect_serial = orig
+        win._reconnect.stop()
+        win.close()
+    print("  ok  rut USB cam lai: tu noi lai dung thiet bi (nhan theo VID/PID/serial, "
+          "ten cong doi van nhan), khong noi nham thiet bi khac, bam Ngat la thoi")
+
+
 def check_usb_detect(app):
     """Tu quet cong USB. Gia lap ba cong cam cung luc — may co nhieu cong USB thi
     so thu tu ttyUSB doi moi lan cam, ghi cung mot cong la sai tu goc."""
@@ -480,7 +535,7 @@ def check_arm_throttle_guard(app):
 
 
 def check_disarm_hold(app):
-    """DISARM hai bac: bam nhanh = lenh thuong, giu 2s = force 21196.
+    """DISARM hai bac: bam mot lan = lenh thuong, bam lai trong 3s = force 21196.
 
     Vi sao duoi dat phai force ngay: do tren FC that (MicoAir743, thao canh), lenh
     disarm thuong AN khi ga o min nhung bi tu choi 3/3 lan khi ga len giua tam —
@@ -511,6 +566,7 @@ def check_disarm_hold(app):
         """Dat hai nguon: cai FC bao, va cam bien khoang cach (cm)."""
         REGISTRY.fields.clear()
         ct.cmd._rng = None
+        ct._kill_cancel()  # moi truong hop la mot lan bam MOI, khong noi tiep lan truoc
         if v is not None:
             REGISTRY.feed({"src": "sik", "topic": "heartbeat", "data": {"landed": v},
                            "ts": time.time()})
@@ -561,34 +617,32 @@ def check_disarm_hold(app):
         # --- FC bao dang bay, cam bien cung noi tren cao: lenh thuong ---
         landed(False, rng_cm=250)
         sent.clear()
-        ct.btn_kill.click()  # bam nhanh: press + release + clicked
+        ct.btn_kill.click()
         assert sent == [("disarm", {})], sent
+        # Lan mot: nut doi chu, HAU QUA hien ngay canh nut
+        assert "BẤM LẠI" in ct.btn_kill.text(), ct.btn_kill.text()
+        assert "RƠI" in ct.note.text(), ct.note.text()
 
-        # Giu: bam xuong, cho het gio, roi moi tha
+        # Bam lai trong 3s: force ngay, khong phai giu
         sent.clear()
-        ct.btn_kill.pressed.emit()
-        assert ct._kill_hold.isActive(), "giu nut ma dong ho khong chay"
-        assert "GIỮ" in ct.btn_kill.text(), ct.btn_kill.text()
-        ct._kill_hold.timeout.emit()  # = 2 giay da troi qua
+        ct.btn_kill.click()
         assert sent == [("disarm", {"force": True})], sent
-        ct.btn_kill.released.emit()
-        ct.btn_kill.clicked.emit()  # tha tay: KHONG duoc gui them lenh thuong
-        assert sent == [("disarm", {"force": True})], sent
+        assert not ct._kill_confirm.isActive()
+        assert "RƠI" not in ct.note.text(), ct.note.text()
+
+        # Het 3s ma khong bam lai: bam tiep chi la lenh thuong, khong force
+        ct.btn_kill.click()
+        ct._kill_confirm.timeout.emit()  # = 3 giay da troi qua
         assert ct.btn_kill.text() == "DISARM", ct.btn_kill.text()
-
-        # Tha tay som (chua du 2s) thi chi co lenh thuong, khong co force
         sent.clear()
-        ct.btn_kill.pressed.emit()
-        ct.btn_kill.released.emit()
-        assert not ct._kill_hold.isActive(), "tha tay roi ma dong ho van chay"
-        ct.btn_kill.clicked.emit()
-        assert sent == [("disarm", {})], sent
+        ct.btn_kill.click()
+        assert sent == [("disarm", {})], f"het gio ma van force: {sent}"
     finally:
         authority.unregister("sik")
         REGISTRY.fields.clear()
         ct.close()
     print("  ok  DISARM: duoi dat bam mot phat la force (ga o dau cung ngat duoc), "
-          "tren troi phai giu 2s")
+          "tren troi bam lai trong 3s (hau qua hien canh nut)")
 
 
 def check_remote(app):
@@ -731,6 +785,45 @@ def check_takeoff_guard(app):
         REGISTRY.feed({"src": "sik", "topic": "position", "data": {"alt_rel": 4.0},
                        "ts": time.time()})
         ct.cmd.check_climb(0.0)
+        assert not logs, logs
+
+        # --- Chua ARM: noi thang "chua ARM", KHONG gui, KHONG keu do cao ------
+        # Do that 19/09 16:06:46: FC TU CHOI (chua ARM), 6 s sau app van hien
+        # "FC da nhan nhung do cao khong doi — nghi co node stream setpoint".
+        from core import bus
+        REGISTRY.feed({"src": "sik", "topic": "position", "data": {"alt_rel": 0.0},
+                       "ts": time.time()})
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat",
+                       "data": {"mode": "GUIDED", "armed": False}, "ts": time.time()})
+        sent.clear(); logs.clear()
+        assert ct.cmd.takeoff(5.0) is False
+        assert not sent, "chua ARM ma van gui takeoff"
+        assert "CHƯA ARM" in logs[-1], logs
+
+        # FC tu choi takeoff (vi ly do nao do, ma app khong biet truoc): bo kiem
+        # 6 s KHONG duoc noi "FC da nhan".
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat",
+                       "data": {"mode": "GUIDED", "armed": None}, "ts": time.time()})
+        REGISTRY.fields.pop("heartbeat.armed", None)
+        sent.clear(); logs.clear()
+        assert ct.cmd.takeoff(5.0) is True and sent == ["takeoff"], sent
+        n = ct.cmd._climb_seq
+        bus.emit_envelope({"src": "sik", "topic": "ack", "ts": time.time(),
+                           "data": {"command": 22, "result": 4}})
+        ct.cmd.check_climb(0.0, n)  # = 6 s sau
+        assert not any("độ cao không đổi" in x for x in logs), f"FC tu choi ma van keu: {logs}"
+
+        # FC chap nhan ma drone nam im: VAN phai keu nhu truoc
+        logs.clear()
+        ct.cmd.takeoff(5.0)
+        n = ct.cmd._climb_seq
+        bus.emit_envelope({"src": "sik", "topic": "ack", "ts": time.time(),
+                           "data": {"command": 22, "result": 0}})
+        ct.cmd.check_climb(0.0, n)
+        assert "độ cao không đổi" in logs[-1], logs
+        # Timer cua lan takeoff CU khong duoc kiem lan moi
+        logs.clear()
+        ct.cmd.check_climb(0.0, n - 1)
         assert not logs, logs
 
         # O REAL phai xac nhan — nhung KHONG duoc xac nhan bang hop thoai chan.
@@ -1568,6 +1661,22 @@ def check_video(app):
         == "http://hoaibac-desktop.local:8080/stream"
     assert url_for("ws://Pi-Camera.local:8765") == "http://pi-camera.local:8080/stream"
     assert url_for("") is None
+    # SITL: nua ROS2 tren laptop, camera tren Pi -> key `video` thang `remote`
+    from laptop.widgets.video import video_url
+    assert video_url({"remote": "ws://127.0.0.1:8765",
+                      "video": "http://hoaibac-desktop.local:8080/stream"}) \
+        == "http://hoaibac-desktop.local:8080/stream"
+    assert video_url({"remote": "ws://hoaibac-desktop.local:8765"}) \
+        == "http://hoaibac-desktop.local:8080/stream", "khong co `video` thi van suy tu remote"
+    assert video_url({"video": "http://pi.local:8080/stream"}) == "http://pi.local:8080/stream", \
+        "co video ma khong co remote cung phai chay"
+    assert video_url({"conn": "tcp:127.0.0.1:5763"}) is None
+    import yaml
+    from laptop.connection import ROOT as _root
+    sitl = [p for p in yaml.safe_load((_root / "config" / "connections.yaml").read_text())
+            if p.get("mode") == "SIM"]
+    assert sitl and all("hoaibac-desktop" in (video_url(p) or "") for p in sitl), \
+        f"profile SITL khong lay video tu Pi: {[video_url(p) for p in sitl]}"
 
     # JPEG that chu khong phai byte rac: bat loi giai ma, khong chi bat loi truyen.
     pm = QPixmap(32, 24)
@@ -1830,7 +1939,7 @@ def check_touch(app):
 
     Keo that bang chuot tren tab QML cua cua so chinh (offscreen), khong goi
     thang ham: cai can chung minh la "tha giua chung thi KHONG co lenh", va dieu
-    do nam o QML. Cat dong co con phai GIU 2 s o cuoi — tha ngay thi khong co gi.
+    do nam o QML. Cat dong co cung chi can truot het, khong giu them.
     """
     from PySide6.QtCore import QEventLoop, QPoint, QPointF, Qt, QTimer
     from PySide6.QtQuick import QQuickItem
@@ -1903,13 +2012,31 @@ def check_touch(app):
         drag(1.0)
         assert sent == [("takeoff", {"alt": 10.0})], sent
 
-        # Cat dong co: truot het roi tha NGAY -> khong co gi; giu 2 s -> force.
+        # Go tay do cao cat canh vao o nhap (khong phai chip): 47 m xuong FC.
+        sent.clear()
+        ask("takeoff")
+        box = root.findChild(QQuickItem, "takeoffAltBox")
+        assert box is not None and box.isVisible(), "khong co o nhap do cao cat canh"
+        box.forceActiveFocus()
+        QTest.keyClick(view, Qt.Key_A, Qt.ControlModifier)
+        QTest.keyClicks(view, "47")
+        QTest.keyClick(view, Qt.Key_Return)
+        wait(50)
+        assert root.property("takeoffAlt") == 47, root.property("takeoffAlt")
+        drag(1.0)
+        assert sent == [("takeoff", {"alt": 47.0})], sent
+        # Go so ngoai tam: QML kep, va backend kep lan nua neu QML co lot
+        sent.clear()
+        win.touch.act("takeoff", "500")
+        assert sent == [("takeoff", {"alt": 120.0})], f"do cao 500 m lot xuong FC: {sent}"
+        root.setProperty("takeoffAlt", 5)
+
+        # Cat dong co: truot nua chung -> khong co gi; truot het -> force ngay.
         sent.clear()
         ask("kill")
+        drag(0.5)
+        assert sent == [], f"cat dong co khi moi truot nua: {sent}"
         drag(1.0)
-        assert sent == [], f"cat dong co ma khong can giu: {sent}"
-        ask("kill")
-        drag(1.0, hold_ms=2200)
         assert sent == [("disarm", {"force": True})], sent
 
         # SiK dut (MainWindow._stop_sik): bang dang cho bi huy, act() tu choi.
@@ -1957,19 +2084,27 @@ def check_touch(app):
         wait(50)
         assert root.property("wpOpen") is False
         pt = QPoint(int(view.width() * 0.4), int(view.height() * 0.5))
+        ring = root.findChild(QQuickItem, "holdRing")
+        # Chon diem phai GIU 2 s (nguoi dung chot 19/09): cham mot cai KHONG mo.
+        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier, pt)
+        wait(400)
+        assert root.property("wpOpen") is False, "cham mot cai ma da chon diem"
+        # Giu 1,2 s roi tha: vong tron co chay, nhung tha som = huy
         QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, pt)
-        wait(1200)  # nguong cham-giu cua MouseArea la 800 ms
+        wait(1200)
+        assert ring.isVisible() and 0.3 < ring.property("p") < 0.9, ring.property("p")
+        QTest.mouseRelease(view, Qt.LeftButton, Qt.NoModifier, pt)
+        wait(300)
+        assert root.property("wpOpen") is False, "giu chua du 2 s ma da chon diem"
+        assert not ring.isVisible(), "tha tay roi ma vong tron van con"
+        # Giu du 2 s: mo bang, dung cho ngon tay — va O YEN khi chua ket noi
+        QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, pt)
+        wait(2300)
         QTest.mouseRelease(view, Qt.LeftButton, Qt.NoModifier, pt)
         wait(500)
-        assert root.property("wpOpen") is True, "cham-giu khi chua ket noi: bang tu dong dong"
-
-        # CHAM MOT CAI cung phai mo — giu du 800 ms bang chuot la khong ai doan ra.
-        root.setProperty("wpOpen", False)
-        wait(250)
-        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier, pt)
-        wait(300)
-        assert root.property("wpOpen") is True, "cham mot cai ma bang diem den khong mo"
+        assert root.property("wpOpen") is True, "giu 2 s ma bang diem den khong mo (hay tu dong)"
         assert abs(root.property("wpX") - pt.x()) < 2, root.property("wpX")
+        assert not ring.isVisible()
 
         # ...nhung KEO ban do thi khong: keo xong ma bang bat ra la khong dung duoc.
         root.setProperty("wpOpen", False)
@@ -1983,6 +2118,21 @@ def check_touch(app):
         wait(300)
         assert win.touch.map.center != center0, "keo ma ban do khong chay"
         assert root.property("wpOpen") is False, "keo ban do xong ma bang diem den bat ra"
+
+        # Cham dup = quay ve dung cho drone, KE CA ngon tay rung vai px.
+        # Do that: rung 2 px o lan cham thu hai -> follow=False, ban do dung im.
+        m = win.touch.map
+        m.set_position(10.8221, 106.6868)
+        assert not m.follow and m.center != m.pos, "chua keo lech thi khong co gi de thu"
+        m.zoom = 5  # dang xem ca vung rong: cham dup phai phong vao drone luon
+        QTest.mouseDClick(view, Qt.LeftButton, Qt.NoModifier, pt)
+        QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, pt)
+        QTest.mouseMove(view, pt + QPoint(2, 1))
+        QTest.mouseRelease(view, Qt.LeftButton, Qt.NoModifier, pt + QPoint(2, 1))
+        wait(300)
+        assert m.follow and m.center == m.pos, f"cham dup ma khong ve cho drone: {m.center} != {m.pos}"
+        assert m.zoom == 20, f"cham dup o z5 ma khong phong toi z20: z{m.zoom}"
+        root.setProperty("wpOpen", False)
         # Nhung VUA dut giua chung thi van phai dong (suon xuong, khong bo sot)
         win.touch.attach({"name": "selfcheck", "mode": "SIM"}, fake)
         wait(250)
@@ -1994,8 +2144,9 @@ def check_touch(app):
         win.touch.attach(None, None)
         win.close()
     print("  ok  tab Bay cam ung: mo san, chung Commands, tha giua chung khong co lenh, "
-          "truot het moi di, cat dong co phai giu 2s, mat SiK la huy; ban do: cham (hay "
-          "cham-giu) mo bang diem den va no o yen ca khi chua ket noi, keo thi khong mo")
+          "truot het moi di, cat dong co truot het la di (khong giu), mat SiK la huy; ban do: giu 2 s "
+          "(co vong tron) moi mo bang diem den, cham mot cai/tha som thi khong, keo thi khong mo; cham dup "
+          "(ke ca ngon tay rung) ve dung cho drone")
 
 
 def check_touch_flight(app):
@@ -2213,6 +2364,133 @@ def check_touch_flight(app):
         state(mode="GUIDED", armed=True, landed=False)
         b.refresh()
 
+        # --- SAN SANG ARM: bit PREARM_CHECK cua SYS_STATUS + ly do PreArm ------
+        state(mode="GUIDED", armed=False, landed=True)
+        bus.emit_envelope({"src": "sik", "topic": "status", "ts": time.time(),
+                           "data": {"SENSOR.prearm_check": "fail"}})
+        bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),
+                           "data": {"severity": 2, "text": "PreArm: RC not found"}})
+        b.refresh()
+        r = b.state["ready"]
+        assert r and not r["ok"] and "RC not found" in r["text"], r
+        bus.emit_envelope({"src": "sik", "topic": "status", "ts": time.time(),
+                           "data": {"SENSOR.prearm_check": "ok"}})
+        b.refresh()
+        assert b.state["ready"] == {"ok": True, "text": "SẴN SÀNG ARM"}, b.state["ready"]
+        assert not b._prearm_why, "da san sang ma con giu ly do PreArm cu"
+        from PySide6.QtQuick import QQuickItem
+        app.processEvents()
+        bar = win.touch_view.rootObject().findChild(QQuickItem, "readyBar")
+        assert bar is not None and bar.isVisible(), "khong thay dong SAN SANG ARM"
+        state(mode="GUIDED", armed=True, landed=False)
+        b.refresh()
+        assert b.state["ready"] is None, "da ARM ma van hien san sang ARM"
+
+        # --- o CON: tham so pin chi ve MOT lan, phai con dung sau STALE -------
+        # Do that 19/09 (log 151442): BATT_CAPACITY ve o giay 0,1; doc tu REGISTRY
+        # thi toi giay 2 no da "het tuoi" va o CON hien "--" suot chuyen bay.
+        bus.emit_envelope({"src": "sik", "topic": "param", "ts": time.time() - 10,
+                           "data": {"BATT_CAPACITY": 1800.0, "BATT_LOW_MAH": 540.0,
+                                    "BATT_CRT_MAH": 360.0}})
+        bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                           "data": {"current": 0.63, "consumed_mah": 202, "remaining": 88}})
+        b.refresh()
+        # (1800 - 202 - 540) mAh / 630 mA = 6046 s
+        assert b.state["battLeft"] in (6045, 6046), f"o CON sau 10 s: {b.state['battLeft']}"
+
+        # --- VE NHA NGAY: RTL uoc tu tham so FC (so that MicoAir743 07/09) -----
+        rtl = {"RTL_ALT_M": 2.0, "RTL_SPEED_MS": 0.0, "WP_SPD": 1.0, "WP_SPD_UP": 2.5,
+               "WP_SPD_DN": 1.5, "LAND_SPD_MS": 0.5, "LAND_SPD_HIGH_MS": 0.0,
+               "LAND_ALT_LOW_M": 10.0, "RTL_LOIT_TIME": 5000.0}
+        bus.emit_envelope({"src": "sik", "topic": "param", "ts": time.time(), "data": rtl})
+        b.map.set_home(lat, lon, from_fc=True)
+        REGISTRY.feed({"src": "sik", "topic": "position", "ts": time.time(),
+                       "data": {"lat": lat + 0.0045, "lon": lon, "alt_rel": 20.0}})
+        b.refresh()
+        assert b.state["warns"] == [], f"con ~100 phut ma da doi ve: {b.state['warns']}"
+        b._amps = None  # bo lam muot: dong nhay len 7 A ngay
+        bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                           "data": {"current": 7.05, "consumed_mah": 202, "remaining": 88}})
+        b.refresh()
+        w = b.state["warns"]
+        # 500 m / 1 m/s + 5 s + 10 m / 1,5 + 10 m / 0,5 = ~531 s; con ~540 s -> VE NGAY
+        assert len(w) == 1 and w[0]["crit"] and "VỀ NHÀ NGAY" in w[0]["text"], w
+        from laptop import safety
+        assert safety.rtl_time_s(rtl, 500, 20) == 531
+
+        # --- chua ARM: kiem failsafe + pin day chua (so that log 14:52 hom nay) --
+        state(mode="GUIDED", armed=False, landed=True)
+        bus.emit_envelope({"src": "sik", "topic": "param", "ts": time.time(),
+                           "data": {"BATT_FS_LOW_ACT": 0.0, "BATT_FS_CRT_ACT": 0.0,
+                                    "BATT_LOW_VOLT": 10.8, "FS_THR_ENABLE": 3.0,
+                                    "FS_GCS_ENABLE": 0.0}})
+        bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                           "data": {"voltage": 15.275, "current": 0.05, "remaining": 99}})
+        b.refresh()
+        txt = " | ".join(x["text"] for x in b.state["warns"])
+        for want in ("Failsafe pin", "FS_GCS_ENABLE", "2.70 V/cell", "KHÔNG đầy"):
+            assert want in txt, f"thieu '{want}': {txt}"
+        assert "FS_THR_ENABLE" not in txt, "FS_THR_ENABLE = 3 la dang BAT"
+        # Tham so dung + pin day: khong con gi
+        bus.emit_envelope({"src": "sik", "topic": "param", "ts": time.time(),
+                           "data": {"BATT_FS_LOW_ACT": 2.0, "BATT_LOW_VOLT": 14.0,
+                                    "FS_GCS_ENABLE": 1.0}})
+        bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                           "data": {"voltage": 16.7, "current": 0.05, "remaining": 99}})
+        b.refresh()
+        assert b.state["warns"] == [], b.state["warns"]
+
+        # --- tab Dieu khien hien cung trang thai (tien ich) ---------------------
+        b.refresh()
+        win.control_tab.show_flight(b.state)
+        state(mode="GUIDED", armed=False, landed=True)
+        bus.emit_envelope({"src": "sik", "topic": "param", "ts": time.time(),
+                           "data": {"BATT_FS_LOW_ACT": 0.0}})
+        bus.emit_envelope({"src": "sik", "topic": "status", "ts": time.time(),
+                           "data": {"SENSOR.prearm_check": "ok"}})
+        b.refresh()
+        ctl = win.control_tab.flight.text()
+        assert "SẴN SÀNG ARM" in ctl and "Failsafe pin" in ctl, ctl
+
+        # --- giong noi: doc khi DOI trang thai, khong doc lai moi nhip ---------
+        b.voice.spoken.clear(); b.voice.reset()
+        for _ in range(5):
+            b.refresh()
+        assert b.voice.spoken.count("Sẵn sàng arm") == 1, b.voice.spoken
+        state(mode="GUIDED", armed=True, landed=False)
+        b._amps = None
+        bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                           "data": {"current": 7.05, "consumed_mah": 202, "remaining": 88,
+                                    "voltage": 16.0}})
+        for _ in range(5):
+            b.refresh()
+        assert b.voice.spoken.count("Về nhà ngay") == 1, b.voice.spoken
+        b.voice._said_at["rtl"] -= 31  # = 31 s sau, van con phai ve
+        b.refresh()
+        assert b.voice.spoken.count("Về nhà ngay") == 2, "VE NHA NGAY phai nhac lai moi 30 s"
+
+        # --- cham dong loi tren man bay -> tab Thong bao, dung dong do ---------
+        bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),
+                           "data": {"severity": 2, "text": "PreArm: Check mag field:  168"}})
+        bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),
+                           "data": {"severity": 2, "text": "PreArm: Check mag field:  168"}})
+        bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),
+                           "data": {"severity": 6, "text": "khong lien quan"}})
+        b.refresh()
+        shown = [a["text"] for a in b.state["alerts"] if "mag" in a["text"]]
+        assert shown and "×2" in shown[0], b.state["alerts"]
+        b.showMessage(shown[0])  # = QML cham vao dong do
+        assert win.ui.tabWidget.currentWidget() is win.ui.Messages, "cham loi ma khong mo tab"
+        cur = win.messages_tab.list.currentItem()
+        assert cur is not None and "Check mag field" in cur.text(), cur and cur.text()
+        win.ui.tabWidget.setCurrentWidget(win.ui.Flight)
+
+        b.attach(None, None)
+        assert not b._params, "ngat roi ma con giu tham so cua drone cu"
+        b.attach({"name": "selfcheck", "mode": "SIM"}, fake)
+        state(mode="GUIDED", armed=True, landed=False)
+        b.refresh()
+
         # --- mat SiK giua luc dang nhich: buong can, khong ban vao khoang khong
         b.stick(0, 1, 0)
         assert b._nudge_timer.isActive()
@@ -2251,6 +2529,19 @@ def check_telemetry_warn(app):
             / "docs" / "operating_procedure.md").read_text(encoding="utf-8")
 
     assert tb.batt_level(None) is None, "FC khong bao phan tram thi KHONG duoc doan"
+    # Thoi gian con lai theo dong dien, toi muc failsafe cua FC.
+    # 3300 mAh, da xai 300, failsafe 660 (20%) -> con 2340 mAh; 10 A -> 842 s.
+    r = tb.reserve_mah(3300, 0, 0)
+    assert r == 660, f"LOW/CRT_MAH = 0 (FC that) phai lui ve 20%: {r}"
+    assert tb.reserve_mah(3300, 800, 500) == 800, "co BATT_LOW_MAH thi lay no"
+    assert tb.reserve_mah(3300, 0, 500) == 500
+    assert tb.time_left_s(3300, 300, None, 660, 10.0) == 842, tb.time_left_s(3300, 300, None, 660, 10.0)
+    assert tb.time_left_s(3300, None, 50, 660, 10.0) == 356, "khong co mAh thi tinh tu %"
+    assert tb.time_left_s(None, 300, 90, 660, 10.0) is None, "khong biet dung luong thi KHONG doan"
+    assert tb.time_left_s(3300, 300, 90, 660, 0.02) is None, "dong ~0 la nhieu, khong chia"
+    assert tb.time_left_s(3300, 3000, 9, 660, 10.0) == 0, "qua muc failsafe phai la 0, khong am"
+    assert [tb.left_level(s) for s in (None, 600, 180, 60, 0)] == \
+        [None, None, "warn", "crit", "crit"]
     assert [tb.batt_level(p) for p in (100, 31, 30, 21, 20, 0)] == \
         [None, None, "warn", "warn", "crit", "crit"], [tb.batt_level(p) for p in (100, 30, 20)]
     # Nguong phai khop bang o muc D va F cua quy trinh bay, khong duoc troi tu do.
@@ -3374,12 +3665,17 @@ if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
     app = QApplication([])
+    # Selfcheck KHONG duoc phat tieng that ra loa (va khong doc/ghi QSettings
+    # cua nguoi dung cho viec nay): Voice van ghi vao `.spoken` de bai kiem doc.
+    import laptop.voice
+    laptop.voice.enabled = lambda: False
     check_normalize()
     check_source_filter()
     check_flatten()
     check_sensor_decode()
     check_bus()
     check_usb_detect(app)
+    check_replug(app)
     check_link_status(app)
     check_tabs(app)
     check_field(app)
