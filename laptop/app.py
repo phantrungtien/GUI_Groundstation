@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
         # nguoi bay phai nho tab nao dat duoc waypoint. Waypoint (cham-giu) va
         # nhich (can ao) da chuyen sang day; chot an toan thi van dung chung
         # `laptop/commands.py` voi tab Dieu khien.
-        self.touch = TouchBackend(profiles, cmd=self.control_tab.cmd, video_src=self.video)
+        self.touch = TouchBackend(cmd=self.control_tab.cmd, video_src=self.video)
         self.touch_view = make_view(self.touch)
         self.touch.openMessage.connect(self._open_message)
         self.touch.stateChanged.connect(lambda: self.control_tab.show_flight(self.touch.state))

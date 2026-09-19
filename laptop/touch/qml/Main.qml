@@ -203,15 +203,6 @@ Item {
             anchors { left: parent.left; leftMargin: 10 * s; verticalCenter: parent.verticalCenter }
             spacing: 12 * s
             Rectangle {
-                // Trong app laptop, ket noi nam o dock ben phai — hai cho ket noi
-                // la hai cho de bam nham.
-                visible: backend.ownsConnection
-                width: 40 * s; height: 40 * s; radius: 8 * s
-                color: theme.SURFACE
-                Text { anchors.centerIn: parent; text: "≡"; color: theme.TEXT; font.pixelSize: 26 * s }
-                MouseArea { anchors.fill: parent; onClicked: drawer.open() }
-            }
-            Rectangle {
                 id: pill
                 height: 34 * s
                 width: pillText.implicitWidth + 24 * s
@@ -731,77 +722,6 @@ Item {
                     win.pending = ""
                     backend.act(a, arg)
                 }
-            }
-        }
-    }
-
-    // ---- ngan keo ket noi ----------------------------------------------------
-    Drawer {
-        id: drawer
-        width: Math.min(440 * s, win.width * 0.8)
-        height: win.height
-        edge: Qt.LeftEdge
-        background: Rectangle { color: theme.BG }
-        Column {
-            anchors { fill: parent; margins: 16 * s }
-            spacing: 12 * s
-            Text { text: tr("touch.conn_title"); color: theme.TEXT; font.pixelSize: 22 * s; font.bold: true }
-            Text {
-                visible: st.connected
-                text: "[" + st.mode + "]  " + st.profile
-                color: theme.ACCENT
-                font.pixelSize: 14 * s
-                width: parent.width
-                elide: Text.ElideRight
-            }
-            ListView {
-                id: plist
-                width: parent.width
-                height: Math.min(contentHeight, win.height * 0.55)
-                clip: true
-                spacing: 6 * s
-                currentIndex: -1
-                model: backend.profiles
-                delegate: Rectangle {
-                    width: plist.width
-                    height: 62 * s
-                    radius: 10 * s
-                    color: ListView.isCurrentItem ? "#1e3a4a" : theme.SURFACE
-                    border.color: ListView.isCurrentItem ? theme.ACCENT : theme.BORDER
-                    Column {
-                        anchors { verticalCenter: parent.verticalCenter; left: parent.left; right: parent.right; margins: 12 * s }
-                        Text {
-                            width: parent.width
-                            text: "[" + modelData.mode + "]  " + modelData.name
-                            color: theme.TEXT
-                            font.pixelSize: 15 * s
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            width: parent.width
-                            text: modelData.target + (modelData.noperm ? "  ⚠ " + tr("touch.no_perm") : "")
-                            color: modelData.noperm ? theme.WARN : theme.MUTED
-                            font.pixelSize: 12 * s
-                            elide: Text.ElideMiddle
-                        }
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !st.connected
-                        onClicked: plist.currentIndex = index
-                    }
-                }
-            }
-            Flow {
-                width: parent.width
-                spacing: 10 * s
-                Btn {
-                    text: tr("touch.connect")
-                    enabled: !st.connected && plist.currentIndex >= 0
-                    onTap: { backend.connectTo(plist.currentIndex); drawer.close() }
-                }
-                Btn { text: tr("touch.disconnect"); enabled: st.connected; onTap: backend.disconnect() }
-                Btn { text: tr("touch.rescan"); enabled: !st.connected; onTap: backend.rescan() }
             }
         }
     }

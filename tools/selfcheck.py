@@ -55,7 +55,7 @@ def flight(w=600, h=400):
     # refresh() doc thang REGISTRY — con so lieu cua bai TRUOC trong do la no dung
     # len mot home tam truoc ca cau assert dau tien cua bai nay.
     REGISTRY.fields.clear()
-    b = Backend(profiles=[])
+    b = Backend()
     # Gan mot profile, KHONG gan adapter — dung trang thai "SiK vua dut: khoa
     # lenh, giu man hinh". Chua gan gi thi profile = None, va o do `refresh()`
     # co y quet sach REGISTRY moi nhip (goi ve tre khong duoc dung len home gia),

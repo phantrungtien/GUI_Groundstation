@@ -71,7 +71,7 @@ Baud tự chọn: `ttyUSB*` → 57600 (radio SiK) · `ttyACM*` → 115200 (Pixha
 
 Thiếu quyền thì dòng đó hiện `⚠ khong co quyen` kèm lệnh cần chạy.
 
-**Rút cáp USB rồi cắm lại — app tự nối lại.** Đang có dữ liệu mà cổng biến mất
+**Rút cáp USB rồi cắm lại — app tự nối lại** (đã thử trên FC thật 19/09). Đang có dữ liệu mà cổng biến mất
 thì app **giữ nguyên profile**, banner đỏ ghi *"mất cổng /dev/ttyACM0 — cắm lại là
 tự kết nối"*, và quét cổng mỗi giây. Nhận lại thiết bị theo **VID:PID:số serial**
 chứ không theo tên cổng — cắm lại ra `ttyACM1` vẫn nhận, cắm một radio khác vào
@@ -245,10 +245,12 @@ về (`RTL_SPEED`, 0 = `WP_SPD`), lơ lửng `RTL_LOIT_TIME`, hạ nhanh tới
 4.7-dev (`RTL_ALT` cm ↔ `RTL_ALT_M` m…). Thiếu tham số nào thì im lặng — không
 nói "tắt" thay cho "chưa biết".
 
-Chạy với số thật của MicoAir743 (tham số 07/09, pin 19/09) thì **cả bốn** cảnh
-báo chưa-ARM đều bật: failsafe pin và GCS đang tắt, `BATT_LOW_VOLT = 10,8 V` là
+Chạy với tham số MicoAir743 lấy ngày 07/09 (và pin 19/09) thì **cả bốn** cảnh
+báo chưa-ARM đều bật: failsafe pin và GCS tắt, `BATT_LOW_VOLT = 10,8 V` là
 2,70 V/cell trên pin 4S, và pin 3,82 V/cell ≈ 45% trong khi FC báo 99%. Cũng với
-số đó, `WP_SPD = 1 m/s` nên **RTL từ 500 m mất ~8 phút 51 giây**.
+số đó, `WP_SPD = 1 m/s` nên **RTL từ 500 m mất ~8 phút 51 giây**. Từ 19/09 FC đã
+bật đủ failsafe — app đọc tham số **mỗi lần kết nối**, nên cảnh báo tự tắt theo;
+bảng trên là để biết khi nào nó sẽ bật lại.
 
 ### Đọc cảnh báo thành tiếng
 
@@ -495,7 +497,7 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ```bash
 python3 tools/selfcheck.py      # 45 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
-python3 tools/e2e_sitl.py       # 53 bai mot chuyen bay tren ArduCopter SITL that
+python3 tools/e2e_sitl.py       # 58 bai mot chuyen bay tren ArduCopter SITL that
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
 python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
 python3 tools/compare_gcs.py --takeoff   # so tung con so voi MAVProxy, cung mot luong
@@ -535,7 +537,17 @@ Cái `selfcheck.py` không bao giờ bắt được là loại "mã nguồn đú
 làm": độ cao bị điền mặc định, lệnh gửi đúng nhưng FC từ chối, mode chưa kịp đổi
 đã bắn lệnh kế tiếp. Ba lỗi đắt nhất của dự án đều thuộc loại đó. `e2e_sitl.py`
 đi **đúng đường ngón tay đi** — `Backend.act()/addWp()/stick()` → `Commands` →
-`authority` → `SikAdapter` — không một bước nào gọi tắt xuống pymavlink.
+`authority` → `SikAdapter` — không một bước nào gọi tắt xuống pymavlink. Kết
+nối đi qua **`MainWindow.connect_to()`** — đúng đường app thật dùng. (Trước 19/09
+nó mở kết nối bằng một bản sao riêng trong `Backend`, nên không phủ được thứ chỉ
+có ở `MainWindow`: tự nối lại USB, video, hỏi tham số. Bản sao đó đã xoá.)
+
+Lần chạy 19/09 trên SITL lạnh: **58/58 PASS / 175 s**, gồm các bài mới — FC trả
+17 tham số pin + RTL ở giây 0,2; chạm đúp về z20; takeoff lúc chưa ARM nói "CHƯA
+ARM"; SẴN SÀNG ARM sau 13,2 s; ô CÒN 337 s ở 27,4 A khi bay; ước RTL ~34 s.
+SITL chỉ mô phỏng dòng khi có tải (ARM đứng yên 0,00 A) nên ô CÒN đo **sau** cất
+cánh. SITL `-I1` (cổng 5770–5773) chạy song song được với một SITL đang mở ở
+`-I0`: `--conn tcp:127.0.0.1:5772`.
 
 ```bash
 # 1. SITL tran (khong Gazebo, khong ROS2) — THU MUC TRONG, khong EEPROM cu
@@ -745,7 +757,7 @@ laptop/
 
 tools/
   selfcheck.py     # 45 check, khong can SITL
-  e2e_sitl.py      # 53 bai mot chuyen bay tren ArduCopter SITL that
+  e2e_sitl.py      # 58 bai mot chuyen bay tren ArduCopter SITL that
   compare_gcs.py   # so tung con so voi MAVProxy tren cung mot luong goi
   check_halves.py  # hai nua hong doc lap, nguon gia
   hitl.py          # kich ban #7 va #12: can FC that, thao canh quat

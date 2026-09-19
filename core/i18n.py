@@ -554,11 +554,6 @@ STR = {
                         "Props stop AT ONCE. In flight the drone FREE-FALLS: it breaks, endangers "
                         "people below, and cannot restart mid-air. "
                         "Only when it is out of control."),
-    "touch.conn_title": ("Kết nối", "Connection"),
-    "touch.connect": ("Kết nối", "Connect"),
-    "touch.disconnect": ("Ngắt kết nối", "Disconnect"),
-    "touch.rescan": ("Quét lại cổng USB", "Rescan USB ports"),
-    "touch.no_perm": ("không có quyền đọc cổng", "no permission on port"),
     "touch.locked": ("Chưa kết nối drone thật hay SITL — lệnh không đi đâu cả",
                      "Not connected to a live drone or SITL — commands go nowhere"),
 

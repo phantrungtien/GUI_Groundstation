@@ -1,11 +1,11 @@
-"""Backend cua man bay cam ung: giu trang thai, chuyen lenh, mo/dong ket noi.
+"""Backend cua man bay cam ung: giu trang thai, chuyen lenh cho QML.
 
-Hai kieu chay:
-  - NAM TRONG app laptop (mac dinh): MainWindow cam ket noi va dua vao day bang
-    `attach()`; `Commands` va nguon video cung la cua MainWindow — MOT ket noi,
-    MOT bo theo doi ACK (hai bo la moi ACK ghi hai dong vao tab Thong bao).
-  - TU CAM ket noi (`owns_connection=True`): cho ban dong goi dien thoai sau nay,
-    khi khong co MainWindow. Luc do ngan keo ket noi trong QML moi hien.
+KHONG tu mo ket noi: MainWindow cam ket noi va dua vao day bang `attach()`;
+`Commands` va nguon video cung la cua MainWindow — MOT ket noi, MOT bo theo doi
+ACK (hai bo la moi ACK ghi hai dong vao tab Thong bao). Truoc 19/09 co them che
+do tu cam ket noi (cho ban dien thoai) — bo di vi no la ban THU HAI cua
+MainWindow.connect_to: moi thay doi phai sua hai cho, va e2e_sitl di nham vao ban
+do chu khong phai ban app that dung. Lam ban dien thoai thi viet lai tu MainWindow.
 
 KHONG co chot an toan nao viet moi o day. Chan ARM khi ga cao, TAKEOFF phai o
 GUIDED, DISARM duoi dat thi force, theo doi ACK — tat ca nam o
@@ -14,19 +14,16 @@ ben QML la phan XAC NHAN; goi toi day nghia la nguoi bay da truot het.
 """
 
 import time
-from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, QPoint, QTimer, Signal, Slot
 
-from core import authority, bus, i18n
-from core.adapters.remote import RemoteAdapter
+from core import bus, i18n
 from core.adapters.sik import STALE, WP_MAX, SikAdapter
 from core.field import REGISTRY, haversine_m
 from core.i18n import t
 from laptop.commands import (MODES, NUDGE_HZ, NUDGE_V0, NUDGE_VMAX, WP_ALT_MAX,
                              WP_ALT_MIN, WP_ALTS,
                              WP_CONFIRM_S, Commands)
-from laptop.connection import ROOT, detect_serial, load_profiles
 from laptop.widgets.alerts import ERR_SEV, AlertBook
 from laptop.widgets.attitude import AttitudeWidget
 from laptop.widgets.compass import Compass
@@ -48,34 +45,14 @@ def _mmss(sec):
     return f"{int(sec) // 60}:{int(sec) % 60:02d}"
 
 
-def _newest(pattern):
-    """REPLAY voi mau `logs/*.tlog`: lay file moi nhat.
-
-    ponytail: chua co hop chon file tren man cam ung — them khi can xem lai chuyen
-    cu hon chuyen moi nhat.
-    """
-    files = sorted(ROOT.glob(pattern), key=lambda p: p.stat().st_mtime)
-    return str(files[-1]) if files else None
-
-
 class Backend(QObject):
     stateChanged = Signal()
-    profilesChanged = Signal()
     langChanged = Signal()
     openMessage = Signal(str)  # cham dong loi -> app.py mo tab Thong bao toi dong do
 
-    def __init__(self, profiles=None, cmd=None, video_src=None, owns_connection=False,
-                 parent=None):
+    def __init__(self, cmd=None, video_src=None, parent=None):
         super().__init__(parent)
-        self.owns = owns_connection
-        profiles = load_profiles() if profiles is None else profiles
-        # Muc REAL khong co `conn` la KHUON cho cong tu quet — xem ConnectionPanel.
-        self._template = next(
-            (p for p in profiles if p.get("mode") == "REAL" and not p.get("conn")), {})
-        self._fixed = [p for p in profiles if p is not self._template]
-        self._profiles = []
-
-        self.adapter = self.remote = self.profile = self.mode = None
+        self.adapter = self.profile = self.mode = None
         self.last_seen = {}
         self._armed_at = None
         # Tham so FC gui MOT lan luc ket noi (pin, failsafe, RTL — WATCH_PARAMS
@@ -102,12 +79,9 @@ class Backend(QObject):
         self.alerts = AlertBook()
         self.voice = Voice()
         self._rtl_lvl = None
+        # Ket qua lenh di qua MainWindow._on_cmd_log (tab Thong bao + commands.log),
+        # roi MainWindow day lai vao `alerts`.
         self.cmd = cmd or Commands(self)
-        if self.owns:
-            # Nam trong app laptop thi ket qua lenh di qua MainWindow._on_cmd_log
-            # (tab Thong bao + commands.log), roi MainWindow day lai vao `alerts`.
-            self.cmd.log.connect(self._on_log)
-            bus.on("*", REGISTRY.feed)  # app laptop da tu dang ky cai nay
         bus.on("*", self._seen)
         # Home, rao, duong bay ve mot lan roi thoi — doc thang tu bus nhu FlightTab.
         bus.on("home", lambda e: self.map.set_home(e["data"]["lat"], e["data"]["lon"],
@@ -130,7 +104,6 @@ class Backend(QObject):
         self._timer.start(200)
         self._nudge_timer = QTimer(self)
         self._nudge_timer.timeout.connect(self._nudge_tick)
-        self.rescan()
         self.refresh()
 
     # ---- cho QML doc -------------------------------------------------------
@@ -138,19 +111,11 @@ class Backend(QObject):
     def _get_state(self):
         return self._state
 
-    def _get_profiles(self):
-        return [{"name": p["name"], "mode": p["mode"],
-                 "target": p.get("conn") or p.get("path", ""),
-                 "noperm": bool(p.get("detected") and not p.get("writable"))}
-                for p in self._profiles]
-
     def _get_lang(self):
         return i18n.lang()
 
     state = Property("QVariantMap", _get_state, notify=stateChanged)
-    profiles = Property("QVariantList", _get_profiles, notify=profilesChanged)
     lang = Property(str, _get_lang, notify=langChanged)
-    ownsConnection = Property(bool, lambda self: self.owns, constant=True)
     modes = Property("QVariantList", lambda self: MODES, constant=True)
     wpAlts = Property("QVariantList", lambda self: list(WP_ALTS), constant=True)
     wpAltMin = Property(int, lambda self: WP_ALT_MIN, constant=True)
@@ -386,15 +351,6 @@ class Backend(QObject):
             c.mode(arg)
         self.refresh()
 
-    def _on_log(self, text, sev=5):
-        """Ket qua lenh: len man bay neu la loi, va ghi logs/commands.log nhu app laptop."""
-        self.alerts.push(text, sev)
-        try:
-            line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  [{self.mode or '-'}]  {text}\n"
-            (ROOT / "logs" / "commands.log").open("a", encoding="utf-8").write(line)
-        except OSError:
-            pass  # het dia thi cung khong duoc lam chet giao dien
-
     # ---- ban do: cu chi ngon tay ------------------------------------------
 
     @Slot(float, float)
@@ -579,66 +535,3 @@ class Backend(QObject):
                 self.last_seen.clear()
             self.profile, self.mode, self.adapter = profile, profile["mode"], adapter
         self.refresh()
-
-    @Slot()
-    def rescan(self):
-        if not self.owns:
-            return  # nam trong app laptop: MainWindow cam ket noi
-        self._profiles = detect_serial(self._template) + self._fixed
-        self.profilesChanged.emit()
-
-    @Slot(int)
-    def connectTo(self, i):
-        """Giong MainWindow.connect_to cua app laptop, bot phan noi day tab."""
-        if not self.owns:
-            return  # nam trong app laptop: MainWindow cam ket noi
-        if not 0 <= i < len(self._profiles):
-            return
-        profile = dict(self._profiles[i])
-        if profile["mode"] == "REPLAY":
-            path = Path(profile.get("path", ""))
-            path = path if path.is_absolute() else ROOT / path
-            profile["path"] = str(path) if path.is_file() else _newest(profile.get("path", ""))
-            if not profile["path"]:
-                self._on_log(t("conn.fail_title") + ": " + profile.get("path", ""), 3)
-                return
-        self.disconnect()
-        self.profile, self.mode = profile, profile["mode"]
-
-        self.adapter = SikAdapter(profile, logdir=ROOT / "logs")
-        self.adapter.envelope.connect(bus.emit_envelope)
-        self.adapter.failed.connect(self._on_failed)
-        self.adapter.start()
-        authority.register("sik", self.adapter)
-        if profile.get("remote"):
-            self.remote = RemoteAdapter(profile["remote"])
-            self.remote.envelope.connect(bus.emit_envelope)
-            self.remote.start()
-            authority.register("remote", self.remote)
-        url = video_url(profile)
-        if url:
-            self.video_src.start(url)
-        self.refresh()
-
-    @Slot()
-    def disconnect(self):
-        if not self.owns:
-            return  # nam trong app laptop: MainWindow cam ket noi
-        self._nudge_stop(None)
-        for name, attr in (("sik", "adapter"), ("remote", "remote")):
-            a = getattr(self, attr)
-            if a:
-                a.stop()
-                setattr(self, attr, None)
-            authority.unregister(name)
-        self.video_src.stop()
-        self.attach(None, None)  # don dep chi co MOT ban, nam o `attach`
-
-    def _on_failed(self, why):
-        # KHONG hop thoai modal: drone co the dang bay (xem MainWindow._on_failed).
-        self._nudge_stop(None)  # het duong xuong drone thi can ao phai buong
-        self._on_log(t("conn.sik_lost", why=why), 2)
-        if self.adapter:
-            self.adapter.stop()
-            self.adapter = None
-        authority.unregister("sik")

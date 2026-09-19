@@ -10,6 +10,10 @@ File nay cam thang vao ArduCopter SITL va di dung duong ma ngon tay di:
 
     Backend.act()/addWp()/stick()  ->  Commands  ->  authority  ->  SikAdapter
 
+Ket noi di qua MainWindow.connect_to() — DUNG cai app that dung (tu 19/09; truoc
+do bai nay mo ket noi bang mot ban sao rieng trong Backend, nen khong phu duoc
+thu gi chi co o MainWindow: tu noi lai USB, video, hoi tham so).
+
 KHONG mot buoc nao goi tat xuong pymavlink. Cai gi man hinh khong lam duoc thi o
 day cung khong lam duoc.
 
@@ -45,17 +49,20 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from core import bus, i18n  # noqa: E402
 from core.adapters.sik import WP_MAX  # noqa: E402
 from core.field import REGISTRY, haversine_m  # noqa: E402
-from laptop.touch.backend import Backend  # noqa: E402
+from laptop import safety  # noqa: E402
+from laptop.app import MainWindow  # noqa: E402
 
 # Khoa ma QML doc tung cai mot. Thieu mot khoa la mot o tren man hinh thanh
 # "undefined" — khong crash, chi im lang sai, nen phai diem danh.
 STATE_KEYS = (
     "connected live mode profile status statusLevel fcMode armed alt dist hs vs "
     "heading flightTime battPct volt battLevel battLeft leftLevel sats gpsLevel hasVideo alerts "
-    "draftN draftFull wpAlt hasWp wpOver nudgeWhy diverge"
+    "draftN draftFull wpAlt hasWp wpOver nudgeWhy diverge ready warns"
 ).split()
 
 app = QApplication([])
+import laptop.voice  # noqa: E402
+laptop.voice.enabled = lambda: False  # bai test khong duoc phat tieng ra loa
 fails, done = [], []
 logs = []       # (muc, chu) — dung cai Commands ban ra, khong phai chu tu che
 acks = []       # MISSION_ACK cua phien nap
@@ -100,16 +107,16 @@ def said(*bits):
 
 
 def main(conn):
-    prof = [{"name": "SITL e2e", "mode": "SIM", "conn": conn, "sysid": 254}]
-    b = Backend(profiles=prof, owns_connection=True)
+    prof = {"name": "SITL e2e", "mode": "SIM", "conn": conn, "sysid": 254}
+    win = MainWindow([])  # khong show(): chay offscreen van du, khong cuop man hinh
+    b = win.touch
     b.cmd.log.connect(lambda s, sev: logs.append((sev, s)))
     b.map.resize(800, 600)
-    b._profiles = prof
     bus.on("wp", lambda e: acks.append(e["data"]) if "write" in e["data"] else None)
 
     # ---- A. ket noi va telemetry ----------------------------------------
     print("\n== A. ket noi + telemetry ==", flush=True)
-    b.connectTo(0)
+    win.connect_to(prof)
     if not until("A1 co heartbeat va vi tri",
                  lambda: v("heartbeat.mode") and alt() is not None, 30):
         return
@@ -130,6 +137,12 @@ def main(conn):
           b.state["gpsLevel"] in ("ok", "warn", "crit")
           and b.state["battLevel"] in ("ok", "warn", "crit"),
           f"gps={b.state['gpsLevel']} pin={b.state['battLevel']} sats={b.state['sats']}")
+    # Tham so pin + RTL: app tu hoi luc ket noi, FC tra MOT lan. Thieu thi o CON
+    # va canh bao VE NHA NGAY im lang suot chuyen.
+    until("A6 FC tra tham so pin + RTL (du tinh o CON va thoi gian ve)",
+          lambda: b._params.get("BATT_CAPACITY")
+          and safety.rtl_time_s(b._params, 100, 10) is not None, 40,
+          lambda: f"{len(b._params)} tham so")
 
     # ---- B. ban do -------------------------------------------------------
     print("\n== B. ban do: keo, phong, bam theo ==", flush=True)
@@ -146,14 +159,19 @@ def main(conn):
     for _ in range(40):
         b.mapZoom(1)
     check("B3 zoom co tran, khong troi tu do", b.map.zoom == 21, str(b.map.zoom))
-    b.map.zoom = z0
+    b.map.zoom = 5
     b.mapFollow()
     wait(400)
-    check("B4 bam theo drone: tam ban do ve dung drone",
-          b.map.follow and haversine_m(*b.map.center, *b.map.pos) < 1.0)
+    check("B4 cham dup: tam ve dung drone, bam theo, phong toi z20",
+          b.map.follow and haversine_m(*b.map.center, *b.map.pos) < 1.0
+          and b.map.zoom == 20, f"z{b.map.zoom}")
     mid = b._latlon(b.map.width() / 2, b.map.height() / 2)
     check("B5 diem giua man hinh doi nguoc lai ra dung toa do tam",
           haversine_m(*mid, *b.map.center) < 0.5)
+    # Cham dup gio phong toi z20 (~0,15 m/px). Muc G dat waypoint theo PIXEL: o z20
+    # ca duong bay chi rong vai chuc met, drone bay het ma khong cach cho cu 30 m ->
+    # H2 hong day chuyen (do that lan chay 19/09 19:02). Tra ve z16 nhu truoc.
+    b.map.zoom = 16
 
     # ---- C. khong co duong xuong drone thi khong lenh nao di -------------
     print("\n== C. khoa lenh khi mat duong xuong drone ==", flush=True)
@@ -183,6 +201,15 @@ def main(conn):
           len(logs) > n0 and said("GUIDED"), logs[-1][1] if logs else "")
     b.act("mode", "GUIDED")
     until("D3 FC doi sang GUIDED", lambda: v("heartbeat.mode") == "GUIDED", 20)
+    # Takeoff luc chua ARM: noi thang ly do, KHONG gui, va 6 s sau khong duoc hien
+    # "FC da nhan nhung do cao khong doi" (loi that 19/09 16:06).
+    n0 = len(logs)
+    b.act("takeoff", "20")
+    wait(7000)
+    extra = [s for _, s in logs[n0:]]
+    check("D3b cat canh luc CHUA ARM: noi 'chua ARM', khong keu do cao",
+          any("CHƯA ARM" in s for s in extra)
+          and not any("độ cao không đổi" in s for s in extra), " | ".join(extra))
 
     # Doi FC THAT SU arm duoc. SITL vua khoi dong thi EKF chua hoi tu va GPS chua
     # co fix, prearm tu choi — va bai nay tu no khong bao gio biet, no chi thay
@@ -191,6 +218,9 @@ def main(conn):
     until("D4 GPS co fix de arm", lambda: (v("gps.fix_type") or 0) >= 3
           and (v("gps.sats") or 0) >= 8, 180,
           lambda: f"fix={v('gps.fix_type')} sats={v('gps.sats')}")
+    until("D4b dong SAN SANG ARM (bit PREARM_CHECK)",
+          lambda: bool(b.state["ready"] and b.state["ready"]["ok"]), 120,
+          lambda: str(b.state["ready"]))
     # Bam ARM lai vai lan: fix xong van con vai giay prearm chua thong (EKF, la ban).
     t0 = time.time()
     arm_noise[0] = len(logs)
@@ -211,6 +241,16 @@ def main(conn):
     b.refresh()
     check("D8 vien trang thai doc la DANG BAY", b.state["statusLevel"] == "ok",
           f"{b.state['status']} / {b.state['statusLevel']}")
+    # SITL chi mo phong dong khi co tai: ARM dung yen 0,00 A, bay 27-30 A (do 19/09).
+    # Duoi 0,1 A o CON co y hien "--", nen do SAU khi cat canh.
+    until("D6b o CON co so khi dang bay (theo dong dien)",
+          lambda: b.state["battLeft"] is not None, 10,
+          lambda: f"CON={b.state['battLeft']}s dong={v('battery.current')}A "
+                  f"cap={b._params.get('BATT_CAPACITY')}")
+    need = safety.rtl_time_s(b._params, b.state["dist"] or 0.0, alt())
+    check("D9 dang bay: tinh duoc thoi gian ve nha, pin day thi khong doi ve",
+          need is not None and not any(w["crit"] for w in b.state["warns"]),
+          f"ve mat ~{need}s, CON {b.state['battLeft']}s, canh bao={b.state['warns']}")
 
     # ---- E. bay toi day --------------------------------------------------
     print("\n== E. bay toi day (doi ca do cao) ==", flush=True)
@@ -335,7 +375,8 @@ def main(conn):
 
     # ---- L. ngat ket noi --------------------------------------------------
     print("\n== L. ngat ket noi ==", flush=True)
-    b.disconnect()
+    tlog = str(win.adapter.tlog) if win.adapter and win.adapter.tlog else None
+    win.disconnect()
     wait(600)
     # Bon ve, va bai test PHAI noi ve nao hong: "L1 FAIL" tron khong cho biet la
     # nut chua khoa, home con day, hay mot canh bao ve SAU luc ngat.
@@ -349,10 +390,8 @@ def main(conn):
 
     # ---- M. phat lai chuyen vua bay --------------------------------------
     print("\n== M. phat lai (.tlog vua ghi) ==", flush=True)
-    rep = [{"name": "Phat lai", "mode": "REPLAY", "path": "logs/*.tlog"}]
-    b._profiles = rep
     REGISTRY.fields.clear()
-    b.connectTo(0)
+    win.connect_to({"name": "Phat lai", "mode": "REPLAY", "path": tlog})
     if until("M1 doc duoc .tlog vua ghi", lambda: v("position.lat") is not None, 60):
         b.refresh()
         n0 = len(logs)
@@ -361,7 +400,7 @@ def main(conn):
               not b.state["live"] and len(logs) > n0 and said("chưa kết nối"))
         check("M3 vien bao dang phat lai", b.state["statusLevel"] == "none",
               b.state["status"])
-    b.disconnect()
+    win.disconnect()
     wait(400)
 
 
