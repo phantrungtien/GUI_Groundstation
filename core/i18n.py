@@ -360,6 +360,9 @@ STR = {
     "vid.connecting": ("đang nối...", "connecting..."),
     "vid.lost": ("mất video", "video lost"),
     "vid.frozen": ("CAMERA ĐỨNG HÌNH", "CAMERA FROZEN"),
+    "vid.frozen_msg": ("CAMERA ĐỨNG HÌNH — ảnh không đổi quá {sec:.0f} s",
+                       "CAMERA FROZEN — image unchanged for over {sec:.0f} s"),
+    "vid.frozen_over": ("Camera chạy lại", "Camera streaming again"),
     "vid.error": ("Chưa kết nối được camera", "Camera not connected"),
 
     # --- ban do -----------------------------------------------------------

@@ -122,6 +122,10 @@ class VideoSource(QObject):
 
     _arrived = Signal(bytes)  # thread -> main. KHONG cham QPixmap tu thread phu.
     updated = Signal()  # main -> cac VideoView
+    # Chi ban luc DOI: bat dau dung hinh (True) va co khung khac byte tro lai
+    # (False). Dut han giua luc dang dung hinh thi KHONG ban False — no khong
+    # chay lai, no chuyen sang mat tin hieu, va man bay khong duoc bao "da on".
+    frozen_changed = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -188,14 +192,18 @@ class VideoSource(QObject):
             # Day chinh la cai "dong bang khung cuoi" ma ca file nay viet ra de
             # chan — chi khac la lan nay khung cu do CAMERA gui den chu khong phai
             # do GUI giu lai. Nen xu ly y het mat tin hieu: XOA anh di.
-            if not self._frozen:
-                _log(f"frozen — anh khong doi mot byte qua {FROZEN_S:.0f}s")
             self.pixmap = None
+            self.note = ("vid.frozen", {})
         else:
             self.pixmap = pm
-        self._frozen = frozen
         self.alive = not frozen
-        self.note = ("vid.frozen", {}) if frozen else self.note
+        if frozen != self._frozen:
+            self._frozen = frozen
+            if frozen:
+                _log(f"frozen — anh khong doi mot byte qua {FROZEN_S:.0f}s")
+            else:
+                _log("frozen het — anh doi tro lai")
+            self.frozen_changed.emit(frozen)
         self.updated.emit()
 
     @property
@@ -289,7 +297,10 @@ class VideoView(QWidget):
 
         if src is None or not src.alive or src.pixmap is None:
             p.fillRect(0, 0, w, h, QColor(theme.BG))
-            p.setPen(QColor(theme.MUTED))
+            # Xam la mau cua trang thai binh thuong ("chua ket noi", "dang noi").
+            # Dung hinh la SU CO: no phai khac mau, khong thi nguoi lai doc qua.
+            p.setPen(QColor(theme.WARN if src is not None and src.note[0] == "vid.frozen"
+                            else theme.MUTED))
             # `note` la (key, kwargs), dich luc VE chu khong luc dat: khung ve lai
             # deu dan nen doi ngon ngu la dong chu tu doi theo, khoi dang ky hook.
             # Khong in dia chi http len man: nguoi bay khong lam gi duoc voi no, con

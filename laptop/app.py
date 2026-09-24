@@ -31,7 +31,7 @@ from laptop.tabs.control import ControlTab
 from laptop.tabs.messages import MessagesTab
 from laptop.tabs.settings import SettingsTab
 from laptop.tabs.status import StatusTab
-from laptop.widgets.video import VideoSource, VideoView, video_url
+from laptop.widgets.video import FROZEN_S, VideoSource, VideoView, video_url
 from laptop.theme import QSS
 from laptop.touch.backend import Backend as TouchBackend
 from laptop.touch.view import make_view
@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         self.touch = TouchBackend(cmd=self.control_tab.cmd, video_src=self.video)
         self.touch_view = make_view(self.touch)
         self.touch.openMessage.connect(self._open_message)
+        self.video.frozen_changed.connect(self._on_video_frozen)
         self.touch.stateChanged.connect(lambda: self.control_tab.show_flight(self.touch.state))
         mount(self.ui.Flight, self.touch_view)
         self.ui.tabWidget.setCurrentWidget(self.ui.Flight)
@@ -196,6 +197,26 @@ class MainWindow(QMainWindow):
             (ROOT / "logs" / "commands.log").open("a", encoding="utf-8").write(line)
         except OSError:
             pass  # het dia hay khong ghi duoc thi cung khong duoc lam chet giao dien
+
+    def _on_video_frozen(self, frozen):
+        """Camera dung hinh thi phai NOI LEN man bay, khong chi am tham xam o PiP.
+
+        O video da doi mau chu, nhung o PiP 240x135 nam goc duoi trai: nguoi lai
+        dang nhin ban do thi khong co gi keo mat ve do. Mot dong noi (vang, 5 s)
+        + mot dong o tab Thong bao la du — trang thai con keo dai thi da nam san
+        tren o video, con dong "chay lai" khong can noi len man bay nen de INFO.
+
+        `frozen_changed` chi ban luc DOI, nen dong noi khong bao giao lap lai
+        va khong dinh lai sau khi camera chay lai. Dut han giua luc dung hinh thi
+        VideoSource khong ban False — o video se ghi "mat video", dung su that.
+        """
+        if frozen:
+            text, sev = t("vid.frozen_msg", sec=FROZEN_S), 4  # WARNING -> dong noi vang
+        else:
+            text, sev = t("vid.frozen_over"), 6              # INFO -> chi vao tab Thong bao
+        self.ui.statusbar.showMessage(text, 6000)
+        self.messages_tab.add_local(text, sev=sev)
+        self.touch.alerts.push(text, sev)
 
     def connect_to(self, profile):
         self.disconnect()

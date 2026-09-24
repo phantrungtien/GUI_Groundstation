@@ -1800,6 +1800,8 @@ def check_video(app):
     # no y het "dong bang khung cuoi", tuc la kieu nguy hiem nhat ma ca file
     # video.py viet ra de chan.
     video_mod.FROZEN_S = 0.6  # 2 s that qua lau cho mot bai kiem
+    flips = []
+    src.frozen_changed.connect(flips.append)
     srv2 = ThreadingHTTPServer(("127.0.0.1", VIDEO_PORT), FrozenHandler)
     srv2.swap_after = 1.6  # sau ngan nay camera song lai
     threading.Thread(target=srv2.serve_forever, daemon=True).start()
@@ -1812,6 +1814,18 @@ def check_video(app):
     assert src.pixmap is None, "dung hinh ma van ve canh cu — dung cai bay phai chan"
     assert src.note[0] == "vid.frozen", src.note
     assert src.fps > 5, f"dung hinh khong duoc lam nhip khung tut: {src.fps:.1f}"
+    # Tin hieu len man bay: chi ban MOT lan cho ca chuoi khung trung, khong phai
+    # moi khung mot lan (30 fps x mot dong noi = man hinh trang xoa).
+    assert flips == [True], f"tin hieu dung hinh ban sai so lan: {flips}"
+    # Chu tren o video phai la mau canh bao chu khong phai xam nhu "chua ket noi":
+    # dem pixel gan mau WARN trong anh vua ve.
+    from laptop import theme as _th
+    warn = QColor(_th.WARN)
+    img = view.grab().toImage()
+    lit = sum(1 for x in range(img.width()) for y in range(img.height())
+              if all(abs(a - b) < 40 for a, b in
+                     zip(img.pixelColor(x, y).getRgb()[:3], warn.getRgb()[:3])))
+    assert lit > 20, f"chu 'dung hinh' khong ve bang mau canh bao: {lit} pixel"
     c = view.grab().toImage().pixelColor(5, 5)
     assert all(abs(a - b) < 12 for a, b in zip(c.getRgb()[:3], bg.getRgb()[:3])), \
         f"dung hinh ma man hinh khong ve o nen: {c.getRgb()}"
@@ -1823,6 +1837,7 @@ def check_video(app):
     c = view.grab().toImage().pixelColor(5, 5)
     assert c.green() > 120 and c.red() < 90, f"khung moi khong len man: {c.getRgb()}"
 
+    assert flips == [True, False], f"camera chay lai ma tin hieu khong ban: {flips}"
     src.stop()
     srv2.shutdown()
     srv2.server_close()
@@ -1846,7 +1861,8 @@ def check_video(app):
     src.deleteLater()
     app.processEvents()
     print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu; camera dung hinh "
-          "(khung ve deu ma anh trung tung byte) cung xoa, camera chay lai thi tu hien tro lai")
+          "(khung ve deu ma anh trung tung byte) cung xoa, chu doi sang mau canh bao, tin hieu ban "
+          "mot lan moi luot, camera chay lai thi tu hien tro lai")
 
 
 def check_i18n(app):
@@ -2184,6 +2200,28 @@ def check_touch(app):
         assert root.property("pending") == "", "truot xong ma bang xac nhan van mo"
         sent.clear()
 
+        # --- camera dung hinh phai NOI LEN man bay ----------------------------
+        #
+        # O video da doi mau chu, nhung o PiP nam goc duoi trai 240x135: nguoi lai
+        # dang nhin ban do thi khong co gi keo mat ve do. Ban tin hieu that tu
+        # VideoSource de do luon ca duong day (`app.py` co noi khong), khong goi
+        # tay vao ham xu ly.
+        win.video.frozen_changed.emit(True)
+        wait(50)
+        assert any("ĐỨNG HÌNH" in txt for txt, _ in win.touch.alerts.shown()), \
+            f"camera dung hinh ma man bay im: {win.touch.alerts.shown()}"
+        lst = win.messages_tab.list
+        assert any("ĐỨNG HÌNH" in lst.item(r).text() for r in range(lst.count())), \
+            "dung hinh ma tab Thong bao khong co dong nao"
+        win.video.frozen_changed.emit(False)
+        wait(50)
+        # "Chay lai" la tin vui: vao tab Thong bao de doc lai, KHONG noi len man bay.
+        assert not any("chạy lại" in txt for txt, _ in win.touch.alerts.shown()), \
+            f"dong 'camera chay lai' khong duoc chiem cho tren man bay: {win.touch.alerts.shown()}"
+        assert any("chạy lại" in lst.item(r).text() for r in range(lst.count())), \
+            "camera chay lai ma khong ghi lai o tab Thong bao"
+        win.touch.alerts.clear()
+
         # --- o camera: cham de doi cho, ngat ket noi la tra ve ban do ---------
         #
         # Truoc day bai nay do hinh hoc QWidget cua tab Bay cu. Man cam ung lam
@@ -2281,7 +2319,8 @@ def check_touch(app):
         win.close()
     print("  ok  tab Bay cam ung: mo san, chung Commands, tha giua chung khong co lenh, "
           "truot het moi di, cat dong co truot het la di (khong giu), mat SiK la huy; \"bay toi day\" "
-          "cung phai truot, toa do chot luc chi chu khong doc lai pixel; ban do: giu 2 s "
+          "cung phai truot, toa do chot luc chi chu khong doc lai pixel; camera dung hinh noi len "
+          "man bay + tab Thong bao, dong \"chay lai\" chi vao tab Thong bao; ban do: giu 2 s "
           "(co vong tron) moi mo bang diem den, cham mot cai/tha som thi khong, keo thi khong mo; cham dup "
           "(ke ca ngon tay rung) ve dung cho drone")
 
