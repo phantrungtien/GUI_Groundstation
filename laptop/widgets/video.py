@@ -41,6 +41,15 @@ VIDEO_PORT = int(os.environ.get("GCS_VIDEO_PORT", 8080))
 READ_TIMEOUT_S = 4.0  # khong co byte nao trong ngan nay -> coi nhu dut, noi lai
 RETRY_S = 2.0
 STALE_S = 2.0  # khong co khung moi qua ngan nay -> o xam
+# Khung VAN VE DEU ma anh khong doi mot byte qua ngan nay -> camera dung hinh.
+# Do duoc bang cach bam byte JPEG: may anh that luon co nhieu cam bien, hai khung
+# lien tiep khong bao gio trung tung byte du canh quay dung yen va drone dau dat.
+# Trung byte nghia la duong hinh dut o dau do TRUOC luc nen — cam bien treo, driver
+# tra lai dung buffer cu — chu khong phai canh quay tinh. Ben Pi cung khong bao gio
+# gui lai khung cu (`mjpeg_server.py`: `seq == last` thi bo qua).
+# Doi camera khac thi do lai: cam bien nao lam min manh qua co the cho ra khung
+# trung that, luc do nang so nay len chu dung bo han phep bam.
+FROZEN_S = 2.0
 MAX_FRAME_B = 8_000_000  # chan may chu hong bao Content-Length khong lo
 
 # Nhip khung toi GUI ghi ra file suot phien chay, de ghep voi journal cua Pi bang
@@ -122,6 +131,9 @@ class VideoSource(QObject):
         self.note = ("vid.not_connected", {})
         self._gen = 0  # doi doi thi thread cu tu biet minh het viec
         self._last = 0.0
+        self._hash = None   # bam cua khung vua ve
+        self._moved = 0.0   # lan cuoi ANH THAT SU doi
+        self._frozen = False
         self._stamps = collections.deque(maxlen=30)  # moc thoi gian 30 khung gan nhat
         self._n = self._bytes = 0  # dem trong chu ky REPORT_S hien tai
         self._rep_t = time.monotonic()
@@ -137,6 +149,7 @@ class VideoSource(QObject):
         self.stop()
         self.url = url
         self.note = ("vid.connecting", {})
+        self._hash, self._frozen = None, False
         self._n = self._bytes = 0
         self._rep_t = time.monotonic()
         _log(f"start {url}")
@@ -150,6 +163,7 @@ class VideoSource(QObject):
         self.url = None
         self.pixmap = None
         self.alive = False
+        self._hash, self._frozen = None, False
         self.note = ("vid.not_connected", {})
         self._stamps.clear()
         self.updated.emit()
@@ -158,14 +172,37 @@ class VideoSource(QObject):
 
     def _decode(self, jpeg):
         pm = QPixmap()
-        if pm.loadFromData(jpeg, "JPEG"):
+        if not pm.loadFromData(jpeg, "JPEG"):
+            return
+        self._last = time.monotonic()
+        self._stamps.append(self._last)
+        self._n += 1
+        self._bytes += len(jpeg)
+
+        if hash(jpeg) != self._hash:
+            self._hash = hash(jpeg)
+            self._moved = self._last
+        frozen = self._last - self._moved >= FROZEN_S
+        if frozen:
+            # Duong truyen con song, fps van dep, ma canh quay da chet tu bao gio.
+            # Day chinh la cai "dong bang khung cuoi" ma ca file nay viet ra de
+            # chan — chi khac la lan nay khung cu do CAMERA gui den chu khong phai
+            # do GUI giu lai. Nen xu ly y het mat tin hieu: XOA anh di.
+            if not self._frozen:
+                _log(f"frozen — anh khong doi mot byte qua {FROZEN_S:.0f}s")
+            self.pixmap = None
+        else:
             self.pixmap = pm
-            self.alive = True
-            self._last = time.monotonic()
-            self._stamps.append(self._last)
-            self._n += 1
-            self._bytes += len(jpeg)
-            self.updated.emit()
+        self._frozen = frozen
+        self.alive = not frozen
+        self.note = ("vid.frozen", {}) if frozen else self.note
+        self.updated.emit()
+
+    @property
+    def frozen(self):
+        """Khung van ve deu nhung anh dung hinh. Khac `not alive` o cho: mat tin
+        hieu la khong con gi ve, con day la van co ma toan la mot canh cu."""
+        return self._frozen
 
     @property
     def fps(self):
@@ -186,9 +223,10 @@ class VideoSource(QObject):
             _log(f"fps {self._n / dt:5.1f}  {self._bytes / dt / 1000:4.0f} KB/s")
             self._n = self._bytes = 0
             self._rep_t = now
-        if self.alive and now - self._last > STALE_S:
+        if (self.alive or self._frozen) and now - self._last > STALE_S:
             # Het khung moi. Bo khung cu di chu khong giu lai cho dep man hinh.
             self.alive = False
+            self._frozen = False
             self.pixmap = None
             self._stamps.clear()
             self.note = ("vid.lost", {})

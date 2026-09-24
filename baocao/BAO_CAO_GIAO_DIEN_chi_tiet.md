@@ -647,6 +647,7 @@ Ba quyết định thiết kế đáng chú ý ở phía nhận [5]:
 1. **Thời gian chờ đặt ở từng lần đọc**, không chỉ lúc bắt tay — vì khi WiFi rớt, lời gọi `read()` treo im lặng chứ không ném lỗi.
 2. **Luôn vẽ khung mới nhất, không xếp hàng** — nếu xếp hàng thì độ trễ trôi dần thành vài giây.
 3. **Mất tín hiệu thì hiện ô xám, tuyệt đối không đóng băng khung cuối.** Nhìn một khung hình cũ mà tưởng máy bay đang ở đó là kiểu nguy hiểm nhất của giao diện.
+4. **Camera đứng hình cũng bị xử lý y như mất tín hiệu (24/09).** Quyết định 3 chỉ chặn được trường hợp GUI tự giữ khung cũ; nó không nói gì về trường hợp khung *vẫn về đều* mà nội dung đã chết — cảm biến treo, driver trả lại đúng buffer cũ. Nhìn từ ghế người lái thì hai thứ giống hệt nhau, mà kiểu sau còn tệ hơn vì mọi chỉ báo đều xanh: fps đẹp, byte vẫn chạy, ô video vẫn sáng. Phép phát hiện là **băm byte JPEG của từng khung**: máy ảnh thật luôn có nhiễu cảm biến nên hai khung liên tiếp không bao giờ trùng từng byte, kể cả khi cảnh quay đứng yên và máy bay đậu dưới đất; phía Pi cũng không bao giờ gửi lại khung cũ (`mjpeg_server.py` bỏ qua khi `seq == last`). Trùng byte quá 2 giây thì ảnh bị **xoá** và ô video ghi "CAMERA ĐỨNG HÌNH"; có một khung khác byte là hình tự hiện trở lại, không phải nối lại bằng tay. Ngưỡng 2 s để ở hằng số `FROZEN_S` vì nó phụ thuộc cảm biến: máy nào làm mịn quá tay có thể cho ra khung trùng thật, khi đó nâng ngưỡng chứ đừng bỏ phép băm.
 
 Một nguồn, hai chỗ vẽ: tab Camera để xem kỹ, ô PiP trên tab Flight để theo dõi mà không rời bản đồ. Máy tính nhúng chỉ phải phục vụ một luồng HTTP duy nhất.
 
@@ -833,7 +834,7 @@ Hướng phát triển tiếp theo, theo thứ tự ưu tiên rút ra từ chín
 | 50 | Tab Control | Lệnh thường + trạng thái node ROS 2 | ARM/DISARM, mode, TAKEOFF; dòng node chỉ đọc | `tabs/control.py` | 4.6 |
 | 51 | Tab Control | Khối trạng thái bay | SẴN SÀNG ARM, CÒN, cảnh báo — cùng dữ liệu `Backend.state` | `tabs/control.py` | 4.14 |
 | 52 | Tab Messages | Dòng thời gian thông báo | STATUSTEXT + `[APP]`; lọc 4 mức; 2 000 dòng; chỉ tự cuộn khi đang ở cuối; số cảnh báo chưa đọc trên tên tab | `tabs/messages.py` | 4.7, 4.11 |
-| 53 | Camera | Luồng MJPEG | Cổng 8080 riêng; hạn chờ từng lần đọc; luôn vẽ khung mới nhất; mất tín hiệu thì ô xám "Chưa kết nối được camera", không đóng băng; fps đo ở đầu nhận | `widgets/video.py` | 7, 4.15 |
+| 53 | Camera | Luồng MJPEG | Cổng 8080 riêng; hạn chờ từng lần đọc; luôn vẽ khung mới nhất; mất tín hiệu thì ô xám "Chưa kết nối được camera", không đóng băng; **đứng hình (khung về đều mà byte JPEG trùng quá 2 s) cũng xoá ảnh và báo "CAMERA ĐỨNG HÌNH"**; fps đo ở đầu nhận | `widgets/video.py` | 7, 4.15 |
 | 54 | Camera | Địa chỉ video | Suy từ `remote`, hoặc khoá `video` riêng (profile SITL lấy camera Pi) | `widgets/video.py` | 7.1, 4.14 |
 | 55 | Phân tích | Đọc log | `.tlog`/`.bin` từ đĩa hoặc kéo từ thẻ SD của FC qua telemetry | `tabs/analysis.py`, `core/` | 4.11 |
 | 56 | Phân tích | Đồ thị + quỹ đạo 3D | Tối đa 4 đồ thị; chuẩn hoá 0–1; lọc điểm `lat = lon = 0`; chế độ trực tiếp 60 s | `tabs/analysis.py`, `widgets/trajectory3d.py` | 4.11 |

@@ -1705,6 +1705,42 @@ def check_video(app):
         def log_message(self, *a):
             pass
 
+    # Anh thu hai, khac mau: dung de chung minh dung hinh xong thi TU HOI LAI.
+    pm2 = QPixmap(32, 24)
+    pm2.fill(QColor("#27ae60"))
+    buf2 = QBuffer()
+    buf2.open(QBuffer.WriteOnly)
+    pm2.save(buf2, "JPEG")
+    jpeg2 = bytes(buf2.data())
+
+    class FrozenHandler(BaseHTTPRequestHandler):
+        """Camera treo: duong truyen khoe, fps dep, ma van MOT canh quay do.
+
+        Khong phai gia dinh — `mjpeg_server.py` nen lai khung driver vua tra ve,
+        nen cam bien treo la ra day nguyen si mot chuoi byte y het nhau.
+        """
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.end_headers()
+            t0 = time.monotonic()
+            try:
+                while True:
+                    # Sau `swap_after` giay thi camera song lai -> anh khac di.
+                    img = jpeg if time.monotonic() - t0 < self.server.swap_after else jpeg2
+                    self.wfile.write(
+                        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n"
+                        % len(img)
+                    )
+                    self.wfile.write(img + b"\r\n")
+                    time.sleep(0.03)  # ~30 fps: nhip dep, chi co noi dung la chet
+            except OSError:
+                pass  # GUI dong ket noi truoc — binh thuong, khong phai loi bai kiem
+
+        def log_message(self, *a):
+            pass
+
     srv = ThreadingHTTPServer(("127.0.0.1", VIDEO_PORT), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
@@ -1755,6 +1791,42 @@ def check_video(app):
 
     src.stop()
     srv.shutdown()
+    srv.server_close()
+
+    # --- camera dung hinh: khung van ve deu ma anh khong doi ------------------
+    #
+    # Kieu hong nay KHONG lam cho `alive` tat: fps van 30, byte van chay, o video
+    # van sang — chi co dieu canh quay da chet tu bao gio. Doi voi nguoi lai thi
+    # no y het "dong bang khung cuoi", tuc la kieu nguy hiem nhat ma ca file
+    # video.py viet ra de chan.
+    video_mod.FROZEN_S = 0.6  # 2 s that qua lau cho mot bai kiem
+    srv2 = ThreadingHTTPServer(("127.0.0.1", VIDEO_PORT), FrozenHandler)
+    srv2.swap_after = 1.6  # sau ngan nay camera song lai
+    threading.Thread(target=srv2.serve_forever, daemon=True).start()
+    src.start(f"http://127.0.0.1:{VIDEO_PORT}/stream")
+
+    wait(src.updated, lambda: src.pixmap is not None, 6000)
+    assert src.alive and not src.frozen, "moi nhan khung dau da bao dung hinh"
+    wait(src.updated, lambda: src.frozen, 6000)
+    assert src.frozen, "anh y het nhau suot ma khong bao dung hinh"
+    assert src.pixmap is None, "dung hinh ma van ve canh cu — dung cai bay phai chan"
+    assert src.note[0] == "vid.frozen", src.note
+    assert src.fps > 5, f"dung hinh khong duoc lam nhip khung tut: {src.fps:.1f}"
+    c = view.grab().toImage().pixelColor(5, 5)
+    assert all(abs(a - b) < 12 for a, b in zip(c.getRgb()[:3], bg.getRgb()[:3])), \
+        f"dung hinh ma man hinh khong ve o nen: {c.getRgb()}"
+
+    # ...va camera song lai thi TU hien anh tro lai, khong phai noi lai tay.
+    wait(src.updated, lambda: not src.frozen, 6000)
+    assert not src.frozen and src.alive and src.pixmap is not None, \
+        f"camera chay lai ma van ket o o xam: frozen={src.frozen} alive={src.alive}"
+    c = view.grab().toImage().pixelColor(5, 5)
+    assert c.green() > 120 and c.red() < 90, f"khung moi khong len man: {c.getRgb()}"
+
+    src.stop()
+    srv2.shutdown()
+    srv2.server_close()
+    assert "gui frozen" in log_path.read_text(), "dung hinh ma khong de lai vet o log"
 
     # Du ca vong doi tren log: tools/video_timeline.sh ghep dung cac chu nay.
     log = log_path.read_text()
@@ -1773,7 +1845,8 @@ def check_video(app):
     view.deleteLater()
     src.deleteLater()
     app.processEvents()
-    print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu")
+    print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu; camera dung hinh "
+          "(khung ve deu ma anh trung tung byte) cung xoa, camera chay lai thi tu hien tro lai")
 
 
 def check_i18n(app):

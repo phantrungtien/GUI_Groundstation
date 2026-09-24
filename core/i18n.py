@@ -359,6 +359,7 @@ STR = {
     "vid.not_connected": ("chưa kết nối", "not connected"),
     "vid.connecting": ("đang nối...", "connecting..."),
     "vid.lost": ("mất video", "video lost"),
+    "vid.frozen": ("CAMERA ĐỨNG HÌNH", "CAMERA FROZEN"),
     "vid.error": ("Chưa kết nối được camera", "Camera not connected"),
 
     # --- ban do -----------------------------------------------------------

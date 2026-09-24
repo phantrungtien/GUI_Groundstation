@@ -140,7 +140,7 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*`. Hai cột: `Field` và `Giá trị`. Field ngừng cập nhật quá `STALE` giây thì **giá trị xám đi** — đứng hình mà vẫn đen là nói dối |
 | **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) · cùng dòng SẴN SÀNG ARM / CÒN / cảnh báo như màn Bay |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`). Chạm một dòng lỗi trên màn Bay là nhảy tới đúng dòng đó ở đây |
-| **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay) |
+| **Camera** | Luồng MJPEG từ companion (cùng nguồn với ô PiP trên tab Bay). Mất tín hiệu **hoặc camera đứng hình** (khung vẫn về đều mà byte JPEG trùng nhau quá 2 s) đều xoá ảnh và hiện ô xám, không bao giờ để lại khung cũ |
 | **Phân tích** | Đọc `.tlog`/`.bin` từ đĩa hoặc kéo log thẳng từ thẻ SD của FC qua telemetry. Tối đa 4 đồ thị, quỹ đạo 3D, chế độ trực tiếp giữ 60 s gần nhất từ bus |
 | **Cài đặt** | Ngôn ngữ giao diện · bật/tắt đọc cảnh báo thành tiếng |
 
