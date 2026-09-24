@@ -519,6 +519,8 @@ STR = {
     "touch.do_rtl": ("bay về nhà (RTL)", "return home (RTL)"),
     "touch.do_kill": ("CẮT ĐỘNG CƠ", "KILL MOTORS"),
     "touch.do_mode": ("đổi sang {name}", "switch to {name}"),
+    "touch.do_goto": ("bay tới điểm đã chỉ ở {alt:.0f} m",
+                      "fly to the marked point at {alt:.0f} m"),
     "touch.btn_takeoff": ("Cất cánh", "Take off"),
     "touch.btn_land": ("Hạ cánh", "Land"),
     "touch.btn_rtl": ("Về nhà", "Home"),

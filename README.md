@@ -136,7 +136,7 @@ REAL; sau sự cố đó thường là thứ duy nhất cho biết chuyện gì 
 
 | Tab | Nội dung |
 |---|---|
-| **Bay** | **Màn cảm ứng QML kiểu DJI** (`laptop/touch/`), mở sẵn khi bật app. Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên (có ô **CÒN** — thời gian bay còn lại), dòng **SẴN SÀNG ARM** + cảnh báo đứng yên (failsafe, pin, **VỀ NHÀ NGAY**), dòng lỗi nổi giữa-trên, cần ảo, waypoint bằng **giữ 2 s**. Ô camera PiP hiện khi có video; chạm vào nó là camera phóng cả tab. **Mọi lệnh phải trượt để xác nhận** — kể cả RTL/LAND; cắt động cơ cũng chỉ trượt, hậu quả (rơi tự do) ghi ngay trên thanh trượt |
+| **Bay** | **Màn cảm ứng QML kiểu DJI** (`laptop/touch/`), mở sẵn khi bật app. Bản đồ vệ tinh offline + la bàn, chân trời nhân tạo, thanh telemetry đè lên (có ô **CÒN** — thời gian bay còn lại), dòng **SẴN SÀNG ARM** + cảnh báo đứng yên (failsafe, pin, **VỀ NHÀ NGAY**), dòng lỗi nổi giữa-trên, cần ảo, waypoint bằng **giữ 2 s**. Ô camera PiP hiện khi có video; chạm vào nó là camera phóng cả tab. **Mọi lệnh phải trượt để xác nhận** — kể cả RTL/LAND và "Bay tới đây" (toạ độ chốt ngay lúc chỉ, không đọc lại pixel khi trượt xong); cắt động cơ cũng chỉ trượt, hậu quả (rơi tự do) ghi ngay trên thanh trượt |
 | **Trạng thái** | ~350 field: mọi thứ FC gửi lên, cộng `SENSOR.*` giải mã và `PARAM.*`. Hai cột: `Field` và `Giá trị`. Field ngừng cập nhật quá `STALE` giây thì **giá trị xám đi** — đứng hình mà vẫn đen là nói dối |
 | **Điều khiển** | ARM/mode/TAKEOFF · **nút đỏ** · trạng thái node ROS2 (chỉ đọc) · cùng dòng SẴN SÀNG ARM / CÒN / cảnh báo như màn Bay |
 | **Thông báo** | STATUSTEXT của FC + kết quả mọi lệnh (`[APP]`). Chạm một dòng lỗi trên màn Bay là nhảy tới đúng dòng đó ở đây |

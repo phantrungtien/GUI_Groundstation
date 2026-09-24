@@ -413,6 +413,8 @@ Màn bay được dựng cho **màn cảm ứng ngoài bãi bay**: nơi không c
 - **Vuốt ngang qua thanh không tính.** Chỉ cú chạm bắt đúng vào núm mới bắt đầu kéo; vuốt lướt trên màn hình đi qua thanh trượt bị bỏ qua.
 - **Bảng tự đóng sau 15 giây**, và **đóng ngay khi mất đường xuống máy bay**: trượt xong mà lệnh rơi vào khoảng không còn tệ hơn là không cho trượt.
 
+**"Bay tới đây" là lệnh vào đường trượt sau cùng (24/09).** Trước đó nó là ngoại lệ duy nhất: chạm một cái vào ô chip trong bảng đường bay là máy bay đổi chỗ **và** đổi cả độ cao, không có bước lùi — đúng thứ mà cả mục này được viết ra để chặn. Việc đưa nó vào lộ một cái bẫy không có ở các lệnh khác: **điểm đến được chỉ bằng pixel trên bản đồ, mà bản đồ thì bám theo máy bay**, nên giữa lúc chỉ và lúc trượt xong (tối đa 15 giây) cùng một ô pixel đã là một chỗ khác trên mặt đất. Đo bằng phép kiểm dựng lại đúng tình huống đó: giữ pixel thì lệnh đi tới điểm **lệch hơn 200 m** so với chỗ ngón tay chỉ. Vì vậy toạ độ được **chốt ngay lúc chỉ** (`Backend.pickGoto`), thanh trượt chỉ mang theo lat/lon đã chốt; tiêu đề bảng xác nhận in đúng cặp toạ độ đó cùng độ cao, vì điểm vừa chỉ không được vẽ ra bản đồ nên đó là chỗ duy nhất đối chiếu được.
+
 Bảng xác nhận cũng là nơi **chọn tham số** của chính lệnh đó: cất cánh chọn trong 3/5/10/20/30 m **hoặc ô nhập số 1–120 m** (kẹp cả ở QML lẫn `Backend.act`, thêm 19/09), đổi mode chọn trong danh sách mode của bộ điều khiển bay. Với hai lệnh này, số chọn sẵn thay cho ô nhập là để không có bàn phím ảo nào bật lên che mất nửa màn hình đúng lúc máy bay sắp rời đất. Độ cao đường bay thì khác — xem mục 6.1.
 
 **Bố cục và công dụng từng thành phần:**

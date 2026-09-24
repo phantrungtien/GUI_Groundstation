@@ -444,12 +444,29 @@ class Backend(QObject):
         if self._live():
             self.cmd.wp_clear()
 
+    @Slot(float, float, result="QVariantList")
+    def pickGoto(self, x, y):
+        """Pixel -> (lat, lon), chot NGAY luc ngon tay chi diem.
+
+        "Bay toi day" phai truot xac nhan, tuc la co mot khoang giua luc chi va
+        luc lenh di. Ban do BAM THEO drone (`MapWidget.follow`), nen cung mot o
+        pixel sau vai giay la mot cho khac tren mat dat — doi den luc truot xong
+        moi doi toa do la gui drone di sai cho. QML giu lai lat/lon nay.
+        """
+        return list(self._latlon(x, y))
+
     @Slot(float, float)
-    def goto(self, x, y):
+    def gotoAt(self, lat, lon):
+        """Bay toi diem da chot. QML goi SAU khi thanh truot da truot het."""
         if not self._live():
             self.cmd.say("touch.locked", 4)
             return
-        self.cmd.goto(*self._latlon(x, y), self.map.wp_alt)
+        self.cmd.goto(lat, lon, self.map.wp_alt)
+
+    @Slot(float, float)
+    def goto(self, x, y):
+        """Duong pixel, cho bai test va cho ai goi thay ca hai buoc tren."""
+        self.gotoAt(*self._latlon(x, y))
 
     # ---- nhich vi tri: can ao ---------------------------------------------
     #

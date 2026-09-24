@@ -2071,6 +2071,46 @@ def check_touch(app):
         win.touch.act("land", "")
         assert sent == [], sent
 
+        # --- "bay toi day" cung phai truot xac nhan ---------------------------
+        #
+        # Truoc day cham chip la lenh di NGAY: mot cai cham lech ngon tay la
+        # drone doi cho va doi ca do cao, khong co duong lui. Va bay o cho nay:
+        # diem duoc chi bang PIXEL, ma ban do BAM THEO drone — giu pixel toi luc
+        # truot xong la gui drone toi mot cho khac hoan toan.
+        sent.clear()
+        win.touch.attach({"name": "selfcheck", "mode": "SIM"}, fake)
+        m = win.touch.map
+        m.follow = True
+        m.set_position(10.8221589, 106.6868454)
+        win.touch.setWpAlt(30)
+        wait(100)
+        root.setProperty("wpX", view.width() * 0.3)
+        root.setProperty("wpY", view.height() * 0.3)
+        root.setProperty("wpOpen", True)
+        wait(100)
+        chip = root.findChild(QQuickItem, "wpGoto")
+        assert chip is not None and chip.isVisible(), "khong thay chip 'bay toi day'"
+        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier,
+                         chip.mapToScene(QPointF(chip.width() / 2,
+                                                 chip.height() / 2)).toPoint())
+        wait(100)
+        assert root.property("pending") == "goto", "cham 'bay toi day' ma khong hoi xac nhan"
+        assert sent == [], f"chua truot ma lenh da di: {sent}"
+        aimed = root.property("gotoAt")
+        assert aimed, "khong chot lai toa do diem vua chi"
+        drag(0.5)
+        assert sent == [], f"tha giua chung ma van bay toi day: {sent}"
+        m.set_position(10.8240000, 106.6890000)  # ban do chay theo drone luc dang truot
+        wait(100)
+        drag(1.0)
+        assert [a for a, _ in sent] == ["mode", "goto"], sent
+        got = sent[1][1]
+        assert abs(got["lat"] - aimed[0]) < 1e-6 and abs(got["lon"] - aimed[1]) < 1e-6, (
+            f"ban do chay theo drone ma lenh bay toi cho khac: {got} != {aimed}")
+        assert got["alt"] == 30.0, f"khong dung do cao dang hien: {got}"
+        assert root.property("pending") == "", "truot xong ma bang xac nhan van mo"
+        sent.clear()
+
         # --- o camera: cham de doi cho, ngat ket noi la tra ve ban do ---------
         #
         # Truoc day bai nay do hinh hoc QWidget cua tab Bay cu. Man cam ung lam
@@ -2167,7 +2207,8 @@ def check_touch(app):
         win.touch.attach(None, None)
         win.close()
     print("  ok  tab Bay cam ung: mo san, chung Commands, tha giua chung khong co lenh, "
-          "truot het moi di, cat dong co truot het la di (khong giu), mat SiK la huy; ban do: giu 2 s "
+          "truot het moi di, cat dong co truot het la di (khong giu), mat SiK la huy; \"bay toi day\" "
+          "cung phai truot, toa do chot luc chi chu khong doc lai pixel; ban do: giu 2 s "
           "(co vong tron) moi mo bang diem den, cham mot cai/tha som thi khong, keo thi khong mo; cham dup "
           "(ke ca ngon tay rung) ve dung cho drone")
 

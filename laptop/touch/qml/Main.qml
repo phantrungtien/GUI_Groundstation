@@ -29,6 +29,9 @@ Item {
     readonly property int holdMs: 2000  // giu bao lau moi chon diem tren ban do
     property real wpX: 0
     property real wpY: 0
+    // [lat, lon] cua diem "bay toi day" dang cho truot. Chot bang toa do chu
+    // khong giu pixel: ban do bam theo drone, pixel cu = cho khac sau vai giay.
+    property var gotoAt: null
     // Can ao. Giu o day chu khong trong MouseArea de hai nut leo/ha dung chung.
     property real stickX: 0
     property real stickY: 0
@@ -58,7 +61,12 @@ Item {
             "arm": "ARM", "disarm": "DISARM", "takeoff": tr("touch.btn_takeoff"),
             "land": tr("touch.btn_land"), "rtl": tr("touch.btn_rtl") + " (RTL)",
             "kill": tr("touch.do_kill"), "modePick": tr("touch.btn_mode") + "  (" + st.fcMode + ")",
-            "mode": tr("touch.btn_mode") + ":  " + st.fcMode + "  →  " + pendingArg
+            "mode": tr("touch.btn_mode") + ":  " + st.fcMode + "  →  " + pendingArg,
+            // Toa do tren tieu de la cho DUY NHAT nguoi bay doi chieu duoc diem
+            // vua chi: diem do khong ve ra ban do, va ban do thi dang chay theo
+            // drone. Dung chung dong chu voi vet ghi o tab Thong bao.
+            "goto": gotoAt ? tr("act.goto", {"lat": gotoAt[0], "lon": gotoAt[1],
+                                             "alt": st.wpAlt}) : ""
         }[pending] || ""
     }
     function openWp(x, y) {
@@ -72,7 +80,8 @@ Item {
             "arm": tr("touch.do_arm"), "disarm": tr("touch.do_disarm"),
             "takeoff": tr("touch.do_takeoff", {"alt": takeoffAlt}),
             "land": tr("touch.do_land"), "rtl": tr("touch.do_rtl"),
-            "kill": tr("touch.do_kill"), "mode": tr("touch.do_mode", {"name": pendingArg})
+            "kill": tr("touch.do_kill"), "mode": tr("touch.do_mode", {"name": pendingArg}),
+            "goto": tr("touch.do_goto", {"alt": st.wpAlt})
         }[pending] || ""
         return tr("touch.slide", {"what": what})
     }
@@ -556,10 +565,11 @@ Item {
                     onTap: backend.addWp(win.wpX, win.wpY)
                 }
                 Chip {
+                    objectName: "wpGoto"
                     text: tr("touch.wp_goto", {"alt": st.wpAlt})
                     enabled: st.live
                     opacity: enabled ? 1 : 0.4
-                    onTap: { backend.goto(win.wpX, win.wpY); win.wpOpen = false }
+                    onTap: { win.gotoAt = backend.pickGoto(win.wpX, win.wpY); ask("goto") }
                 }
             }
             Flow {
@@ -720,7 +730,10 @@ Item {
                     var a = win.pending
                     var arg = a === "takeoff" ? String(win.takeoffAlt) : win.pendingArg
                     win.pending = ""
-                    backend.act(a, arg)
+                    if (a === "goto")
+                        backend.gotoAt(win.gotoAt[0], win.gotoAt[1])
+                    else
+                        backend.act(a, arg)
                 }
             }
         }
