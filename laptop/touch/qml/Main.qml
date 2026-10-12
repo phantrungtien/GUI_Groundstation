@@ -234,6 +234,52 @@ Item {
                 font.pixelSize: 20 * s
                 font.bold: true
             }
+            // ---- so nguoi: giao dien cuu ho, day la con so nguoi lai can thay
+            // nhat. Co nguoi -> nen ACCENT dac (khac han mau trang thai OK/WARN/
+            // CRIT cua vien ben trai). Khong biet (mat hinh / dung hinh / /status
+            // im) -> "--" vien xam, KHONG an: o bien mat de bi bo qua hon o ghi "--".
+            Rectangle {
+                id: personsBar
+                objectName: "persons"
+                property bool known: st.persons !== null && st.persons !== undefined
+                property string value: known ? String(st.persons) : "--"
+                property color word: known && st.persons > 0 ? theme.BG_DEEP : theme.TEXT_DIM
+                visible: !!st.hasVideo
+                anchors.verticalCenter: parent.verticalCenter
+                height: 40 * s
+                width: personsRow.implicitWidth + 28 * s
+                radius: 8 * s
+                color: !known ? "transparent" : st.persons > 0 ? theme.ACCENT : theme.SURFACE_HI
+                border.width: known ? 0 : 2 * s
+                border.color: theme.BORDER
+                Row {
+                    id: personsRow
+                    anchors.centerIn: parent
+                    spacing: 10 * s
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: tr("fly.persons_pre")
+                        color: personsBar.word
+                        font.pixelSize: 15 * s
+                        font.bold: true
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: personsBar.value
+                        color: !personsBar.known ? theme.MUTED
+                               : st.persons > 0 ? theme.BG_DEEP : theme.TEXT
+                        font.pixelSize: 28 * s
+                        font.bold: true
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: tr("fly.persons_post")
+                        color: personsBar.word
+                        font.pixelSize: 15 * s
+                        font.bold: true
+                    }
+                }
+            }
         }
         Row {
             anchors { right: parent.right; rightMargin: 16 * s; verticalCenter: parent.verticalCenter }

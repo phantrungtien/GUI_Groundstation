@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from pymavlink import mavutil  # noqa: E402
 from websockets.sync.server import serve  # noqa: E402
 
+from core.i18n import t  # noqa: E402
 from laptop.app import MainWindow  # noqa: E402
 
 MAV_PORT, WS_PORT = 14571, 8791
@@ -63,58 +64,78 @@ assert win.panel.select("hai nua")
 win.panel.btn_connect.click()
 ct = win.control_tab
 logs = []
-ct.log.connect(logs.append)
+# log = Signal(str, int): noi thang `logs.append` thi moi dong TypeError, `logs` rong.
+ct.log.connect(lambda text, _sev: logs.append(text))
+
+
+def step(fn):
+    """Assert hong trong slot cua QTimer KHONG lam app dung: no chi in traceback
+    roi app chay tiep toi han 45 s va thoat ma 0 — bai hong ma trong nhu qua. Bat
+    o day de thoat ma 1."""
+    def run():
+        try:
+            fn()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            print("check_halves: FAIL")
+            win.disconnect()  # khong thi QThread adapter con chay luc thoat -> abort 134
+            app.exit(1)
+    return run
 
 
 def step1():
     """Ca hai nua song."""
     assert "B/s" in win.link_status._info["sik"].text(), win.link_status._info["sik"].text()
     assert "B/s" in win.link_status._info["remote"].text()
-    assert "mo phong" in win.banner.text(), win.banner.text()
+    assert t("mode.SIM") in win.banner.text(), win.banner.text()
     print("  ok  hai nua song -> banner binh thuong")
 
     logs.clear()
     ct.btn_arm.click()
-    assert "da gui" in logs[-1] and "CHUA CHAC" not in logs[-1], logs
+    assert logs[-1] == t("log.sent", what="arm"), logs
     print(f"  ok  link song -> \"{logs[-1]}\"")
 
     stop_ws.set()  # cat nua ROS2, giu nua SiK
-    QTimer.singleShot(4000, step2)
+    QTimer.singleShot(4000, step(step2))
 
 
 def step2():
-    """Kieu hong A: mat ROS2, SiK con."""
+    """Kieu hong A: mat ROS2, SiK con. Tu khi laptop cam toan quyen, day la mat
+    TAM NHIN (video, nguon vi tri thu hai) chu khong con la mat quyen lai."""
     print("  banner:", win.banner.text()[:78])
-    assert "MAT ROS2" in win.banner.text(), win.banner.text()
-    assert "VAN DANG CHAY" in win.banner.text(), "phai canh bao task tu hanh con chay"
+    assert t("conn.degraded") in win.banner.text(), win.banner.text()
     assert win.adapter is not None, "mat ROS2 KHONG duoc lam chet nua SiK"
     assert "B/s" in win.link_status._info["sik"].text(), "nua SiK phai con nguyen"
 
     logs.clear()
     ct.btn_rtl.click()
-    assert "da gui" in logs[-1], logs  # nut do van an
+    assert logs[-1] == t("log.sent", what="RTL"), logs  # nut do van an
     print("  ok  mat ROS2 -> SiK con nguyen, nut do van an")
 
     stop_mav.set()  # cat not nua SiK
-    QTimer.singleShot(4000, step3)
+    QTimer.singleShot(4000, step(step3))
 
 
 def step3():
     """Mat not SiK: mat duong cuu sinh."""
     print("  banner:", win.banner.text()[:78])
-    assert "MAT KET NOI" in win.banner.text(), win.banner.text()
+    lost = t("banner.lost", name="hai nua", why="")
+    assert win.banner.text().startswith(lost.strip()), win.banner.text()
 
     logs.clear()
     ct.btn_rtl.click()
-    assert "CHUA CHAC TOI NOI" in logs[-1], logs
+    stale = t("log.queued_stale", what="RTL", how="")
+    assert logs[-1].endswith(stale.split("—")[-1].strip()), logs
     print(f"  ok  link chet -> \"{logs[-1]}\"")
-    QTimer.singleShot(4000, step4)
+    QTimer.singleShot(4000, step(step4))
 
 
 def step4():
     """Khong co COMMAND_ACK nao ve -> phai canh bao, khong duoc im."""
-    assert any("KHONG CO PHAN HOI" in m for m in logs), logs
-    print(f"  ok  khong co ack -> \"{[m for m in logs if 'PHAN HOI' in m][0]}\"")
+    no_ack = t("log.no_ack", action="RTL", sec=3)
+    assert no_ack in logs, logs
+    print(f"  ok  khong co ack -> \"{no_ack}\"")
     print("check_halves: PASS")
     win.disconnect()
     win.close()
@@ -122,6 +143,6 @@ def step4():
     app.quit()
 
 
-QTimer.singleShot(4000, step1)
-QTimer.singleShot(45000, app.quit)
+QTimer.singleShot(4000, step(step1))
+QTimer.singleShot(45000, lambda: (print("check_halves: FAIL — qua 45 s"), app.exit(1)))
 sys.exit(app.exec())

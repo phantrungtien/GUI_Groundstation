@@ -32,9 +32,10 @@ import time
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from mavros_msgs.msg import State
+from mavros_msgs.msg import HomePosition, State
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rosidl_runtime_py.utilities import get_message
 from sensor_msgs.msg import BatteryState, NavSatFix
 from std_msgs.msg import Float64, String
 from websockets.sync.server import serve
@@ -48,6 +49,8 @@ MISSIONS_OK = {"mission_simple", "mission_circle", "mission_gates",
                "trackinghuman", "verify_frame"}
 
 # MAVROS phat telemetry o BEST_EFFORT; dat RELIABLE la khong nhan duoc goi nao.
+PERSONS_TOPIC = "/vision/person_count"
+
 SENSOR_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
     durability=QoSDurabilityPolicy.VOLATILE,
@@ -109,9 +112,30 @@ class Bridge(Node):
                                  self._on_vel, SENSOR_QOS)
         self.create_subscription(Float64, "/mavros/global_position/compass_hdg",
                                  self._on_hdg, SENSOR_QOS)
+        # Do cao SO VOI HOME = GLOBAL_POSITION_INT.relative_alt, dung cai SiK day
+        # len. KHONG lay z cua local_position/pose: do la so voi GOC EKF, va goc EKF
+        # khong phai home — do that 04/10/2026 tren log bay that: lech trung vi
+        # -2,8 m, co log -17,6 m (toi -24 m). Remote uu tien hon SiK, nen lay z la
+        # o H tren man bay, uoc thoi gian ve nha va khoang cach toi tran rao deu sai.
+        self.create_subscription(Float64, "/mavros/global_position/rel_alt",
+                                 self._on_rel_alt, SENSOR_QOS)
+        # ...NHUNG chi khi FC da co home. Chua co (khong GPS) thi rel_alt la baro
+        # tho, con FC giu do cao bang z EKF — lay z, giong het sik.py (bay that
+        # 11/10/2026: baro lech rangefinder trung vi 0,40 m, EKF 0,03 m).
+        self.home_seen = False
+        self.create_subscription(HomePosition, "/mavros/home_position/home",
+                                 self._on_home, SENSOR_QOS)
         self.create_subscription(BatteryState, "/mavros/battery",
                                  self._on_batt, SENSOR_QOS)
         self.create_subscription(State, "/mavros/state", self._on_state, 10)
+
+        # So nguoi model tren Jetson dem (11/10/2026). Kieu msg KHONG go cung: hoi
+        # do thi ROS luc chay roi lay `.data` (std_msgs Int32/UInt16/... deu co) —
+        # doi kieu ben Jetson thi bridge khong phai sua. Topic chua co thi cu 1 s hoi lai.
+        # BEST_EFFORT: khop ca publisher RELIABLE lan BEST_EFFORT.
+        self.persons_sub = None
+        self.persons_at = 0.0
+        self.create_timer(1.0, self._find_persons)
 
     # --- day len laptop ---------------------------------------------------
 
@@ -135,9 +159,17 @@ class Bridge(Node):
     def _on_pose(self, m):
         p, q = m.pose.position, m.pose.orientation
         roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
-        self.push("local", {"x_e": p.x, "y_n": p.y, "z_u": p.z})
+        self.push("local", {"x_e": p.x, "y_n": p.y, "z_u": p.z})  # so voi GOC EKF
+        if not self.home_seen:
+            self.push("position", {"alt_rel": p.z})
         self.push("attitude", {"roll": roll, "pitch": pitch, "yaw": yaw})
-        self.push("position", {"alt_rel": p.z})  # MAVROS: z ENU = cao so voi diem khoi
+
+    def _on_rel_alt(self, m):
+        if self.home_seen:
+            self.push("position", {"alt_rel": m.data})
+
+    def _on_home(self, m):
+        self.home_seen = True
 
     def _on_vel(self, m):
         v = m.twist.linear
@@ -150,11 +182,40 @@ class Bridge(Node):
         self.push("battery", {
             "voltage": None if math.isnan(m.voltage) else m.voltage,
             "current": None if math.isnan(m.current) else abs(m.current),
-            "remaining": None if math.isnan(m.percentage) else round(m.percentage * 100),
+            # FC khong biet % (battery_remaining = -1, vd BATT_CAPACITY = 0) thi
+            # MAVROS dua -0,01 chu khong NaN — do that 04/10/2026. Day len nguyen
+            # thi man bay hien "PIN -1%" do ruc va giong doc bao pin can. -1 la
+            # "khong biet", giong het cach normalize() ben SiK xu ly.
+            "remaining": (None if math.isnan(m.percentage) or m.percentage < 0
+                          else round(m.percentage * 100)),
         })
 
     def _on_state(self, m):
         self.push("heartbeat", {"armed": m.armed, "mode": m.mode})
+
+    def _find_persons(self):
+        if self.persons_sub:
+            return
+        types = dict(self.get_topic_names_and_types()).get(PERSONS_TOPIC)
+        if not types:
+            return
+        self.persons_sub = self.create_subscription(
+            get_message(types[0]), PERSONS_TOPIC, self._on_persons, SENSOR_QOS)
+        self.get_logger().info(f"{PERSONS_TOPIC} [{types[0]}] -> topic 'persons'")
+
+    def _on_persons(self, m):
+        # Model chay ~25 Hz; mot con so tren man bay 5 Hz la du, khoi day WebSocket.
+        # GUI coi so het tuoi sau 2 s (core/field.py STALE) — nen ben Jetson phai
+        # publish DEU (moi khung), khong chi luc so doi.
+        now = time.time()
+        if now - self.persons_at < 0.2:
+            return
+        self.persons_at = now
+        try:
+            self.push("persons", {"n": int(m.data)})
+        except (AttributeError, TypeError, ValueError):
+            self.get_logger().error(f"{PERSONS_TOPIC}: msg khong co truong so `.data`",
+                                    throttle_duration_sec=30)
 
     # --- nhan lenh tu laptop ----------------------------------------------
 
@@ -296,7 +357,9 @@ def main():
         node._stop_mission()  # khong de node nhiem vu song mo coi khi bridge chet
         server.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        # try_: Ctrl-C thi bo bat tin hieu cua rclpy da tu shutdown context roi —
+        # goi `shutdown()` lan nua la RCLError, traceback va ma thoat 1.
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

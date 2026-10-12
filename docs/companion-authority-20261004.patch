@@ -1,0 +1,105 @@
+--- a/src/simtofly_mavros_sitl/simtofly_mavros_sitl/guided_base.py
++++ b/src/simtofly_mavros_sitl/simtofly_mavros_sitl/guided_base.py
+@@ -202,6 +202,8 @@
+ 
+     def set_mode(self, mode):
+         """Request a flight mode; True if the FCU accepted the request."""
++        if not may_stream(self.authority):
++            return False
+         req = SetMode.Request()
+         req.custom_mode = mode
+         fut = self.set_mode_client.call_async(req)
+@@ -210,6 +212,8 @@
+ 
+     def arm_once(self):
+         """Single arm attempt; True on success."""
++        if not may_stream(self.authority):
++            return False
+         req = CommandBool.Request()
+         req.value = True
+         fut = self.arming_client.call_async(req)
+@@ -251,6 +255,8 @@
+         said_wait = said_blind = said_ready = False
+         mode_at = 0.0
+         while rclpy.ok() and time.time() - start < timeout:
++            if not may_stream(self.authority):
++                return False
+             waited = time.time() - start
+             ready, blind = arm_gate(self.prearm_ok, waited, blind_after)
+             if blind and not said_blind:
+@@ -290,6 +296,8 @@
+ 
+     def takeoff(self, altitude):
+         """Send a GUIDED takeoff command; True if accepted."""
++        if not may_stream(self.authority):
++            return False
+         req = CommandTOL.Request()
+         req.altitude = float(altitude)
+         fut = self.takeoff_client.call_async(req)
+--- a/src/simtofly_mavros_sitl/simtofly_mavros_sitl/mission_simple.py
++++ b/src/simtofly_mavros_sitl/simtofly_mavros_sitl/mission_simple.py
+@@ -94,6 +94,8 @@
+ 
+     def set_mode(self, mode):
+         """Set flight mode"""
++        if not may_stream(self.authority):
++            return False
+         print(f'Setting {mode} mode...')
+         req = SetMode.Request()
+         req.custom_mode = mode
+@@ -111,6 +113,8 @@
+     def arm(self, verbose=True):
+         """Arm the vehicle (one attempt). ArduPilot rejects arming until prearm
+         checks pass, so callers may need to retry (see arm_with_retry)."""
++        if not may_stream(self.authority):
++            return False
+         if verbose:
+             print('Arming throttle...')
+         req = CommandBool.Request()
+@@ -148,6 +152,8 @@
+         attempt = 0
+         said_wait = said_blind = False
+         while time.time() - start < timeout and rclpy.ok():
++            if not may_stream(self.authority):
++                return False
+             waited = time.time() - start
+             ready, blind = arm_gate(self.prearm_ok, waited, blind_after)
+             if blind and not said_blind:
+@@ -175,6 +181,8 @@
+ 
+     def takeoff(self, altitude):
+         """Takeoff to specified altitude"""
++        if not may_stream(self.authority):
++            return False
+         print(f'Taking off to {altitude}m...')
+ 
+         req = CommandTOL.Request()
+--- a/src/simtofly_mavros_sitl/simtofly_mavros_sitl/trackinghuman.py
++++ b/src/simtofly_mavros_sitl/simtofly_mavros_sitl/trackinghuman.py
+@@ -164,6 +164,8 @@
+ 
+     # ---------- MAVROS helpers (giống mission gốc) ----------
+     def set_mode(self, mode):
++        if not may_stream(self.authority):
++            return False
+         print(f'Đặt mode {mode}...')
+         req = SetMode.Request()
+         req.custom_mode = mode
+@@ -174,6 +176,8 @@
+         return ok
+ 
+     def arm(self):
++        if not may_stream(self.authority):
++            return False
+         print('Arm...')
+         req = CommandBool.Request()
+         req.value = True
+@@ -184,6 +188,8 @@
+         return ok
+ 
+     def takeoff(self, alt):
++        if not may_stream(self.authority):
++            return False
+         print(f'Cất cánh {alt}m...')
+         req = CommandTOL.Request()
+         req.altitude = alt

@@ -269,7 +269,15 @@ class ControlTab(QWidget):
     def _force_disarm(self):
         self._kill_cancel()
         self.cmd.force_disarm()
+        # Chu nay chi noi "lan bam thu hai da an" — roi phai tra nut ve. Truoc day
+        # khong ai tra: nut do ghi "DA CAT DONG CO" qua ca lan ARM va chuyen bay
+        # sau, cho toi lan bam DISARM ke tiep. Ket qua that (ACK) o tab Thong bao.
         self.btn_kill.setText(t("ctl.killed"))
+        QTimer.singleShot(int(CONFIRM_S * 1000), self._killed_reset)
+
+    def _killed_reset(self):
+        if not self._kill_confirm.isActive():  # dang cho bam lai thi giu chu "BAM LAI"
+            self.btn_kill.setText("DISARM")
 
     def _takeoff_cancel(self):
         """Het gio cho, hoac da bam lan hai: tra nut ve nguyen trang."""

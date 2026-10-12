@@ -108,4 +108,11 @@ class RemoteAdapter(QThread):
             return
         # src luon la "remote": companion khong duoc tu xung la nguon khac, neu
         # khong thi trong tai da nguon va widget Link status deu bi danh lua.
-        self._emit(env["topic"], env.get("data", {}), env.get("ts"))
+        #
+        # `ts` cung vay: dong dau LUC LAPTOP NHAN (docs/protocol.md: "dat luc
+        # adapter nhan goi"), bo `ts` cua companion. Do tuoi cua moi field (STALE)
+        # tinh bang dong ho laptop; lay dong ho Pi — ngoai bai bay khong NTP, khong
+        # pin RTC — thi do that 04/10/2026: Pi chay TRUOC 1 gio -> rot WiFi 3 s van
+        # coi vi tri cuoi la tuoi, va vi remote uu tien hon SiK, ban do dung hinh o
+        # do suot 1 gio; Pi chay SAU 10 s -> moi goi remote vua toi da het tuoi.
+        self._emit(env["topic"], env.get("data", {}))

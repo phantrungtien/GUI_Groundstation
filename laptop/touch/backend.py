@@ -79,6 +79,7 @@ class Backend(QObject):
         self.alerts = AlertBook()
         self.voice = Voice()
         self._rtl_lvl = None
+        self._rtl_say = None  # cau giong doc di cung _rtl_lvl — xem _warns()
         # Ket qua lenh di qua MainWindow._on_cmd_log (tab Thong bao + commands.log),
         # roi MainWindow day lai vao `alerts`.
         self.cmd = cmd or Commands(self)
@@ -185,6 +186,13 @@ class Backend(QObject):
 
         armed = v("heartbeat.armed")
         pct = v("battery.remaining")
+        volt = v("battery.voltage")
+        if volt is not None and safety.cells(volt) is None:
+            # Khong co pin (<= 1 V) thi % la so BIA: FC dem coulomb tu luc khoi dong
+            # (100% tru mAh da tieu), khong do pin. Do that 10/10/2026, FC cam USB
+            # khong pin: 0-17 mV, nhieu dong 10-40 mA, FC bao 99 -> 98% sau 30 phut
+            # va o PIN ghi "98%  0.0V". Bo % thi o PIN chi con "0.0 V" — dung su that.
+            pct = None
         if armed and self._armed_at is None:
             self._armed_at = time.time()  # suon len cua armed, khong phai luc bam
         elif not armed and armed is not None:
@@ -217,6 +225,10 @@ class Backend(QObject):
             "battLeft": left, "leftLevel": left_level(left) or "ok",
             "sats": sats, "gpsLevel": gps_level(fix, sats, hdop)[0] or "ok",
             "hasVideo": bool(self.profile and video_url(self.profile)),
+            # So nguoi: Jetson publish /vision/person_count, ros2_bridge day len
+            # topic `persons` (het tuoi sau 2 s = khong biet). Camera dung hinh thi
+            # model cung dang dem tren mot canh cu -> khong hien.
+            "persons": None if self.video_src.frozen else REGISTRY.value("persons.n"),
             "alerts": [{"text": s, "crit": sev <= ERR_SEV} for s, sev in self.alerts.shown()],
             "ready": self._ready(armed is True),
             "warns": self._warns(armed, left, dist),
@@ -243,14 +255,14 @@ class Backend(QObject):
         v.on("lost", status_key == "touch.st_lost", "voice.lost")
         r = s["ready"]
         v.on("ready", bool(r and r["ok"]), "voice.ready")
-        v.on("rtl", self._rtl_lvl, "voice.rtl_now" if self._rtl_lvl == "crit"
-             else "voice.rtl_soon", repeat=self._rtl_lvl == "crit")
+        v.on("rtl", self._rtl_lvl, self._rtl_say, repeat=self._rtl_lvl == "crit")
         lvl = batt_level(pct) if armed else None
         v.on("batt", lvl, "voice.batt_crit" if lvl == "crit" else "voice.batt_low", pct=pct)
         v.change("armed", armed, "voice.armed" if armed else "voice.disarmed")
         fc = s["fcMode"] or None
         v.change("mode", fc, "voice.mode", name=fc)
         v.alerts(self.alerts.red())
+        v.persons(s["persons"])
 
     def _time_left(self, pct):
         """Giay bay con lai toi muc failsafe pin cua FC, theo dong dien da lam muot."""
@@ -304,9 +316,10 @@ class Backend(QObject):
         """Canh bao DUNG YEN (khong tu tat nhu AlertBook): [{text, crit}].
 
         Chua ARM: kiem tham so failsafe va pin day chua (safety.preflight).
-        Dang bay: con du pin de ve nha khong (RTL uoc tu tham so FC).
+        Dang bay: con du pin de ve nha khong (RTL uoc tu tham so FC). Khong uoc
+        duoc RTL (chua co home = khong GPS) thi bao theo thoi gian toi failsafe pin.
         """
-        self._rtl_lvl = None
+        self._rtl_lvl = self._rtl_say = None
         if not self.profile or self.mode == "REPLAY":
             return []
         v = REGISTRY.value
@@ -317,11 +330,22 @@ class Backend(QObject):
         if v("heartbeat.landed") is not False:
             return []
         need = safety.rtl_time_s(self._params, dist, v("position.alt_rel"))
-        lvl = self._rtl_lvl = safety.rtl_level(left, need)
+        if need is None:
+            # Khong home thi khong ve nha duoc, nhung o CON van dem toi failsafe pin
+            # cua FC (BATT_LOW_MAH). Bay that 11/10/2026, 0 ve tinh: o CON do 52 s ma
+            # chu lan giong deu im. Cung nguong to mau o CON (left_level).
+            lvl = left_level(left)
+            key, say = (("safe.land_now", "voice.land_now") if lvl == "crit"
+                        else ("safe.land_soon", "voice.land_soon"))
+        else:
+            lvl = safety.rtl_level(left, need)
+            key, say = (("safe.rtl_now", "voice.rtl_now") if lvl == "crit"
+                        else ("safe.rtl_soon", "voice.rtl_soon"))
         if lvl is None:
             return []
-        key = "safe.rtl_now" if lvl == "crit" else "safe.rtl_soon"
-        return [{"text": t(key, left=_mmss(left), need=_mmss(need)), "crit": lvl == "crit"}]
+        self._rtl_lvl, self._rtl_say = lvl, say
+        kw = {"left": _mmss(left)} if need is None else {"left": _mmss(left), "need": _mmss(need)}
+        return [{"text": t(key, **kw), "crit": lvl == "crit"}]
 
     def _auto_flying(self):
         """Dang bay theo chinh nhiem vu sap bi ghi de? True/False."""
@@ -381,7 +405,16 @@ class Backend(QObject):
         return self.map.latlon_at(QPoint(int(x), int(y)))
 
     def _on_wp(self, env):
-        """Duong bay tu FC ve. Rieng ket qua NAP thi phai ra log, khong ve ban do."""
+        """Duong bay tu FC ve. Rieng ket qua NAP va "bay toi day" thi phai ra log,
+        khong ve ban do."""
+        g = env["data"].get("goto")
+        if g is not None:
+            if g["ok"]:
+                self.cmd.say("fly.goto_ok", 5)
+            else:
+                self.cmd.say("fly.goto_fail", 3,
+                             why=t("fly.wp_fc_denied", code=g["result"]))
+            return
         w = env["data"].get("write")
         if w is None:
             self.map.set_wp(env["data"])

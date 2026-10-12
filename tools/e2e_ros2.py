@@ -11,12 +11,13 @@ cung o "gcs" ngay luc bridge khoi dong (xem core/authority.py). Nen cau hoi doi
 thanh: khoi dong node nhiem vu ra thi no co chiu dung yen khong, va laptop co bay
 duoc suot trong luc no dang chay khong.
 
-> ⚠️ Ban nay CHUA chay lai tren stack that sau khi doi mo hinh quyen. Con so cu
-> (o docs/) la cua bai test cu.
+Chay SITL + MAVROS truoc, KHONG khoi dong node mission khac. Co the dung SITL
+tran nhu e2e_sitl.py; bai nay khong can camera hay cua so Gazebo. Voi SITL -I0,
+MAVProxy giu 5760, MAVROS noi tcp://127.0.0.1:5762 va xin stream telemetry:
 
-Chay stack truoc (moi cua so mot terminal):
-
-    ros2 launch simtofly_mavros_sitl sitl_mission.launch.py
+    ros2 launch simtofly_mavros_sitl mavros_apm.launch.py fcu_url:=tcp://127.0.0.1:5762
+    ros2 service call /mavros/set_stream_rate mavros_msgs/srv/StreamRate \
+        '{stream_id: 0, message_rate: 10, on_off: true}'
 
 roi cau noi ROS2 -> WebSocket (that ra chay tren companion; o day cung may):
 
@@ -26,29 +27,37 @@ roi cau noi ROS2 -> WebSocket (that ra chay tren companion; o day cung may):
 
 roi:
 
-    python3 tools/e2e_ros2.py
+    python3 tools/e2e_ros2.py [--conn tcp:127.0.0.1:5763] [--remote ws://127.0.0.1:8765]
 
-Cong nao cam vao dau: MAVProxy giu TCP 5760, MAVROS giu UDP 14550. SITL con mo
-san 5762/5763 — nua SiK cam vao 5763. Khong phai sua launch file cua ben ROS2.
+Cong nao cam vao dau: MAVProxy giu TCP 5760, MAVROS giu TCP 5762 (hoac UDP 14550
+neu chay Gazebo), nua SiK cam vao 5763. Doi --conn/--remote khi dung instance rieng.
 """
 
+import argparse
+import os
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from core.adapters.sik import STALE  # noqa: E402
 from core.field import REGISTRY  # noqa: E402
+from core.i18n import t  # noqa: E402
 from laptop.app import MainWindow  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-CONN = "tcp:127.0.0.1:5763"
-WS = "ws://127.0.0.1:8765"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--conn", default="tcp:127.0.0.1:5763")
+parser.add_argument("--remote", default="ws://127.0.0.1:8765")
+args = parser.parse_args()
+CONN, WS = args.conn, args.remote
 ROS = (
     "source /opt/ros/humble/setup.bash; "
     "source $HOME/ros2-ardupilot-sitl-hardware/install/setup.bash; "
@@ -62,6 +71,8 @@ MISSION_LOG = ROOT / "logs" / "e2e-mission.log"
 MISSION = "mission_circle"
 
 app = QApplication([])
+import laptop.voice
+laptop.voice.enabled = lambda: False
 win = MainWindow([{"name": "SITL qua stack ROS2", "mode": "SIM", "conn": CONN,
                    "remote": WS, "sysid": 254}])
 win.show()
@@ -70,13 +81,15 @@ win.panel.btn_connect.click()
 
 ct = win.control_tab
 logs = []
-ct.log.connect(logs.append)
+# log = Signal(str, int): noi thang `logs.append` thi moi dong TypeError, `logs` rong.
+ct.log.connect(lambda text, _sev: logs.append(text))
 procs = []
 
 
 def sh(cmd, out=None):
-    p = subprocess.Popen(["bash", "-c", ROS + cmd], stdout=out or subprocess.DEVNULL,
-                         stderr=subprocess.STDOUT)
+    p = subprocess.Popen(["bash", "-c", ROS + "exec " + cmd],
+                         stdout=out or subprocess.DEVNULL,
+                         stderr=subprocess.STDOUT, start_new_session=True)
     procs.append(p)
     return p
 
@@ -90,21 +103,33 @@ def val(field):
     return REGISTRY.best(field)[0]
 
 
-def cleanup():
+def cleanup(recover=False):
+    timer.stop()
     for p in procs:
-        p.terminate()
-    # p.terminate() chi giet cai vo `bash -c`, node python song tiep. Va phai khop
-    # dung ten mission dang chay: mot lan de sot `mission_circle`, no stream velocity
-    # setpoint 30 Hz them ca tieng dong ho — moi lenh TAKEOFF sau do deu duoc FC
-    # nhan roi bi chinh cai stream do de len, drone nam im tren dat.
-    subprocess.run(["pkill", "-f", MISSION], check=False)
+        try:
+            # Chi dung nhom do bai test tao; pkill -f giet ca mission cua phien khac.
+            os.killpg(p.pid, signal.SIGTERM)
+            p.wait(timeout=3)
+        except ProcessLookupError:
+            pass
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.wait()
+    if recover and val("heartbeat.armed") is True:
+        print("  ..  test hong khi dang ARM -> RTL, cho disarm", flush=True)
+        ct.btn_rtl.click()
+        deadline = time.monotonic() + 120
+        while val("heartbeat.armed") is not False and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.05)
+        print(f"  ..  sau RTL: armed={val('heartbeat.armed')}", flush=True)
     win.disconnect()
     win.close()
 
 
 def die(why):
     print(f"\ne2e_ros2: FAIL — {why}")
-    cleanup()
+    cleanup(recover=True)
     app.exit(1)
 
 
@@ -126,12 +151,7 @@ def script():
     assert div < 5.0, f"hai nguon lech {div:.1f} m — nghi sai he toa do"
     print(f"  ok  SiK va MAVROS lech {div:.2f} m (nguong 5 m)")
 
-    # Can mot chuyen bay MOI de con dang bay luc bam nut do, nen don bai truoc.
-    # `pkill` mot mission dang bay do thi drone treo o GUIDED MAI MAI — GUIDED
-    # khong tu ha canh, va khong con ai stream setpoint de bao no lam gi. Nen
-    # phai chu dong goi no ve, khong thi buoc cho disarm duoi day treo het gio
-    # va bai test bao FAIL trong khi chang co gi hong.
-    subprocess.run(["pkill", "-f", "mission_"], check=False)
+    # Moi bai tu quan ly node cua minh; nguoi chay can dung mission khac truoc.
     if val("heartbeat.armed"):
         print("  ..  drone dang bay san (mission cua launch) -> RTL cho ve da")
         ct.btn_rtl.click()
@@ -142,13 +162,14 @@ def script():
     # `ros2 topic echo` mac dinh subscribe VOLATILE — QoS lech thi khong nhan duoc
     # gi. Phai xin durability khop. Khong bam nut nao ca: gia tri phai co san tu
     # luc bridge khoi dong.
-    sh("timeout 25 ros2 topic echo --qos-durability transient_local "
-       "--qos-reliability reliable /gcs/authority", out=open(AUTH_LOG, "w"))
+    sh("timeout 25 ros2 topic echo --once --qos-durability transient_local "
+       "--qos-reliability reliable /gcs/authority std_msgs/msg/String",
+       out=open(AUTH_LOG, "w"))
     yield "doc duoc /gcs/authority da chot", (
-        lambda: "gcs" in AUTH_LOG.read_text()), 20
+        lambda: "data: gcs" in AUTH_LOG.read_text()), 20
     print("  ok  /gcs/authority latch san 'gcs' — khong ai bam gi de co no")
 
-    sh(f"PYTHONUNBUFFERED=1 ros2 run simtofly_mavros_sitl {MISSION}",
+    sh(f"env PYTHONUNBUFFERED=1 ros2 run simtofly_mavros_sitl {MISSION}",
        out=open(MISSION_LOG, "w"))
     print(f"  ..  da khoi dong {MISSION} — no phai TU DUNG, khong bay duoc")
 
@@ -166,7 +187,7 @@ def script():
         f"drone da ARM ma khong ai o laptop bam gi (cao {val('position.alt_rel')} m)"
     print("  ok  node ROS2 nam yen: khong ARM, khong stream setpoint")
 
-    # Va laptop thi bay duoc, ngay trong luc node do dang chay.
+    # Va laptop van bay duoc sau khi node do da khoi dong.
     logs.clear()
     ct.mode_box.setCurrentText("GUIDED")
     ct.btn_mode.click()
@@ -177,11 +198,11 @@ def script():
     ct.btn_takeoff.click()
     yield "drone len toi 8 m", lambda: (val("position.alt_rel") or 0) > 8.0, 90
     alt = val("position.alt_rel")
-    print(f"  ok  laptop cat canh duoc len {alt:.1f} m trong luc node ROS2 dang chay")
+    print(f"  ok  laptop cat canh duoc len {alt:.1f} m sau khi khoi dong node ROS2")
 
     logs.clear()
     ct.btn_rtl.click()
-    assert "da gui" in logs[-1], logs
+    assert logs[-1] == t("log.sent", what="RTL"), logs
     yield "FC nhan RTL", lambda: val("heartbeat.mode") == "RTL", 15
     yield "drone thuc su ha do cao", (
         lambda: (val("position.alt_rel") or 99) < alt - 1.0), 60
@@ -213,8 +234,8 @@ def tick():
             die(f"qua {limit:.0f}s van chua: {name}")
     except StopIteration:
         pass
-    except AssertionError as e:
-        die(str(e))
+    except Exception as e:
+        die(f"{type(e).__name__}: {e}")
 
 
 timer = QTimer()

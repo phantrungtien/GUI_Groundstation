@@ -204,18 +204,44 @@ class RawSniffer:
 
 # --------------------------------------------------------------- doc hai ben
 
+def _shown(win):
+    """Chu DANG HIEN tren cac o so lieu cua man bay (QML `Stat`: nhan -> gia tri).
+
+    Truoc 17/09 doc thanh telemetry cua tab Bay cu (`win.flight_tab`). Tab do da
+    xoa (14ec366) nen cong cu nay chet ngay o lan doc dau — ma `--selftest` khong
+    goi toi day nen van PASS. Doc thang cay QML: dung chu nguoi bay dang nhin.
+    """
+    out = {}
+
+    def walk(item):
+        for c in item.childItems():
+            label, value = c.property("label"), c.property("value")
+            if isinstance(label, str) and label and isinstance(value, str):
+                out[label] = value
+            walk(c)
+
+    walk(win.touch_view.rootObject())
+    return out
+
+
 def gui_row(win):
     """Doc dung nhung con so DANG HIEN tren GUI, khong doc tat qua adapter."""
-    bar = win.flight_tab.telemetry
-    txt = {k: bar._val[k].text() for k in ("ALT", "SPD", "PIN", "SAT", "MODE")}
+    s = _shown(win)
+
+    def num(text):
+        m = re.search(r"-?\d+(?:\.\d+)?", text or "")
+        return m.group(0) if m else "--"
+
+    volt = re.search(r"(\d+(?:\.\d+)?)\s*V", s.get("PIN", ""))  # "99%  12.6V" / "12.6 V"
     lat, _ = REGISTRY.best("position.lat")
     lon, _ = REGISTRY.best("position.lon")
     return {
-        "alt_rel": txt["ALT"], "groundspeed": txt["SPD"], "voltage": txt["PIN"],
-        "sats": txt["SAT"], "mode": txt["MODE"],
-        "heading": f"{win.flight_tab.compass._heading:.1f}",
-        "roll": f"{math.degrees(win.flight_tab.attitude._roll):.1f}",
-        "pitch": f"{math.degrees(win.flight_tab.attitude._pitch):.1f}",
+        "alt_rel": num(s.get("H")), "groundspeed": num(s.get("H.S")),
+        "voltage": volt.group(1) if volt else "--",
+        "sats": num(s.get("GPS")), "mode": win.touch.state.get("fcMode") or "--",
+        "heading": num(s.get("HDG")),
+        "roll": f"{math.degrees(win.touch.attitude._roll):.1f}",
+        "pitch": f"{math.degrees(win.touch.attitude._pitch):.1f}",
         "lat": f"{lat:.7f}" if lat is not None else "--",
         "lon": f"{lon:.7f}" if lon is not None else "--",
     }
@@ -260,7 +286,7 @@ def raw_row(snf):
         "voltage": si(s, "voltage_battery") if s else None,
         "sats": y.satellites_visible if y else None,
         "mode": None,  # custom_mode la so, ten mode nam trong bang cua tung hang
-        "heading": si(g, "hdg") if g else None,
+        "heading": hdg,  # DUNG nguon GUI dang ve — xem chu thich ngay tren
         "roll": si(a, "roll") if a else None,
         "pitch": si(a, "pitch") if a else None,
         "lat": si(g, "lat") if g else None,
@@ -277,9 +303,12 @@ def raw_row(snf):
 ROWS = [
     ("alt_rel", "do cao tuong doi", "m", 1.0, 0.05),
     ("groundspeed", "toc do ngang", "m/s", 1.0, 0.05),
-    ("voltage", "dien ap pin", "V", 0.05, 0.005),
+    # Man bay hien dien ap MOT chu so thap phan va huong mui so NGUYEN (QML `num()`),
+    # nen sai so lam tron la 0,05 V va 0,5 do — dung sai theo do. Van thua suc bat
+    # sai don vi (mV doc thanh V la lech 1000 lan, cdeg thanh do la 100 lan).
+    ("voltage", "dien ap pin", "V", 0.1, 0.05),
     ("sats", "so ve tinh", "", 0, 0),
-    ("heading", "huong mui", "do", 1.0, 0.05),
+    ("heading", "huong mui", "do", 1.0, 0.5),
     ("roll", "roll", "do", 1.0, 0.5),
     ("pitch", "pitch", "do", 1.0, 0.5),
     # 1e-5 do ~ 1.1 m: rong hon nhieu lan do trôi cua GPS SITL giua hai lan lay

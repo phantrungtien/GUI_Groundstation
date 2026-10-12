@@ -113,8 +113,8 @@ def _child(do_arm):
         time.sleep(0.05)
 
     if do_arm:
-        r = win.control_tab._cmd("arm")  # y het nut ARM: control.py:99
-        print("  con: gui ARM ->", r, flush=True)
+        win.control_tab.cmd.arm()  # y het nut ARM (ControlTab.btn_arm -> Commands.arm)
+        print("  con: da gui ARM", flush=True)
         t0 = time.time()
         while time.time() - t0 < 6:
             app.processEvents()
@@ -264,7 +264,9 @@ def kb_disarm():
     win.panel.btn_connect.click()
     ct = win.control_tab
     logs = []
-    ct.log.connect(logs.append)
+    # log = Signal(str, int): noi thang `logs.append` thi MOI dong deu TypeError
+    # (append nhan 1 doi so) va `logs` rong mai — assert doc log luon sai.
+    ct.log.connect(lambda text, _sev: logs.append(text))
 
     hb, rc = {}, {}
     bus.on("*", lambda e: hb.update(e["data"]) if e["topic"] == "heartbeat" else None)
@@ -302,7 +304,7 @@ def kb_disarm():
         # ket cuc te nhat co the.
         if hb.get("armed"):
             print("\n  !!! FC con ARMED luc thoat — dang ngat")
-            ct._escape("disarm", {"force": True})
+            ct.cmd.escape("disarm", {"force": True})
             if not spin(5, lambda: not hb.get("armed")):
                 print("  !!! KHONG NGAT DUOC — GAT DISARM TREN RC NGAY")
             print(f"  armed = {hb.get('armed')}")
@@ -329,7 +331,7 @@ def _disarm_body(ct, hb, rc, spin, logs, REGISTRY):
     else:
         print(f"  ga = {rc.get('RC_CHANNELS.chan3_raw')}  "
               f"FC bao landed = {REGISTRY.value('heartbeat.landed')}  "
-              f"rangefinder = {ct._rng}  "
+              f"rangefinder = {ct.cmd._rng}  "
               f"(alt_rel = {REGISTRY.value('position.alt_rel')} — khong dung nua)")
         logs.clear()
         ct.btn_kill.click()
@@ -365,7 +367,9 @@ def kb_armcycle(cycles=3):
     win.panel.btn_connect.click()
     ct = win.control_tab
     logs = []
-    ct.log.connect(logs.append)
+    # log = Signal(str, int): noi thang `logs.append` thi MOI dong deu TypeError
+    # (append nhan 1 doi so) va `logs` rong mai — assert doc log luon sai.
+    ct.log.connect(lambda text, _sev: logs.append(text))
 
     hb, rc, acks = {}, {}, []
     bus.on("*", lambda e: hb.update(e["data"]) if e["topic"] == "heartbeat" else None)
@@ -420,9 +424,9 @@ def kb_armcycle(cycles=3):
         # ga giua tam, dong co quay, khong con tien trinh nao trong tay.
         if hb.get("armed"):
             print("\n  !!! FC con ARMED luc thoat — dang ngat")
-            ct._escape("disarm")
+            ct.cmd.escape("disarm")
             if not spin(4, lambda: not hb.get("armed")):
-                ct._escape("disarm", {"force": True})
+                ct.cmd.escape("disarm", {"force": True})
                 if not spin(4, lambda: not hb.get("armed")):
                     print("  !!! KHONG NGAT DUOC — GAT RC NGAY")
             print(f"  armed = {hb.get('armed')}")

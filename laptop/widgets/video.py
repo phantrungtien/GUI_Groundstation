@@ -1,4 +1,13 @@
-"""Video MJPEG tu camera tren companion.
+"""Video tu camera tren companion: MJPEG qua HTTP, hoac H.264 Jetson day qua UDP.
+
+H.264 (11/10/2026): Jetson day MPEG-TS/H.264 960x540 25 fps toi UDP 5600 cua laptop,
+~235 KB/s — nhe ~12 lan MJPEG cung do phan giai. Dia chi `udp://...` trong key
+`video` cua profile la chon nhanh nay; `http://...` van la MJPEG nhu cu.
+
+Giai ma bang GStreamer (appsink sync=false), KHONG bang QMediaPlayer: do cung luong
+Jetson, cung canh quay, so tin hieu do sang voi MJPEG — GStreamer tre hon MJPEG
+~20 ms, QMediaPlayer tre ~900-990 ms vi tu dem de phat muot. Lai drone nhin hinh
+cham 1 giay la khong duoc. May khong co GStreamer (Windows) moi roi ve QMediaPlayer.
 
 MOT nguon, NHIEU cho ve. `VideoSource` giu dung mot ket noi HTTP toi Pi va giai
 ma mot lan; tab Camera va o PiP tren tab Flight cung doc lai ket qua do. Hai
@@ -27,12 +36,21 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QWidget
 
 from core.i18n import t
 from laptop import theme
+
+try:
+    import gi
+    gi.require_version("Gst", "1.0")
+    from gi.repository import Gst
+    Gst.init(None)
+except (ImportError, ValueError):
+    Gst = None  # ponytail: khong co GStreamer -> QMediaPlayer, tre ~0,9 s (xem dau file)
 
 # Cong rieng cho video, khong dung chung 8765 cua duong lenh (nguyen tac 2.1).
 # GCS_VIDEO_PORT chi de CHIA LUONG luc thu nghiem (chay stream thu hai o cong khac
@@ -50,6 +68,14 @@ STALE_S = 2.0  # khong co khung moi qua ngan nay -> o xam
 # Doi camera khac thi do lai: cam bien nao lam min manh qua co the cho ra khung
 # trung that, luc do nang so nay len chu dung bo han phep bam.
 FROZEN_S = 2.0
+# H.264 thi phep bam KHONG dung duoc: do 11/10/2026, mot khung camera that dong
+# bang dua qua x264 (ultrafast, zerolatency) giai ma ra 126/159 anh khac nhau, doan
+# trung dai nhat 0,16 s — bo ma hoa cu tinh chinh mai. Nen so ANH THU NHO 64x36 xam
+# voi anh moc: lech diem lon nhat > STILL_DIFF muc xam moi tinh la "doi".
+# Do cung ngay: camera treo lech toi da 2 muc (147 khung, 0 lan doi); Jetson song
+# trung vi 42, 551/551 khung deu doi. Ton ~2,8 ms/khung.
+THUMB_W, THUMB_H = 64, 36
+STILL_DIFF = 4
 MAX_FRAME_B = 8_000_000  # chan may chu hong bao Content-Length khong lo
 
 # Nhip khung toi GUI ghi ra file suot phien chay, de ghep voi journal cua Pi bang
@@ -90,6 +116,7 @@ def video_url(profile):
     return profile.get("video") or (url_for(profile["remote"]) if profile.get("remote") else None)
 
 
+
 def _read_frame(resp):
     """Doc mot phan multipart/x-mixed-replace, tra ve byte JPEG."""
     while True:  # nhay toi dong boundary
@@ -118,9 +145,11 @@ def _read_frame(resp):
 
 
 class VideoSource(QObject):
-    """Mot ket noi MJPEG, tu noi lai, phat `updated` moi khi co khung moi."""
+    """Mot nguon video (MJPEG HTTP hoac H.264 UDP), tu noi lai, phat `updated`
+    moi khi co khung moi."""
 
-    _arrived = Signal(bytes)  # thread -> main. KHONG cham QPixmap tu thread phu.
+    _arrived = Signal(bytes, int)  # (jpeg, gen) thread -> main. KHONG cham QPixmap tu thread phu.
+    _image = Signal(QImage, int)   # (anh, gen) luong GStreamer -> main
     updated = Signal()  # main -> cac VideoView
     # Chi ban luc DOI: bat dau dung hinh (True) va co khung khac byte tro lai
     # (False). Dut han giua luc dang dung hinh thi KHONG ban False — no khong
@@ -135,14 +164,17 @@ class VideoSource(QObject):
         self.note = ("vid.not_connected", {})
         self._gen = 0  # doi doi thi thread cu tu biet minh het viec
         self._last = 0.0
-        self._hash = None   # bam cua khung vua ve
+        self._hash = None   # MJPEG: bam khung vua ve; H.264: anh thu nho moc
         self._moved = 0.0   # lan cuoi ANH THAT SU doi
         self._frozen = False
         self._stamps = collections.deque(maxlen=30)  # moc thoi gian 30 khung gan nhat
         self._n = self._bytes = 0  # dem trong chu ky REPORT_S hien tai
         self._rep_t = time.monotonic()
+        self._player = None   # du phong khong co GStreamer: tao lan dau, roi giu mai
+        self._pipe = None     # pipeline GStreamer cua nguon H.264 dang chay
 
         self._arrived.connect(self._decode)
+        self._image.connect(self._on_image)
         self._watch = QTimer(self)
         self._watch.timeout.connect(self._check_stale)
         self._watch.start(500)
@@ -158,10 +190,35 @@ class VideoSource(QObject):
         self._rep_t = time.monotonic()
         _log(f"start {url}")
         self._gen += 1
-        threading.Thread(target=self._run, args=(url, self._gen), daemon=True).start()
+        if url.startswith("http"):
+            threading.Thread(target=self._run, args=(url, self._gen), daemon=True).start()
+            return
+        if Gst is not None:
+            self._gst_start(url, self._gen)
+            return
+        # H.264: QMediaPlayer tu nghe UDP va tu chay tiep khi goi toi lai (do 11/10:
+        # ngat 0,3-7 s, noi lai ~0,07 s la chay deu) — khong can vong noi lai.
+        # MOT player cho ca doi VideoSource: huy di tao moi thi socket cu chua nha
+        # cong, player moi "bind failed: Address already in use" va khong bao gio
+        # ra hinh (do 11/10). Khong dung `?reuse=1`: hai GUI se cung nghe mot cong
+        # va chia nhau goi tin trong im lang.
+        if self._player is None:
+            self._player = QMediaPlayer(self)
+            sink = QVideoSink(self._player)
+            self._player.setVideoSink(sink)
+            sink.videoFrameChanged.connect(self._on_vframe)
+            self._player.errorOccurred.connect(self._on_player_error)
+        self._player.setSource(QUrl())  # mo lai tu dau: do lai luong sau khi Jetson khoi dong lai
+        self._player.setSource(QUrl(url))
+        self._player.play()
 
     def stop(self):
         self._gen += 1  # thread dang chay se thay _gen lech va tu thoat
+        if self._pipe:
+            self._pipe.set_state(Gst.State.NULL)  # NULL dong socket ngay: start() lai cung cong duoc
+            self._pipe = None
+        if self._player:
+            self._player.stop()  # giu player lai cho lan start() sau, xem start()
         if self.url:
             _log("stop")
         self.url = None
@@ -174,17 +231,84 @@ class VideoSource(QObject):
 
     # ------------------------------------------------------------------ main thread
 
-    def _decode(self, jpeg):
+    def _decode(self, jpeg, gen):
+        if gen != self._gen:
+            # Khung cua luong CU: no dang nam trong read() luc stop() doi _gen, doc
+            # xong van emit, va tin hieu xep hang toi sau. Do that 04/10/2026: 10/10
+            # lan stop() thi khung cuoi hien lai (alive=True) toi ~2 s — dung cai
+            # "dong bang khung cuoi" ca file nay viet ra de chan.
+            return
         pm = QPixmap()
         if not pm.loadFromData(jpeg, "JPEG"):
             return
+        changed = hash(jpeg) != self._hash
+        self._hash = hash(jpeg)
+        self._show(pm, changed, len(jpeg))
+
+    def _gst_start(self, url, gen):
+        """udpsrc -> MPEG-TS -> H.264 -> RGBx -> appsink. sync=false + 1 buffer, bo
+        khung cu: luon ve khung MOI NHAT, khong co dong ho phat nao giu khung lai.
+        GStreamer tu chay tiep khi goi UDP toi lai, ke ca Jetson khoi dong lai luong."""
+        u = urlparse(url)
+        self._pipe = Gst.parse_launch(
+            f"udpsrc address={u.hostname or '0.0.0.0'} port={u.port} "
+            "caps=video/mpegts,systemstream=true ! tsdemux ! h264parse ! avdec_h264 "
+            "! videoconvert ! video/x-raw,format=RGBx "
+            "! appsink name=s emit-signals=true sync=false max-buffers=1 drop=true")
+        self._pipe.get_by_name("s").connect("new-sample", self._on_sample, gen)
+        self._pipe.set_state(Gst.State.PLAYING)
+
+    def _on_sample(self, sink, gen):
+        """Luong GStreamer: chep khung ra QImage (QImage dung o thread phu duoc,
+        QPixmap thi khong) roi day ve main."""
+        s = sink.emit("pull-sample")
+        st = s.get_caps().get_structure(0)
+        w, h = st.get_value("width"), st.get_value("height")
+        buf = s.get_buffer()
+        ok, m = buf.map(Gst.MapFlags.READ)
+        if ok:
+            try:
+                self._image.emit(QImage(bytes(m.data), w, h, w * 4,
+                                        QImage.Format.Format_RGBX8888).copy(), gen)
+            finally:
+                buf.unmap(m)
+        return Gst.FlowReturn.OK
+
+    def _on_image(self, img, gen):
+        if gen == self._gen and self.url:  # khung cua pipeline cu sau stop(): bo
+            self._from_image(img)
+
+    def _on_vframe(self, frame):
+        """Khung H.264 da giai ma bang QMediaPlayer (du phong khong co GStreamer)."""
+        if not self.url or self.url.startswith("http") or not frame.isValid():
+            return  # khung con xep hang sau stop(), hoac nguon dang la MJPEG
+        img = frame.toImage()
+        if not img.isNull():
+            self._from_image(img)
+
+    def _from_image(self, img):
+        """Anh H.264 da giai ma -> man hinh. So anh thu nho voi moc, xem STILL_DIFF."""
+        g = img.scaled(THUMB_W, THUMB_H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) \
+               .convertToFormat(QImage.Format.Format_Grayscale8)
+        raw, bpl = bytes(g.constBits()), g.bytesPerLine()  # moi dong co the co byte dem
+        th = b"".join(raw[r * bpl:r * bpl + THUMB_W] for r in range(THUMB_H))
+        changed = self._hash is None or max(abs(a - b) for a, b in zip(th, self._hash)) > STILL_DIFF
+        if changed:
+            self._hash = th
+        self._show(QPixmap.fromImage(img), changed, 0)
+
+    def _on_player_error(self, err, msg):
+        _log(f"error {err.name}: {msg}")
+        self.note = ("vid.error", {})
+
+    def _show(self, pm, changed, nbytes):
+        """Chung cho hai nguon: nhip khung, dung hinh, ve. changed = anh co doi."""
         self._last = time.monotonic()
         self._stamps.append(self._last)
         self._n += 1
-        self._bytes += len(jpeg)
+        self._bytes += nbytes
 
-        if hash(jpeg) != self._hash:
-            self._hash = hash(jpeg)
+        if changed:
             self._moved = self._last
         frozen = self._last - self._moved >= FROZEN_S
         if frozen:
@@ -225,10 +349,17 @@ class VideoSource(QObject):
         return (len(s) - 1) / (s[-1] - s[0])
 
     def _check_stale(self):
+        if self._pipe:  # vd "bind failed": cong 5600 dang bi tien trinh khac giu
+            msg = self._pipe.get_bus().pop_filtered(Gst.MessageType.ERROR)
+            if msg:
+                err, _dbg = msg.parse_error()
+                _log(f"error gstreamer: {err.message}")
+                self.note = ("vid.error", {})
         now = time.monotonic()
         if self.url and now - self._rep_t >= REPORT_S:
             dt = now - self._rep_t
-            _log(f"fps {self._n / dt:5.1f}  {self._bytes / dt / 1000:4.0f} KB/s")
+            kb = f"  {self._bytes / dt / 1000:4.0f} KB/s" if self._bytes else ""  # H.264: khong dem
+            _log(f"fps {self._n / dt:5.1f}{kb}")
             self._n = self._bytes = 0
             self._rep_t = now
         if (self.alive or self._frozen) and now - self._last > STALE_S:
@@ -253,7 +384,7 @@ class VideoSource(QObject):
                 _log("connected")
                 last_err = None
                 while gen == self._gen:
-                    self._arrived.emit(_read_frame(resp))
+                    self._arrived.emit(_read_frame(resp), gen)
                 resp.close()
             except (urllib.error.URLError, OSError, EOFError, ValueError) as e:
                 # Rot WiFi, Pi chua bat server, camera rut ra — deu la chuyen

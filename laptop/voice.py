@@ -21,8 +21,10 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QLocale, QSettings
 
 from core import i18n
 from core.i18n import t
+from laptop.widgets.alerts import alert_key
 
 REPEAT_S = 30.0  # "ve nha ngay" con dung thi nhac lai sau chung nay
+PERSONS_DROP_S = 5.0  # so nguoi thap hon muc da doc LIEN TUC chung nay moi ha muc
 # Giong: nu, cao, trong — nguoi dung chon 19/09. Bien the espeak-ng dung chung cho
 # ca vi va en; thu lan luot, cai dau tien co tren may thi lay. Tai nghe thay chua
 # ung thi chinh ba so nay (pitch/rate trong khoang -1..1, 0 = mac dinh).
@@ -130,6 +132,8 @@ class Voice:
         self._last = {}  # ten su kien -> gia tri lan truoc
         self._said_at = {}
         self._red = set()  # dong loi do da doc, xem alerts()
+        self._ppl = 0  # so nguoi da doc gan nhat, xem persons()
+        self._ppl_low = None
         self.spoken = []  # nhat ky, cho selfcheck
 
     def say(self, key, queue=False, **kw):
@@ -204,14 +208,38 @@ class Voice:
         """Doc moi dong loi DO vua hien (suon: moi xuat hien, hoac het han roi
         quay lai). PreArm bo qua — dong SAN SANG ARM da noi, va FC nhac PreArm
         moi ~31 s nen doc len la lai nhai suot luc chuan bi."""
-        red = {x for x in red if not x.startswith("PreArm")}
+        # So sanh theo alert_key: "Arm: Check mag field: 172" roi "...169" la CUNG
+        # mot loi — bay that 11/10/2026 doc lai 4 lan. Doc van doc nguyen cau, co so.
+        red = {alert_key(x): x for x in sorted(red) if not x.startswith("PreArm")}
         # Toi da 3 cau moi nhip — bang cho man bay chi co 3 dong; don 10 loi mot
         # luc thi hang doi doc keo dai ca phut, cham hon ca viec nhin man hinh.
-        for text in sorted(red - self._red)[:3]:
-            self.say("voice.alert", queue=True, text=text)
-        self._red = red
+        for key in sorted(red.keys() - self._red)[:3]:
+            self.say("voice.alert", queue=True, text=red[key])
+        self._red = set(red)
+
+    def persons(self, n, now=None):
+        """Doc "phat hien N nguoi" khi so nguoi VUOT muc da doc.
+
+        Model dem rung 3-2-3-2 tung khung; doc moi lan tang la nhai ca phut.
+        Muc chi ha khi so thap hon lien tuc PERSONS_DROP_S (nguoi ra khoi khung
+        that), roi ai vao lai moi doc tiep. None (mat hinh / dung hinh) giu muc:
+        hinh ve lai van so cu thi im.
+        """
+        if n is None:
+            return
+        now = time.monotonic() if now is None else now
+        if n > self._ppl:
+            self._ppl, self._ppl_low = n, None
+            self.say("voice.persons", queue=True, n=n)
+        elif n == self._ppl:
+            self._ppl_low = None
+        elif self._ppl_low is None:
+            self._ppl_low = now
+        elif now - self._ppl_low >= PERSONS_DROP_S:
+            self._ppl, self._ppl_low = n, None
 
     def reset(self):
         self._last.clear()
         self._said_at.clear()
         self._red = set()
+        self._ppl, self._ppl_low = 0, None

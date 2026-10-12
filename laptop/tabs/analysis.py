@@ -22,11 +22,12 @@ pymavlink). Dung o day de khoi phai roi app khi muon xem lai chuyen bay vua roi;
 can dao sau — FFT, so hai log, loc theo che do bay — thi van nen mo MAVExplorer.
 """
 
+import threading
 import time
 from pathlib import Path
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QMargins, QPointF, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QMargins, QObject, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -84,8 +85,15 @@ SERIES_COLORS = [theme.ACCENT, theme.OK, theme.WARN, theme.INFO,
                  theme.CRIT, "#c58af9"]
 
 
-class _Loader(QThread):
-    """Doc log o thread rieng: file that mat vai giay, dong bang giao dien la hong."""
+class _Loader(QObject):
+    """Doc log o thread rieng: file that mat vai giay, dong bang giao dien la hong.
+
+    Thread thuong (daemon) chu khong QThread — cung ly do voi TileFetcher va
+    VideoSource. Do that 04/10/2026: dong app trong luc dang doc mot .tlog 161 MB
+    -> "QThread: Destroyed while thread is still running" -> abort, dump core
+    (exit 134). logdata.load() khong ngat giua chung duoc, nen thread phai la
+    loai chet theo tien trinh.
+    """
 
     done = Signal(object)
     failed = Signal(str)
@@ -93,12 +101,26 @@ class _Loader(QThread):
     def __init__(self, path, parent=None):
         super().__init__(parent)
         self.path = path
+        self._running = False
 
-    def run(self):
+    def start(self):
+        self._running = True
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def isRunning(self):
+        return self._running
+
+    def _run(self):
         try:
-            self.done.emit(logdata.load(self.path))
+            result = logdata.load(self.path)
+            sig, arg = self.done, result
         except Exception as e:  # file hong, khong phai .tlog, khong doc duoc...
-            self.failed.emit(f"{type(e).__name__}: {e}")
+            sig, arg = self.failed, f"{type(e).__name__}: {e}"
+        self._running = False
+        try:
+            sig.emit(arg)
+        except RuntimeError:
+            pass  # tab da bi huy trong luc doc — khong con ai de bao
 
 
 class Plot(QChartView):
@@ -381,13 +403,19 @@ class LogDownload(QDialog):
         self.btn_scan.setEnabled(not self._getting)
         self.btn_get.setEnabled(self._getting or self.list.currentItem() is not None)
 
-    def closeEvent(self, ev):
+    def done(self, r):
         # Dong cua so giua chung thi phai BAO FC dung gui, khong thi no bom tiep
         # 13 MB vao duong truyen ma khong con ai doc.
+        #
+        # O `done()` chu khong o `closeEvent`: Esc (reject) va accept() KHONG di
+        # qua closeEvent — tu Qt 6.3 QDialog.done() nuot QCloseEvent. Do that
+        # 04/10/2026 (PySide6 6.11): Esc giua luc tai -> hop thoai an, khong gui
+        # log_cancel, adapter van giu phien tai (bam Tai lan sau bi "dang tai mot
+        # log khac"). Nut Dong va dau X cung di vao day qua closeEvent -> reject().
         if self._getting:
             self._cancel()
         bus.off("log", self._on_log)
-        super().closeEvent(ev)
+        super().done(r)
 
 
 class AnalysisTab(QWidget):
@@ -395,6 +423,7 @@ class AnalysisTab(QWidget):
         super().__init__(parent)
         self.log = None
         self._loader = None
+        self._fc_dlg = None  # hop thoai tai log tu FC dang mo — xem _from_fc
         # Luon gom du lieu song ke ca khi dang xem file — xem docstring dau file.
         self.live_data = logdata.LiveData()
         self._live_names = []  # ten field lan ve truoc, de biet khi nao phai dung lai danh sach
@@ -660,22 +689,37 @@ class AnalysisTab(QWidget):
         """app.py goi khi ket noi/ngat. REPLAY thi khong co FC de ma hoi."""
         self.adapter = adapter
         self.btn_fc.setEnabled(adapter is not None and adapter.mode != "REPLAY")
+        dlg = self._fc_dlg
+        if dlg is not None and dlg.isVisible() and dlg.adapter is not adapter:
+            dlg.reject()  # hop thoai dang noi chuyen voi duong da dong — huy phien tai
 
     def _from_fc(self):
         """Keo log .bin tu the SD cua FC ve qua duong telemetry.
 
         Vi sao dang o day chu khong o tab Ket noi: file tai ve xong la doc len
         do thi ngay, cung mot cho, khong phai di tim lai trong thu muc.
+
+        KHONG exec(): hop thoai modal chan CA cua so chinh. Do that 04/10/2026:
+        dang mo hop thoai nay, bam chuot vao RTL khong an gi — nut van bao
+        isEnabled() = True — suot ca phien tai (~45 phut qua SiK), va hop thoai
+        mo duoc ca luc dang bay. Nguyen tac 2.1: nut do khong co nhanh nao chan.
         """
         if not self.adapter:
             return
-        dlg = LogDownload(self.adapter, self)
-        dlg.exec()
-        if dlg.path:
+        if self._fc_dlg is not None and self._fc_dlg.isVisible():
+            self._fc_dlg.raise_()  # mot phien tai mot luc — adapter cung chi giu mot
+            self._fc_dlg.activateWindow()
+            return
+        dlg = self._fc_dlg = LogDownload(self.adapter, self)
+        dlg.finished.connect(lambda _r: self._fc_done(dlg.path))
+        dlg.show()
+
+    def _fc_done(self, path):
+        if path:
             self._scan_logs()
-            i = self.picker.findData(dlg.path)
+            i = self.picker.findData(path)
             if i < 0:
-                self.picker.insertItem(0, Path(dlg.path).name, dlg.path)
+                self.picker.insertItem(0, Path(path).name, path)
                 i = 0
             self.picker.setCurrentIndex(i)
             self._load()

@@ -66,6 +66,7 @@ Muon dung that thi phai hoc them tren chinh khung hinh Gazebo.
 """
 
 import argparse
+import ast
 import time
 
 import cv2
@@ -260,7 +261,10 @@ class FireTracker:
     def _names(self):
         meta = self.sess.get_modelmeta().custom_metadata_map or {}
         try:
-            return {int(k): v for k, v in eval(meta["names"]).items()}  # noqa: S307
+            # literal_eval chu khong eval: `names` la dict literal cua ultralytics
+            # ("{0: 'Fire', 1: 'Smoke'}"), con eval thi mot file .onnx la chay
+            # duoc ma tuy y tren companion ngay luc nap model.
+            return {int(k): v for k, v in ast.literal_eval(meta["names"]).items()}
         except Exception:
             # Model khong kem metadata (hay kem kieu la) van chay duoc, chi la
             # hop mang ten mac dinh. Bo qua trong im lang thi sai o day se doi

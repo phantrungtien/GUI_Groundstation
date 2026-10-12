@@ -102,14 +102,18 @@ cd ~/GUI_NATIVE && python3 -m laptop.app
 
 Rồi chọn profile **`SITL + ROS2 (sitl_mission.launch.py)`**.
 
-**Video khi mô phỏng vẫn lấy từ Pi.** Địa chỉ video bình thường suy từ `remote`
+**Video khi mô phỏng vẫn lấy từ Jetson.** Địa chỉ video bình thường suy từ `remote`
 (`ws://<máy>:8765` → `http://<máy>:8080/stream`), nhưng với SITL nửa ROS2 chạy
-ngay trên laptop (`127.0.0.1`) còn camera nằm trên Pi — nên profile SITL có key
+ngay trên laptop (`127.0.0.1`) còn camera nằm trên Jetson — nên profile SITL có key
 `video` riêng:
 
 ```yaml
-video: "http://hoaibac-desktop.local:8080/stream"
+video: "http://trungtien-drone.tailff0d80.ts.net:8080/stream"
 ```
+
+Companion gọi bằng **tên Tailscale** (MagicDNS), không bằng `.local` hay IP: bay
+bằng USB LTE thì hai máy không chung LAN. Laptop phải `tailscale up` cùng tài khoản
+với Jetson. Cùng LAN thì Tailscale tự đi thẳng — đo 10/10/2026: 3 ms, 15 fps.
 
 Có `video` thì dùng nó, không có thì suy từ `remote` như cũ. Video chạy độc lập
 với nửa ROS2 (`laptop/widgets/video.py: video_url`).
@@ -541,11 +545,11 @@ Tắt bằng `ONLINE_TILES = False` trong `laptop/widgets/map_widget.py`.
 ## Kiểm thử
 
 ```bash
-python3 tools/selfcheck.py      # 45 check, khong can SITL  (~90 giay)
+python3 tools/selfcheck.py      # 46 check, khong can SITL  (~90 giay)
 python3 tools/check_halves.py   # hai nua hong doc lap, nguon gia
 python3 tools/e2e_sitl.py       # 58 bai mot chuyen bay tren ArduCopter SITL that
 python3 tools/e2e_ros2.py       # nghiem thu tren stack ROS2 that
-python3 tools/soak.py 30        # chay lien tuc 30 phut, do RAM + nhip Qt
+python3 tools/soak.py 30        # khoi dong 60 s + do RAM/telemetry/nhip Qt 30 phut
 python3 tools/compare_gcs.py --takeoff   # so tung con so voi MAVProxy, cung mot luong
 ```
 

@@ -218,8 +218,16 @@ class MainWindow(QMainWindow):
         self.messages_tab.add_local(text, sev=sev)
         self.touch.alerts.push(text, sev)
 
-    def connect_to(self, profile):
+    def connect_to(self, profile, replug=False):
         self.disconnect()
+        if not replug:
+            # "Da tung co goi" la cua NGUON NAY, khong phai cua phien truoc. De sot
+            # thi mo cong hong lan sau bi `_on_failed` coi la dut giua chuyen bay:
+            # do that 04/10/2026 — khong hop thoai loi, banner MAT KET NOI, timer
+            # cho cam lai quet mai mot cong khong ton tai. Cam lai USB (`replug`)
+            # thi NGUOC LAI phai giu: mo lai that bai luc FC dang khoi dong van la
+            # "dang bay", khong duoc bat hop thoai modal che nut do.
+            self.link_status.last_seen.clear()
         self.profile = profile
         self.mode = profile["mode"]
         self.setWindowTitle(f"[{self.mode}] {TITLE}")  # nguon da ghi ro o banner
@@ -363,7 +371,7 @@ class MainWindow(QMainWindow):
             if same_port(p, q) and q.get("writable", True):
                 self._reconnect.stop()
                 self.ui.statusbar.showMessage(t("conn.replugged", port=q["conn"]), 5000)
-                self.connect_to({**p, "conn": q["conn"]})
+                self.connect_to({**p, "conn": q["conn"]}, replug=True)
                 return
 
     def _stop_sik(self):

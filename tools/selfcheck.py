@@ -106,6 +106,28 @@ def check_normalize():
     print("  ok  normalize NED -> ENU")
 
 
+def check_join_text():
+    """3 manh that tu logs/20261011-112025-real.tlog: manh 2, 3 tung bi giong doc
+    doc to vi khong mo dau bang "PreArm"."""
+    from core.adapters.sik import join_text
+    parts = ["PreArm: SERIAL2_OPTIONS bit 10 ('no forward mavlin",
+             "k') must not be set; use MAVn_OPTIONS bit 1 instea", "d"]
+    pend = []
+    got = [join_text(pend, {"severity": 2, "text": s, "id": 1, "chunk_seq": i})
+           for i, s in enumerate(parts)]
+    assert got[:2] == [None, None], got
+    assert got[2]["text"] == "".join(parts) and got[2]["severity"] == 2, got[2]
+    assert pend == []
+    # id 0 = cau mot manh (va MAVLink1): di thang
+    one = {"severity": 6, "text": "ArduPilot Ready", "id": 0, "chunk_seq": 0}
+    assert join_text(pend, one) is one
+    # manh cuoi cau 2 mat tren song: cau 2 (thieu duoi) ra khi cau 3 toi
+    join_text(pend, {"severity": 2, "text": parts[0], "id": 2, "chunk_seq": 0})
+    lost = join_text(pend, {"severity": 2, "text": parts[0], "id": 3, "chunk_seq": 0})
+    assert lost["text"] == parts[0], lost
+    print("  ok  ghep STATUSTEXT nhieu manh (PreArm SERIAL2_OPTIONS 3 manh)")
+
+
 def check_source_filter():
     """Chi FC moi duoc noi. Do that tren stack ROS2: FC 1/1, MAVROS 1/191 (heartbeat
     cua no bat san co ARMED), MAVProxy 255/230. Khong loc thi den ARM nhay lien tuc
@@ -201,10 +223,12 @@ def check_replug(app):
     from core.adapters.sik import SikAdapter
 
     win = appmod.MainWindow([])
-    calls, ports = [], []
+    calls, ports, boxes = [], [], []
     orig = appmod.detect_serial
+    orig_box = appmod.QMessageBox.critical
     appmod.detect_serial = lambda tpl=None: list(ports)
-    win.connect_to = lambda p: calls.append(p)
+    appmod.QMessageBox.critical = staticmethod(lambda *a, **k: boxes.append(a[-1]))
+    win.connect_to = lambda p, replug=False: calls.append(dict(p, _replug=replug))
     prof = {"name": "MicoAir743", "mode": "REAL", "conn": "/dev/ttyACM0", "baud": 115200,
             "sysid": 254, "usb_id": "1209:5741:ABC", "detected": True}
     try:
@@ -227,6 +251,9 @@ def check_replug(app):
         win._try_reconnect()  # FC cam lai, ten cong da doi
         assert [c["conn"] for c in calls] == ["/dev/ttyACM1"], calls
         assert calls[0]["sysid"] == 254 and calls[0]["baud"] == 115200, "mat cau hinh cu"
+        # Cam lai phai GIU moc "da tung co goi": FC dang khoi dong ma mo lai hong
+        # thi van la dang bay, khong duoc bat hop thoai modal che nut do.
+        assert calls[0]["_replug"] is True, "cam lai di nham duong ket noi moi"
         assert not win._reconnect.isActive()
 
         # Bam Ngat trong luc cho: thoi cho
@@ -234,16 +261,33 @@ def check_replug(app):
         type(win).disconnect(win)
         assert not win._reconnect.isActive(), "bam Ngat ma van tu noi lai"
 
+        # Nguoc lai: NGUOI DUNG tu mo mot nguon moi thi moc cua phien truoc phai mat.
+        # Do that 04/10/2026: con sot lai thi mo cong hong khong ra hop thoai loi,
+        # banner bao MAT KET NOI va timer cho cam lai quet mai cong khong ton tai.
+        win.link_status.last_seen[SikAdapter.SRC] = time.time()  # phien truoc co goi
+        type(win).connect_to(win, {"name": "sai cong", "mode": "REAL",
+                                   "conn": "/dev/ttyUSB_khong_ton_tai", "baud": 57600})
+        t0 = time.time()
+        while win.adapter is not None and time.time() - t0 < 5:
+            app.processEvents()
+            time.sleep(0.01)
+        assert boxes and not win._reconnect.isActive(), \
+            f"mo cong hong bi coi la dut giua chuyen bay: hop thoai={boxes} " \
+            f"cho cam lai={win._reconnect.isActive()}"
+        type(win).disconnect(win)
+
         # SITL qua tcp va REPLAY: khong co gi de cam lai
         assert not win._replugable({"mode": "SIM", "conn": "tcp:127.0.0.1:5762"})
         assert not win._replugable({"mode": "REAL", "conn": "udp:0.0.0.0:14550"})
         assert not win._replugable({"mode": "REPLAY", "path": "logs/a.tlog"})
     finally:
         appmod.detect_serial = orig
+        appmod.QMessageBox.critical = orig_box
         win._reconnect.stop()
         win.close()
     print("  ok  rut USB cam lai: tu noi lai dung thiet bi (nhan theo VID/PID/serial, "
-          "ten cong doi van nhan), khong noi nham thiet bi khac, bam Ngat la thoi")
+          "ten cong doi van nhan), khong noi nham thiet bi khac, bam Ngat la thoi; "
+          "ket noi moi khong mang moc cua phien truoc")
 
 
 def check_usb_detect(app):
@@ -337,6 +381,102 @@ def check_link_status(app):
     ls._tick()
     assert ls._info["sik"].text().startswith("MẤT"), ls._info["sik"].text()
     print(f"  ok  Link status: xam khi mat goi, doi mau khi mat >{WARN_LOSS:g}% goi")
+
+
+def check_video_h264(app):
+    """Video H.264 qua UDP (Jetson tu 11/10/2026): giai ma that, va ba kieu hong
+    giong MJPEG — dung hinh, mat goi, co lai — deu phai ra dung o man hinh.
+
+    Nguon gia la GStreamer x264 -> MPEG-TS -> UDP, dung duong Jetson dang day.
+    "Camera treo" = MOT anh phuc tap dong bang (smpte + imagefreeze): x264 van ra
+    khung giai ma khac nhau tung chut, chinh cai lam phep bam byte that bai.
+    """
+    import shutil
+    import subprocess
+
+    import laptop.widgets.video as video_mod
+    from laptop.widgets.video import VideoSource
+
+    gst = shutil.which("gst-launch-1.0")
+    if not gst or subprocess.run(["gst-inspect-1.0", "x264enc"], capture_output=True).returncode:
+        print("  --  bo qua video H.264: may nay khong co gst-launch-1.0 + x264enc")
+        return
+    port = VIDEO_PORT + 3
+
+    def sender(src, to=port):
+        return subprocess.Popen(
+            [gst, "-q", *src.split(), "!", "video/x-raw,width=320,height=240,framerate=25/1",
+             "!", "x264enc", "tune=zerolatency", "speed-preset=ultrafast", "key-int-max=25",
+             "!", "mpegtsmux", "!", "udpsink", "host=127.0.0.1", f"port={to}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    moving = "videotestsrc is-live=true pattern=ball"
+    frozen = "videotestsrc pattern=smpte num-buffers=1 ! imagefreeze is-live=true ! videoconvert"
+
+    def until(pred, ms):
+        t0 = time.monotonic()
+        while not pred() and time.monotonic() - t0 < ms / 1000:
+            app.processEvents()
+            time.sleep(0.01)
+        return pred()
+
+    frozen_s, video_mod.FROZEN_S = video_mod.FROZEN_S, 1.0
+    src = VideoSource()
+    s = sender(moving)
+    try:
+        src.start(f"udp://0.0.0.0:{port}")
+        assert until(lambda: src.pixmap is not None, 8000), f"H.264 khong ra khung: {src.note}"
+        assert src.pixmap.width() == 320 and src.alive
+        assert not until(lambda: src.frozen, 2500), "hinh dang chay ma bao dung hinh"
+
+        # Thu tu nhu ngoai doi: nguon tat -> o xam -> nguon len lai. Tat roi bat
+        # NGAY (khong nghi) thi QMediaPlayer co luc dung them ~4,8 s vi DTS nhay
+        # lui (do 11/10/2026) — server Jetson khoi dong lai mat hang chuc giay nen
+        # it gap; doi het bai nay nho thoi gian cho rong (10 s).
+        s.kill(); s.wait()  # mat goi UDP
+        assert until(lambda: not src.alive and not src.frozen, 4000), "het goi ma khong o xam"
+        assert src.pixmap is None and src.note[0] == "vid.lost", src.note
+
+        s = sender(frozen)  # camera treo: khung van toi deu, anh dung yen
+        assert until(lambda: src.frozen, 10000), "anh dong bang qua x264 ma khong bao dung hinh"
+        assert src.pixmap is None and src.note[0] == "vid.frozen" and src.fps > 5, \
+            f"dung hinh: pixmap={src.pixmap} note={src.note} fps={src.fps:.1f}"
+
+        s.kill(); s.wait()
+        assert until(lambda: not src.alive and not src.frozen, 4000), "het goi ma khong o xam"
+        s = sender(moving)  # goi toi lai: QMediaPlayer phai tu chay tiep
+        assert until(lambda: src.alive and src.pixmap is not None, 10000), \
+            f"goi UDP toi lai ma hinh khong ve: {src.note}"
+        assert not src.frozen
+
+        src.stop()  # nha cong: start lai cung cong phai ra hinh
+        assert src.pixmap is None and not src.alive
+        src.start(f"udp://0.0.0.0:{port}")
+        assert until(lambda: src.pixmap is not None, 10000), "stop() roi start() lai khong ra hinh"
+    finally:
+        s.kill()
+        s.wait()
+        src.stop()
+        video_mod.FROZEN_S = frozen_s
+
+    # Du phong may khong co GStreamer (Windows): QMediaPlayer van phai ra hinh
+    # (tre hon ~0,9 s, xem dau video.py — nhung co hinh con hon o xam).
+    gst_mod, video_mod.Gst = video_mod.Gst, None
+    s = sender(moving, port + 1)  # cong khac: QMediaPlayer giu cong toi khi bi huy
+    try:
+        src.start(f"udp://0.0.0.0:{port + 1}")
+        assert until(lambda: src.pixmap is not None and src.alive, 10000), \
+            f"du phong QMediaPlayer khong ra hinh: {src.note}"
+    finally:
+        s.kill()
+        s.wait()
+        video_mod.Gst = gst_mod
+    # Huy ngay tren main thread — xem cuoi check_video().
+    src.stop()
+    src.deleteLater()
+    app.processEvents()
+    print("  ok  video H.264/UDP — giai ma that; dung hinh (anh dong bang qua x264) xoa anh; "
+          "mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh")
 
 
 def check_tabs(app):
@@ -658,8 +798,9 @@ def check_remote(app):
     got_cmd = []
 
     def handler(ws):
+        # Dong ho Pi chay TRUOC mot gio (ngoai bai bay khong NTP, khong pin RTC).
         ws.send(json.dumps({"src": "COMPANION_TU_XUNG", "topic": "vision",
-                            "data": {"target_x": 0.4}, "ts": time.time()}))
+                            "data": {"target_x": 0.4}, "ts": time.time() + 3600}))
         try:
             got_cmd.append(json.loads(ws.recv(timeout=3)))
         except Exception:
@@ -684,9 +825,13 @@ def check_remote(app):
     assert vision, [e["topic"] for e in seen]
     # companion tu xung la nguon khac cung khong duoc: src luon la "remote"
     assert vision[0]["src"] == "remote", vision[0]["src"]
+    # ...va ts cung khong lay cua no: do tuoi field tinh bang dong ho LAPTOP. Lay
+    # dong ho Pi thi rot WiFi ma vi tri cuoi van "tuoi" them mot gio.
+    assert abs(vision[0]["ts"] - time.time()) < 10, \
+        f"lay ts cua companion: lech {vision[0]['ts'] - time.time():+.0f} s"
     assert vision[0]["data"]["target_x"] == 0.4
     assert got_cmd and got_cmd[0]["action"] == "authority", got_cmd
-    print("  ok  RemoteAdapter nhan envelope + gui lenh nguoc lai")
+    print("  ok  RemoteAdapter nhan envelope + gui lenh nguoc lai; src/ts do laptop dong dau")
 
 
 def check_online_tiles(app):
@@ -1109,7 +1254,9 @@ def check_waypoints(app):
 
     # `total` thieu (firmware < 4.3) thi phai BIEN MAT khoi trong tai, khong duoc
     # thanh None: ben ve gop tung manh vao mot dict, None se xoa con so that.
-    assert normalize("MISSION_CURRENT", {"seq": 3, "total": 8}) == ("wp", {"seq": 3, "total": 8})
+    # total cua MISSION_CURRENT khong ke home; tren ban do thi phai cung don vi
+    # voi MISSION_COUNT (co ke) vi hai ben ghi chung mot khoa.
+    assert normalize("MISSION_CURRENT", {"seq": 3, "total": 8}) == ("wp", {"seq": 3, "total": 9})
     assert normalize("MISSION_CURRENT", {"seq": 3, "total": 0}) == ("wp", {"seq": 3})
 
     # Muc khong mang toa do (TAKEOFF de trong, DO_CHANGE_SPEED) phai bi loai.
@@ -1150,12 +1297,33 @@ def check_waypoints(app):
     assert ad._wp_done() and len(ad._wp_items) == WP_ITEMS_MAX, len(ad._wp_items)
 
     # Nhiem vu 80 muc thi _wp_n = 50 mai mai khac 80: so sanh nham cot nay la
-    # vong tai lai chay hoai, chiem het duong SiK.
-    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 3, "total": 80})
+    # vong tai lai chay hoai, chiem het duong SiK. Va ArduPilot dem `total` KHONG
+    # ke home: MISSION_COUNT 80 di cung total 79 (do that: count 6 / total 5 tren
+    # logs/20260919-223659-sim.tlog). Ban cu so 80 voi 80 nen bai nay xanh, con
+    # SITL that thi tai lai moi 3 s.
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 3, "total": 79})
     assert ad._wp_done(), "so muc khong doi ma van tai lai"
-    # Con doi that (ai do nap nhiem vu khac) thi phai tai lai tu dau.
-    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 4})
+    # Con doi that (ai do nap nhiem vu khac, ke ca chi them MOT muc) thi phai tai lai.
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 80})
     assert ad._wp_n is None and ad._wp_items == {}, (ad._wp_n, ad._wp_items)
+    # Chua biet FC co bao nhieu muc thi chua co gi de so: dat lai `_asks` o day la
+    # vong hoi khong bao gio cham ASK_MAX.
+    ad._asks = 5
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 4})
+    assert ad._asks == 5, "chua co MISSION_COUNT ma MISSION_CURRENT da dat lai luot hoi"
+    # GCS khac XOA nhiem vu: FC bao total 0 + mission_state 1 (NO_MISSION) — do that
+    # tren SITL 4.7-dev va FC that. Firmware cu khong co ca hai (0, 0) -> khong so.
+    ad._wp_rx(master, "MISSION_COUNT", {"count": 4, "mission_type": 0})
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 0, "mission_state": 0})
+    assert ad._wp_total == 4, "firmware cu (khong co total) ma van tai lai"
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 0, "mission_state": 1})
+    assert ad._wp_total is None, "GCS khac xoa nhiem vu ma app van giu duong bay cu"
+    ad._wp_rx(master, "MISSION_COUNT", {"count": 1, "mission_type": 0})
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 0, "mission_state": 1})
+    assert ad._wp_total == 1, "nhiem vu rong (chi home) ma van tai lai"
+    ad._wp_rx(master, "MISSION_COUNT", {"count": 0, "mission_type": 0})  # SITL sau lenh xoa
+    ad._wp_rx(master, "MISSION_CURRENT", {"seq": 0, "total": 0, "mission_state": 1})
+    assert ad._wp_total == 0, "count 0 sau lenh xoa ma van tai lai moi nua giay"
 
     # --- duong that: adapter -> bus -> tab -> net ve tren man hinh -----------
     lat, lon = 10.8221589, 106.6868454
@@ -1209,6 +1377,8 @@ def check_wp_write(app):
     lat, lon = 10.8221589, 106.6868454
 
     class FakeMav:
+        srcSystem = 254  # sysid cua chinh app — MISSION_ACK gui cho ai thi so voi so nay
+
         def __init__(self):
             self.counts, self.items = [], []
 
@@ -1267,6 +1437,23 @@ def check_wp_write(app):
     assert got[-1]["data"]["write"] == {"ok": True, "result": 0, "n": 2}, got[-1]
     # Nap xong phai quen danh sach cu de doc lai tu FC — bang chung, khong niem tin.
     assert ad._wp_n is None and ad._wp_items == {}, (ad._wp_n, ad._wp_items)
+
+    # Khong dang nap ma FC tra MISSION_ACK ngay sau "bay toi day": do la cau tra
+    # loi cua lenh do, phai ra ngoai. Do that 04/10/2026: diem ngoai rao -> type=1,
+    # truoc day khong ai doc, giao dien chi co "da gui" va drone dung im.
+    got.clear()
+    ack = {"type": 1, "mission_type": 0, "target_system": 254}
+    ad._goto_at = time.time()
+    ad._wp_rx(master, "MISSION_ACK", ack)
+    assert got and got[-1]["data"] == {"goto": {"ok": False, "result": 1}}, got
+    # ACK cho GCS khac tren cung radio, hay ACK muon cua mot phien nap da bo cuoc
+    # (khong co "bay toi day" nao vua gui), thi KHONG phai cau tra loi do.
+    got.clear()
+    ad._goto_at = time.time()
+    ad._wp_rx(master, "MISSION_ACK", dict(ack, target_system=255))
+    ad._goto_at = 0.0
+    ad._wp_rx(master, "MISSION_ACK", ack)
+    assert not got, f"ACK khong phai cua 'bay toi day' ma van bao: {got}"
 
     # FC im: gui lai WP_UP_TRIES lan roi bo cuoc, va phai bao ra ngoai.
     got.clear()
@@ -1369,6 +1556,51 @@ def check_stream_rearm(app):
 
     print(f"  ok  FC ngung stream: xin lai sau {STREAM_REARM:g}s im lang, "
           f"{len(want)} luong, khong ban lap")
+
+
+def check_alt_no_home(app):
+    """Chua co home (khong GPS): do cao = z EKF, khong phai baro tho `relative_alt`.
+
+    So that bay 11/10/2026 16:15:32 (logs/20261011-161210-real.tlog), quat quay
+    duoi dat: relative_alt -8,95 m, LOCAL_POSITION_NED z = +1,31 m (xuong).
+    """
+    import struct
+    import tempfile
+
+    from pymavlink.dialects.v20 import ardupilotmega as mavlink
+
+    path = Path(tempfile.gettempdir()) / "selfcheck-alt.tlog"
+    mav = mavlink.MAVLink(None, srcSystem=1)
+    t0 = time.time()
+    msgs = (
+        mav.global_position_int_encode(0, 0, 0, 0, -8950, 0, 0, 0, 0),  # chua co z EKF
+        mav.local_position_ned_encode(0, 0.0, 0.0, 1.31, 0, 0, 0),
+        mav.global_position_int_encode(0, 0, 0, 0, -8950, 0, 0, 0, 0),
+        mav.home_position_encode(107620000, 1066600000, 5000, 0, 0, 0,
+                                 [1, 0, 0, 0], 0, 0, 0),
+        mav.global_position_int_encode(0, 0, 0, 0, 2000, 0, 0, 0, 0),
+    )
+    with open(path, "wb") as f:
+        for i, m in enumerate(msgs):
+            m.pack(mav)
+            f.write(struct.pack(">Q", int((t0 + i * 0.05) * 1e6)) + m.get_msgbuf())
+
+    seen = []
+    adapter = SikAdapter({"name": "selfcheck", "mode": "REPLAY", "path": str(path)})
+    adapter.envelope.connect(lambda e: seen.append(e))
+    adapter.finished.connect(app.quit)
+    adapter.start()
+    guard = deadline(app, 5000)
+    app.exec()
+    guard.stop()
+    adapter.stop()
+
+    alt = [e["data"]["alt_rel"] for e in seen
+           if e["topic"] == "position" and "alt_rel" in e["data"]]
+    # z la float32 trong MAVLink: -1.31 ve thanh -1.30999994
+    assert alt[0] is None and abs(alt[1] + 1.31) < 1e-6 and alt[2] == 2.0, \
+        f"do cao chua co home / co home: {alt}"
+    print("  ok  chua co home: do cao = z EKF (-1.31), khong phai baro (-8.95); co home: relative_alt")
 
 
 def check_replay(app):
@@ -1653,8 +1885,8 @@ def check_video(app):
     # IP lay tu `remote` da co, khong them key config va khong di do IP.
     assert url_for("ws://192.168.1.50:8765") == "http://192.168.1.50:8080/stream"
     assert url_for("ws://127.0.0.1:8765") == "http://127.0.0.1:8080/stream"
-    # TEN MAY, khong chi IP: connections.yaml gio tro toi `hoaibac-desktop.local`
-    # vi Pi lay IP tu DHCP va da doi that mot lan (.40 -> .105), hom do GUI khong
+    # TEN MAY, khong chi IP: connections.yaml tro toi ten may (Pi cu dung .local,
+    # Jetson gio dung ten Tailscale) vi IP DHCP da doi that mot lan (.40 -> .105), hom do GUI khong
     # thay camera trong khi stream van chay tot. `urlparse().hostname` ha chu hoa,
     # nen ten viet hoa cung phai ra dung dia chi.
     assert url_for("ws://hoaibac-desktop.local:8765") \
@@ -1675,8 +1907,12 @@ def check_video(app):
     from laptop.connection import ROOT as _root
     sitl = [p for p in yaml.safe_load((_root / "config" / "connections.yaml").read_text())
             if p.get("mode") == "SIM"]
-    assert sitl and all("hoaibac-desktop" in (video_url(p) or "") for p in sitl), \
-        f"profile SITL khong lay video tu Pi: {[video_url(p) for p in sitl]}"
+    # Jetson DAY H.264 thang ve laptop (11/10/2026): profile SITL phai nghe dung cong
+    # cua profile bay that — doi cong ben Jetson ma quen sua SITL thi bai nay keu.
+    real = next(p for p in yaml.safe_load((_root / "config" / "connections.yaml").read_text())
+                if p["name"] == "SiK radio")
+    assert sitl and all(video_url(p) == video_url(real) for p in sitl), \
+        f"profile SITL nghe video khac profile bay that: {[video_url(p) for p in sitl]}"
 
     # JPEG that chu khong phai byte rac: bat loi giai ma, khong chi bat loi truyen.
     pm = QPixmap(32, 24)
@@ -1839,6 +2075,14 @@ def check_video(app):
 
     assert flips == [True, False], f"camera chay lai ma tin hieu khong ban: {flips}"
     src.stop()
+    # May chu van phat ~30 fps: luong doc dang nam trong read() luc stop(), doc xong
+    # van emit, khung toi SAU qua hang doi tin hieu. Khong loc theo `gen` thi khung
+    # cuoi hien lai toi STALE_S (do 04/10/2026: 10/10 lan).
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 0.3:
+        app.processEvents()
+        assert src.pixmap is None and not src.alive, "da stop() ma khung cu hien lai"
+        time.sleep(0.005)
     srv2.shutdown()
     srv2.server_close()
     assert "gui frozen" in log_path.read_text(), "dung hinh ma khong de lai vet o log"
@@ -2042,6 +2286,19 @@ def check_flight_alerts(app):
     a.push("PreArm: RC not found", 2)
     ft.attach(None, None)
     assert shown() == [], "ngat ket noi ma loi drone cu con treo"
+
+    # FC doi so do moi lan nhac (bay that 11/10/2026, 6 lan bam ARM): MOT dong
+    # mang so moi nhat. So hieu 1 chu so (Compass 1 / 2) van la hai loi khac nhau.
+    for n in (172, 169, 169, 169, 168, 176):
+        a.push(f"Arm: Check mag field:  {n}, max 875, min 185", 2)
+    a.push("PreArm: Compass 1 not calibrated", 2)
+    a.push("PreArm: Compass 2 not calibrated", 2)
+    got = shown()
+    assert "Arm: Check mag field:  176, max 875, min 185  ×6" in got, got
+    assert len(got) == 3 and a.red() == {"Arm: Check mag field:  176, max 875, min 185",
+                                         "PreArm: Compass 1 not calibrated",
+                                         "PreArm: Compass 2 not calibrated"}, (got, a.red())
+    a.clear()
     print(f"  ok  loi FC noi tren man bay: >=WARNING, gop dong trung, nang len tren, "
           f"tu tat sau {TTL_WARN:g}/{TTL_ERR:g}s, ngat ket noi la xoa")
 
@@ -2457,6 +2714,18 @@ def check_touch_flight(app):
         assert sent[0][1] == {"name": "GUIDED"}, sent[0]
         assert sent[1][1]["alt"] == 30.0, f"bay toi day khong dung do cao dang chon: {sent[1]}"
         assert "30 m" in logs[-1], f"lenh doi do cao ma khong de lai vet: {logs}"
+        # ...va cau tra loi cua FC phai RA MAN HINH. Do that 04/10/2026 tren SITL:
+        # diem ngoai rao, FC tra MISSION_ACK type=1, giao dien chi con "da gui, cho
+        # FC tra loi" + "doi mode: FC chap nhan" — toan tin tot, drone dung im.
+        b.alerts.clear()
+        bus.emit("sik", "wp", {"goto": {"ok": False, "result": 1}})
+        assert "KHÔNG đi" in logs[-1] and "=1" in logs[-1], logs[-1]
+        b.refresh()
+        assert any(a["crit"] and "KHÔNG đi" in a["text"] for a in b.state["alerts"]), \
+            f"FC tu choi bay toi day ma man bay im lang: {b.state['alerts']}"
+        assert "goto" not in b.map.wp, "ket qua lenh bi tron vao du lieu duong bay"
+        bus.emit("sik", "wp", {"goto": {"ok": True, "result": 0}})
+        assert "chấp nhận" in logs[-1], logs[-1]
 
         # Dang bay AUTO: cu bam dau tien chi canh bao, khong gui gi ca
         sent.clear()
@@ -2562,6 +2831,39 @@ def check_touch_flight(app):
         b.refresh()
         assert b.state["ready"] is None, "da ARM ma van hien san sang ARM"
 
+        # --- thanh NGUOI canh che do bay: theo khung video dang hien ----------
+        persons = win.touch_view.rootObject().findChild(QQuickItem, "persons")
+        assert persons is not None
+        old_prof = b.profile
+        b.profile = None  # profile khong co video -> khong co thanh
+        b.refresh()
+        app.processEvents()
+        assert not persons.isVisible(), "khong co camera ma van hien thanh NGUOI"
+        b.profile = {"name": "x", "mode": "SIM", "video": "http://127.0.0.1:9/stream"}
+        b.refresh()
+        app.processEvents()
+        # Co camera ma chua co so: hien "--", KHONG an (an thi nguoi lai khong biet
+        # bo dem da chet).
+        assert persons.isVisible() and persons.property("value") == "--", \
+            f"thanh NGUOI khi chua co so: {persons.isVisible()} {persons.property('value')!r}"
+        # So toi tu ros2_bridge (topic `persons`, xem tools/ros2_bridge.py)
+        def ppl(n, age=0.0):
+            bus.emit_envelope({"src": "remote", "topic": "persons",
+                               "ts": time.time() - age, "data": {"n": n}})
+            b.refresh()
+            app.processEvents()
+            return persons.property("value")
+        assert ppl(4) == "4"
+        from laptop import theme as _th
+        assert persons.property("color").name() == _th.ACCENT.lower(), \
+            f"co nguoi ma thanh khong noi mau: {persons.property('color').name()}"
+        b.video_src._frozen = True  # camera dung hinh: model dang dem mot canh cu
+        assert ppl(4) == "--", "dung hinh ma van hien so nguoi"
+        b.video_src._frozen = False
+        assert ppl(4, age=3) == "--", "so nguoi het tuoi (bridge im 3 s) ma van hien"
+        b.profile = old_prof
+        b.refresh()
+
         # --- o CON: tham so pin chi ve MOT lan, phai con dung sau STALE -------
         # Do that 19/09 (log 151442): BATT_CAPACITY ve o giay 0,1; doc tu REGISTRY
         # thi toi giay 2 no da "het tuoi" va o CON hien "--" suot chuyen bay.
@@ -2593,6 +2895,20 @@ def check_touch_flight(app):
         assert len(w) == 1 and w[0]["crit"] and "VỀ NHÀ NGAY" in w[0]["text"], w
         from laptop import safety
         assert safety.rtl_time_s(rtl, 500, 20) == 531
+        # Khong home (0 ve tinh) -> khong uoc duoc RTL, nhung o CON van dem toi
+        # failsafe pin. So that bay 11/10/2026: o CON do 52 s ma chu, giong im.
+        b.map.home_from_fc = False
+        b.voice.reset(); b.voice.spoken.clear()
+        bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                           "data": {"current": 7.05, "consumed_mah": 1160, "remaining": 36}})
+        b.refresh()
+        w = b.state["warns"]
+        # (1800 - 1160 - 540) mAh / 7050 mA = 51 s
+        assert b.state["battLeft"] == 51, b.state["battLeft"]
+        assert len(w) == 1 and w[0]["crit"] and "HẠ CÁNH NGAY" in w[0]["text"] \
+            and "0:51" in w[0]["text"], w
+        assert "Hạ cánh ngay" in b.voice.spoken, b.voice.spoken
+        b.map.home_from_fc = True
 
         # --- chua ARM: kiem failsafe + pin day chua (so that log 14:52 hom nay) --
         state(mode="GUIDED", armed=False, landed=True)
@@ -2682,6 +2998,37 @@ def check_touch_flight(app):
         b.voice.say("voice.alert", text="Failsafe: RTL, SmartRTL")
         assert b.voice.spoken[-1] == "Lỗi: Failsafe: return to launch, smart return to launch", \
             b.voice.spoken[-1]
+        # Bay that 11/10/2026: 6 lan bam ARM, FC tra 4 so mag khac nhau -> doc 4 lan.
+        # AlertBook giu tung cau rieng, nen red() lon dan qua moi lan.
+        b.voice.reset(); b.voice.spoken.clear()
+        red = set()
+        for n in (172, 169, 169, 168, 176):
+            red.add(f"Arm: Check mag field:  {n}, max 875, min 185")
+            b.voice.alerts(red)
+        red.add("Arm: Yaw (RC4) is not neutral")
+        b.voice.alerts(red)
+        assert b.voice.spoken == ["Lỗi: Arm: Check mag field:  172, max 875, min 185",
+                                  "Lỗi: Arm: Yaw (RC4) is not neutral"], b.voice.spoken
+        # So nguoi: doc khi VUOT muc da doc; rung 2-1-2, mat hinh, ve lai cung so
+        # thi im; tut han 5 s roi co nguoi moi thi doc lai.
+        b.voice.reset()
+        b.voice.spoken.clear()
+        for n, now in ((None, 0), (0, 0.5), (2, 1), (1, 2), (2, 3), (None, 4), (2, 9),
+                       (3, 10), (0, 11), (0, 16.5), (1, 17)):
+            b.voice.persons(n, now)
+        assert b.voice.spoken == ["Phát hiện 2 người", "Phát hiện 3 người",
+                                  "Phát hiện 1 người"], b.voice.spoken
+        # ...va noi qua _announce() that: state["persons"] -> giong doc
+        b.voice.reset()
+        b.voice.spoken.clear()
+        b.profile = {"name": "x", "mode": "SIM", "video": "http://127.0.0.1:9/stream"}
+        bus.emit_envelope({"src": "remote", "topic": "persons", "ts": time.time(),
+                           "data": {"n": 2}})
+        b.refresh()
+        bus.emit_envelope({"src": "remote", "topic": "persons", "ts": time.time() - 3,
+                           "data": {"n": 2}})  # de het tuoi cho cac bai sau
+        b.profile = old_prof
+        assert "Phát hiện 2 người" in b.voice.spoken, b.voice.spoken
         # Giong Piper (neu da tai): tong hop duoc ca hai thu tieng, do dai hop ly.
         # Khong phat ra loa — enabled() da tat o dau selfcheck.
         from laptop.voice import _Piper
@@ -2817,6 +3164,10 @@ def check_telemetry_warn(app):
         REGISTRY.fields.pop("battery.remaining", None)
         feed("battery", {"voltage": 11.1})
         assert st("battPct") is None and st("battLevel") == "ok", ft.state
+        # FC cam USB, KHONG pin: do that 10/10/2026 tren logs/20261010-170756-real.tlog
+        # — 0,017 V ma FC bao 98% (dem coulomb tu luc khoi dong). Khong duoc hien 98%.
+        feed("battery", {"voltage": 0.017, "remaining": 98})
+        assert st("battPct") is None and st("volt") == 0.017, "khong cam pin ma van hien 98%"
 
         # --- GPS: muc theo fix_type, KHONG theo so ve tinh ---
         # Do that tren ban: fix_type=1, sats=0. Truoc day hien so 0 trang tinh.
@@ -3726,9 +4077,52 @@ def check_log_download(app):
 
     assert not _ld._wanted(_M(), "LOG_DATA"), "LOG_DATA lot vao do thi tab Phan tich"
 
+    # --- hop thoai tai log KHONG duoc chan cua so chinh -----------------------
+    # Do that 04/10/2026: mo bang exec() (modal) thi bam chuot vao RTL khong an gi
+    # suot ca phien tai (~45 phut qua SiK), nut van bao isEnabled() = True. Bam qua
+    # QWindow (duong cua he cua so, bi chan modal nhu chuot that): bam thang vao
+    # QWidget thi QTest di vong qua bo chan, bai nay xanh oan.
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from core import authority
+    from laptop.app import MainWindow
+    sent = []
+
+    class _Fake:
+        mode = "SIM"
+
+        def send(self, action, args=None):
+            sent.append(action)
+            return {"ok": action}
+
+    fake = _Fake()
+    win = MainWindow([])
+    win.show()
+    authority.register("sik", fake)
+    try:
+        win.control_tab.set_mode("SIM")
+        win.analysis_tab.attach(fake)
+        win.ui.tabWidget.setCurrentWidget(win.ui.Control)
+        app.processEvents()
+        win.analysis_tab._from_fc()
+        app.processEvents()
+        assert app.activeModalWidget() is None, "hop thoai tai log chan ca cua so chinh"
+        sent.clear()
+        b = win.control_tab.btn_rtl
+        QTest.mouseClick(win.windowHandle(), Qt.LeftButton, Qt.NoModifier,
+                         b.mapTo(win, b.rect().center()))
+        app.processEvents()
+        assert sent == ["rtl"], f"dang mo hop thoai tai log ma nut RTL khong an: {sent}"
+        win.analysis_tab.attach(None)  # ngat ket noi: hop thoai phai tu dong
+        assert not win.analysis_tab._fc_dlg.isVisible(), "ngat roi ma hop thoai van mo"
+    finally:
+        authority.unregister("sik")
+        win.close()
+
     print(f"  ok  tai log .bin tu FC qua MAVLink: {len(blob)} byte khop tung byte, "
           f"khoi {DROP} bi roi duoc hoi lai ({served['passes']} luot), co LOG_REQUEST_END; "
-          f"LOG_DATA khong do vao bang Trang thai/do thi")
+          f"LOG_DATA khong do vao bang Trang thai/do thi; hop thoai tai khong chan nut do")
 
 
 def check_bin_log(app):
@@ -3884,6 +4278,52 @@ def check_bin_log(app):
           "deu co, khong ghi de ra .tlog")
 
 
+def check_soak():
+    """Nap giong luc khoi dong khong phai ro ri; van bat RAM tang sau do.
+
+    Soak tu tao QApplication khi import. Lay dung ba ham do/ket luan cua no
+    de dieu khien dong ho va RSS, khong can cho 30 phut cho moi duong loi.
+    """
+    import ast
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    path = Path(__file__).with_name("soak.py")
+    tree = ast.parse(path.read_text())
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                 and node.name in ("start", "sample", "done")]
+    code = compile(ast.Module(body=functions, type_ignores=[]), str(path), "exec")
+
+    def run(growth=2.7, ticks=1200, silence=False):
+        clock, rss = [0.0], [189.6]
+        app, win = Mock(), Mock()
+        win.banner.text.return_value = "SIM"
+        n = dict(env=0, tick=0, last_env=0, quiet=False)
+        ns = dict(time=SimpleNamespace(monotonic=lambda: clock[0], time=lambda: clock[0]),
+                  rss_mb=lambda: rss[0], rss0=rss[0], t0=0.0, last_sample=0.0,
+                  n=n, MINUTES=2, QTimer=Mock(), timer=Mock(), app=app, win=win,
+                  print=lambda *a, **kw: None)
+        exec(code, ns)
+        clock[0], rss[0] = 60, 371.1
+        if "start" in ns:
+            ns["start"]()
+        if silence:
+            clock[0] = 120
+            n.update(env=0, tick=600)
+            ns["sample"]()
+        clock[0], rss[0] = 180, 371.1 + growth
+        n.update(env=70000, tick=ticks)
+        ns["done"]()
+        win.disconnect.assert_called_once()
+        return app.exit.call_args.args[0]
+
+    assert run() == 0, "RAM on dinh sau khoi dong ma soak bao ro ri"
+    assert run(growth=75) == 1, "RAM tang sau khoi dong ma soak van PASS"
+    assert run(ticks=100) == 1, "Qt treo ma soak van PASS"
+    assert run(silence=True) == 1, "mat telemetry roi co lai ma soak van PASS"
+    print("  ok  soak: tach RAM khoi dong; tang RAM, treo Qt, mat telemetry deu exit 1")
+
+
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 
@@ -3893,6 +4333,7 @@ if __name__ == "__main__":
     import laptop.voice
     laptop.voice.enabled = lambda: False
     check_normalize()
+    check_join_text()
     check_source_filter()
     check_flatten()
     check_sensor_decode()
@@ -3900,6 +4341,7 @@ if __name__ == "__main__":
     check_usb_detect(app)
     check_replug(app)
     check_link_status(app)
+    check_video_h264(app)
     check_tabs(app)
     check_field(app)
     check_authority(app)
@@ -3916,6 +4358,7 @@ if __name__ == "__main__":
     check_wp_write(app)
     check_stream_rearm(app)
     check_replay(app)
+    check_alt_no_home(app)
     check_slow_stop(app)
     check_tlog_roundtrip(app)
     check_dead_socket(app)
@@ -3937,4 +4380,5 @@ if __name__ == "__main__":
     check_log_download(app)
     check_touch(app)
     check_touch_flight(app)
+    check_soak()
     print("selfcheck: PASS")

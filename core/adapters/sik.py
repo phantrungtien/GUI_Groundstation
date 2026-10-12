@@ -43,6 +43,10 @@ WP_MAX = 50
 WP_ITEMS_MAX = WP_MAX + 3
 WP_UP_RETRY = 2.0  # giay cho FC xin muc dau tien truoc khi gui lai MISSION_COUNT
 WP_UP_TRIES = 5
+# MISSION_ACK toi trong ngan nay sau "bay toi day" moi la cau tra loi cua no. Ngoai
+# cua so thi co the la ACK muon cua mot phien nap da bo cuoc (ArduPilot tu huy
+# phien nap qua han va gui OPERATION_CANCELLED) — bao no thanh "bay toi day" la sai.
+GOTO_ACK_S = 5.0
 # Bon tham so quyet dinh hinh cua rao. Ban kinh va tran do cao khong nam trong
 # danh sach nhiem vu ma la tham so — phai hoi rieng.
 FENCE_PARAMS = ("FENCE_ENABLE", "FENCE_TYPE", "FENCE_RADIUS", "FENCE_ALT_MAX")
@@ -352,9 +356,13 @@ def normalize(name, d):
         # tra 0. Bo han key thay vi de None: ben ve gop tung manh vao cung mot
         # dict (nhu topic `fence`), nen mot so 0 hay None se xoa mat con so that
         # ma MISSION_COUNT vua dat vao.
+        #
+        # `+ 1`: `total` o day KHONG ke home, con `total` ma _wp_emit dat vao tu
+        # MISSION_COUNT thi ke — cung mot khoa tren ban do. Khong cong thi nhiem vu
+        # 80 muc nhay 80 <-> 79 theo nhip 2 Hz va dong chu ghi "FC co 79".
         out = {"seq": d["seq"]}
         if d.get("total"):
-            out["total"] = d["total"]
+            out["total"] = d["total"] + 1
         return "wp", out
 
     if name == "PARAM_VALUE" and param_id(d).startswith("FENCE_"):
@@ -370,6 +378,34 @@ def normalize(name, d):
         return "battery", {"consumed_mah": c if c >= 0 else None}
 
     return None
+
+
+def join_text(pend, d):
+    """Ghep STATUSTEXT FC cat thanh manh 50 ky tu. Tra ve goi ca cau, hoac None
+    khi con cho manh.
+
+    MAVLink2: `id` != 0 la cau nhieu manh, `chunk_seq` 0,1,2...; manh ngan hon 50
+    la manh cuoi (cung luat MAVProxy). Do that 11/10/2026: "PreArm: SERIAL2_OPTIONS
+    bit 10..." 101 ky tu -> 3 manh; manh 2, 3 khong mo dau bang "PreArm" nen lot
+    bo loc cua giong doc, doc to "k') must not be set..." roi "d".
+
+    pend: list manh cua cau dang do (giu giua cac lan goi). Manh cuoi mat tren
+    song thi cau do phat (thieu duoi) khi cau nhieu manh ke tiep toi.
+    ponytail: cau vua dung boi 50 cung nam cho toi cau nhieu manh sau.
+    """
+    tid = d.get("id", 0)
+    if not tid:
+        return d
+    old = None
+    if pend and pend[0]["id"] != tid:
+        old = dict(pend[0], text="".join(p["text"] for p in pend))
+        pend.clear()
+    pend.append(d)
+    if len(d["text"]) < 50:
+        out = dict(pend[0], text="".join(p["text"] for p in pend))
+        pend.clear()
+        return out
+    return old
 
 
 # Ten trong log dataflash (.bin) khac han ten MAVLink: ATT chu khong phai
@@ -515,6 +551,7 @@ class SikAdapter(QThread):
         self._fence_items = {}  # seq -> (command, param1, lat, lon)
         self._fence_n = None    # so muc FC bao co; None = chua hoi duoc
         self._home_seen = False
+        self._ekf_up = None  # z EKF (LOCAL_POSITION_NED) moi nhat — do cao khi chua co home
         self._ask_at = 0.0
         self._asks = 0
 
@@ -529,10 +566,12 @@ class SikAdapter(QThread):
         self._up_at = 0.0
         self._up_tries = 0
         self._up_n = 0  # so waypoint nguoi bay dat trong phien nap dang chay
+        self._goto_at = 0.0  # lan gui "bay toi day" gan nhat — xem GOTO_ACK_S
         self._stream_rx = 0.0  # lan cuoi nhan goi CUA STREAM — xem _stream_tick()
         self._df_beat = {}  # .bin: mode/armed biet gan nhat — xem run()
         self._log = None       # phien tai log dataflash dang chay — xem _log_start()
         self._log_list = []    # LOG_ENTRY da nhan: [{id, size, time_utc}]
+        self._text_pend = []   # manh STATUSTEXT dang ghep — xem join_text()
 
     def stop(self):
         self._running = False
@@ -679,6 +718,7 @@ class SikAdapter(QThread):
                 # Thieu thi no phai no ngay o day chu khong duoc tu doan.
                 float(args["lat"]), float(args["lon"]), float(args["alt"]),
             )
+            self._goto_at = time.time()  # FC tra loi bang MISSION_ACK — xem _wp_rx
         else:
             raise ValueError(f"khong biet lenh {action!r}")
         self._emit("cmd", {"action": action, "args": args})
@@ -947,7 +987,21 @@ class SikAdapter(QThread):
             if d["seq"] < WP_ITEMS_MAX:
                 self._wp_items[d["seq"]] = (d["command"], d["x"] / 1e7, d["y"] / 1e7, d["z"])
             return self._wp_done()
-        if name == "MISSION_CURRENT" and d.get("total") and d["total"] != self._wp_total:
+        if (name == "MISSION_ACK" and d.get("mission_type", 0) == WP
+                and d.get("target_system") == master.mav.srcSystem
+                and time.time() - self._goto_at < GOTO_ACK_S):
+            # Khong dang nap (phien nap da an MISSION_ACK cua no o _wp_up_rx) ma FC
+            # tra MISSION_ACK cho CHINH app nay ngay sau "bay toi day" (mission
+            # item current=2, xem _exec "goto"): do la cau tra loi cua lenh do.
+            # Truoc day khong ai doc no — do that 04/10/2026 tren SITL: diem den
+            # ngoai rao, FC tra type=1 (MAV_MISSION_ERROR) ma giao dien chi co "da
+            # gui, cho FC tra loi" va "doi mode: FC chap nhan", drone dung im. Loc
+            # theo target_system: radio dung chung thi ACK cua GCS khac cung qua day.
+            self._goto_at = 0.0
+            self._emit("wp", {"goto": {"ok": d["type"] == 0, "result": d["type"]}})
+            return False
+        if (name == "MISSION_CURRENT" and (d.get("total") or d.get("mission_state"))
+                and self._wp_total is not None and d["total"] != max(self._wp_total - 1, 0)):
             # Ai do nap nhiem vu khac trong luc app dang chay (MAVProxy, ban web):
             # FC khong bao cho GCS thu hai biet. `total` trong MISSION_CURRENT la
             # duong duy nhat phat hien, va no chi co tu ArduPilot 4.3 tro len —
@@ -955,6 +1009,21 @@ class SikAdapter(QThread):
             #
             # So sanh voi _wp_total (so FC bao) chu khong _wp_n (so da cat): nhiem
             # vu 80 diem thi _wp_n = 50 mai mai khac 80, va vong tai lai chay hoai.
+            #
+            # `- 1`: ArduPilot dem `total` KHONG ke home, con MISSION_COUNT thi ke.
+            # Do that 04/10/2026 tren logs/20260919-223659-sim.tlog: count 6 di cung
+            # total 5 (4/3, 10/9 o cac log khac). So thang hai so la luc nao cung
+            # lech -> co nhiem vu tren FC la app tai lai toan bo cu 3,0 s mot lan
+            # (log tren: MISSION_COUNT o giay 79,3 / 82,3 / 85,3 ...) va dat lai
+            # `_asks` nen hoi rao/tham so khong bao gio dung. Qua SiK, MISSION_CURRENT
+            # 2 Hz con xoa danh sach giua luc dang tai. Chua co `_wp_total` thi chua
+            # so: dat lai `_asks` moi nua giay la ASK_MAX khong bao gio toi.
+            #
+            # `total` = 0 thi chi tin khi co `mission_state` (cung la truong mo rong,
+            # 0 = firmware khong gui): do that 10/10/2026, nhiem vu rong tren SITL
+            # 4.7-dev lan FC that deu bao (total 0, state 1 = NO_MISSION). Truoc day
+            # bo qua moi total 0 -> GCS khac XOA nhiem vu thi app ve duong bay cu
+            # mai (dung lai tren SITL: 15 s sau lenh xoa, khong mot goi `wp` nao).
             self._wp_n = self._wp_total = None
             self._wp_items, self._asks = {}, 0
         return False
@@ -1223,7 +1292,11 @@ class SikAdapter(QThread):
 
                     d = msg.to_dict()
                     ts = time.time()
-                    self.last_rx = ts
+                    if not self.muted:
+                        # Dang mo phong mat song: goi nay coi nhu chua toi (nhu
+                        # _fence_rx). Bo dong nay thi `send()` van bao "da gui" trong
+                        # khi _exec() vut lenh — mo phong sai dung cho can thu.
+                        self.last_rx = ts
                     # HEARTBEAT/TIMESYNC den khong can xin, nen chung KHONG chung
                     # minh stream con song — dem rieng, xem _stream_tick().
                     if name not in ("HEARTBEAT", "TIMESYNC"):
@@ -1245,6 +1318,9 @@ class SikAdapter(QThread):
                             self._emit(topic, data, ts)
 
                     out = None if df else normalize(name, d)
+                    if out and name == "STATUSTEXT":
+                        whole = join_text(self._text_pend, d)
+                        out = whole and normalize(name, whole)
                     if out:
                         topic, data = out
                         # Dieu kien phai bam theo TEN MESSAGE, khong theo topic:
@@ -1259,6 +1335,17 @@ class SikAdapter(QThread):
                             # mot mode rac, moi giay mot lan. Da loc goi o
                             # from_autopilot() roi thi msg nay chac chan la cua FC.
                             data["mode"] = mavutil.mode_string_v10(msg)
+                        # Do cao = cai FC DANG DUNG. Chua co home (khong GPS) thi
+                        # `relative_alt` la baro tho (AP_AHRS::get_relative_position_D_home),
+                        # con bo giu do cao cua FC bam z EKF. Bay that 11/10/2026, 0 ve
+                        # tinh, 603 mau treo >0,3 m: EKF lech rangefinder trung vi 0,03 m,
+                        # baro 0,40 m (toi 1,57 m); quat quay duoi dat baro -8,95 m.
+                        # Co home roi thi relative_alt LA EKF tinh tu home — giu, vi goc
+                        # EKF lech home toi hang chuc met (xem tools/ros2_bridge.py).
+                        if name == "LOCAL_POSITION_NED":
+                            self._ekf_up = data["z_u"]
+                        elif name == "GLOBAL_POSITION_INT" and not self._home_seen:
+                            data["alt_rel"] = self._ekf_up
                         self._emit(topic, data, ts)
 
                     self._emit("status", flatten_status(name, d), ts)
