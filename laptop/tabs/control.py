@@ -2,11 +2,13 @@
 
 Doc nguyen tac 2.1 truoc khi sua file nay.
 
-Khong con switch MANUAL/AUTO: laptop cam toan quyen, khong nhuong cho ai (xem
-core/authority.py). Nhiem vu ROS2 vi the cung khong con nut bam — node offboard
-tren companion khong duoc lai nua, nen mot nut gui lenh cho no la nut noi doi.
-Cai con lai la MOT DONG TRANG THAI: companion bao node nao dang chay, de con
-biet ma tat neu no chay ngoai y muon.
+Khong con switch MANUAL/AUTO: laptop cam toan quyen (xem core/authority.py).
+NGOAI LE CO Y (16/10/2026): TASK. Nguoi bay bat mot task trong danh sach TASKS
+(hien chi co Chua chay) thi node task tren companion duoc lai ROI MOT VIEC CO
+GIOI HAN — bay toi diem nguoi bay chi, tim, tha, kiem tra, ve. Lay lai quyen
+khong can hoi node: doi mode/nut do di SiK (node thay mat GUIDED la buong), huy
+task la bridge giet han node. Dong trang thai van o day: companion bao node nao
+dang chay, de con biet ma tat neu no chay ngoai y muon.
 
 Nhom nut do (RTL/LAND/DISARM) tach rieng ve mat ma nguon: chung goi thang
 `authority.dispatch()` vao nhanh ESCAPE -> `SikAdapter.send()`, khong di qua
@@ -46,7 +48,10 @@ MISSIONS = [
     ("mission.gates", "mission_gates"),
     ("mission.human", "trackinghuman"),
     ("mission.simple", "mission_simple"),
+    ("mission.fire", "fire_mission"),
 ]
+# Task BAT DUOC tu laptop (bridge --spawn + danh sach trang ben tools/ros2_bridge.py).
+TASKS = [("mission.fire", "fire_mission")]
 CONFIRM_S = 3.0  # cua so bam lai de xac nhan TAKEOFF o che do REAL
 
 RED_QSS = theme.danger_button()
@@ -97,16 +102,28 @@ class ControlTab(QWidget):
         g.addWidget(self.alt, 2, 1)
         g.addWidget(self.btn_takeoff, 2, 2)
 
-        # --- nhiem vu ROS2: CHI DOC ---
-        # Khong con nut khoi dong. Nhung van phai nhin thay: node offboard khong
-        # duoc lai nua khong co nghia la khong the co node nao dang chay tren
-        # companion — biet no chay la biet co ai do dang tranh duong truyen.
+        # --- task tren companion ---
+        # Trang thai van luon hien: biet node nao chay la biet ai dang dung duong
+        # truyen. Diem chay cua task Chua chay chon o ban do man bay cam ung.
         self.mission_box = QGroupBox()
         mg = QGridLayout(self.mission_box)
         self._mission_running = None  # node dang chay, de dich lai khi doi ngon ngu
         self.mission_now = QLabel()
         self.mission_now.setStyleSheet(f"color:{theme.MUTED};")
-        mg.addWidget(self.mission_now, 0, 0)
+        mg.addWidget(self.mission_now, 0, 0, 1, 3)
+        self.task_box = QComboBox()
+        self.btn_task_start = QPushButton()
+        self.btn_task_stop = QPushButton()
+        self.btn_task_start.clicked.connect(
+            lambda: self.cmd.task(TASKS[self.task_box.currentIndex()][1]))
+        self.btn_task_stop.clicked.connect(lambda: self.cmd.task(""))
+        mg.addWidget(self.task_box, 1, 0)
+        mg.addWidget(self.btn_task_start, 1, 1)
+        mg.addWidget(self.btn_task_stop, 1, 2)
+        self.task_hint = QLabel()
+        self.task_hint.setWordWrap(True)
+        self.task_hint.setStyleSheet(f"color:{theme.MUTED};")
+        mg.addWidget(self.task_hint, 2, 0, 1, 3)
         bus.on("mission", self._on_mission_state)
 
         # --- NUT DO ---
@@ -183,6 +200,13 @@ class ControlTab(QWidget):
         self.lbl_alt.setText(t("ctl.alt_label"))
         self.btn_mode.setText(t("ctl.change_mode"))
         self.mission_box.setTitle(t("ctl.mission_box"))
+        i = self.task_box.currentIndex()
+        self.task_box.clear()
+        self.task_box.addItems([t(k) for k, _ in TASKS])
+        self.task_box.setCurrentIndex(max(0, i))
+        self.btn_task_start.setText(t("ctl.task_start"))
+        self.btn_task_stop.setText(t("ctl.task_stop"))
+        self.task_hint.setText(t("ctl.task_hint"))
         self.red_box.setTitle(t("ctl.red_box"))
         # ARM/DISARM/RTL/LAND/TAKEOFF khong dich: do la ten lenh MAVLink, doi
         # chieu voi tai lieu ArduPilot va voi GCS khac deu phai dung mot chu.
@@ -196,7 +220,8 @@ class ControlTab(QWidget):
         self.mode = mode
         live = mode in ("REAL", "SIM")
         for w in (self.btn_arm, self.btn_disarm, self.btn_mode, self.btn_takeoff,
-                  self.mode_box, self.alt):
+                  self.mode_box, self.alt, self.task_box, self.btn_task_start,
+                  self.btn_task_stop):
             w.setEnabled(live)
         # Nut do chi xam o REPLAY. Moi truong hop khac deu phai bam duoc.
         for b in self.reds:

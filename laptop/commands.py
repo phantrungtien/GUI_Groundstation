@@ -221,6 +221,24 @@ class Commands(QObject):
             {"target": "sik", "action": "goto",
              "args": {"lat": lat, "lon": lon, "alt": float(alt)}}))
 
+    # ---- task tren companion --------------------------------------------
+    #
+    # Ngoai le CO Y cua nguyen tac 2.1 (xem core/authority.py): nguoi bay bat task
+    # va chi diem thi node task duoc lai ROI MOT VIEC CO GIOI HAN. Lay lai quyen
+    # khong can hoi node: doi mode / nut do di SiK, node thay mat GUIDED la buong;
+    # huy task la bridge giet han node.
+
+    def task(self, name):
+        """Bat task `name` tren companion (bridge --spawn, danh sach trang). "" = huy."""
+        what = t("act.task_start", nice=name) if name else t("act.task_stop")
+        self._soft(what, authority.dispatch(
+            {"target": "remote", "action": "mission", "args": {"name": name}}))
+
+    def fire_target(self, lat, lon):
+        """Giao diem chay cho task Chua chay. Node tu bay toi, tim, tha, kiem tra, ve."""
+        self._soft(t("act.fire_target", lat=lat, lon=lon), authority.dispatch(
+            {"target": "remote", "action": "fire_target", "args": {"lat": lat, "lon": lon}}))
+
     # ---- nhich vi tri ----------------------------------------------------
 
     def nudge_block(self, live):

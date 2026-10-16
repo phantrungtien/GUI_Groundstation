@@ -45,6 +45,10 @@ def _mmss(sec):
     return f"{int(sec) // 60}:{int(sec) % 60:02d}"
 
 
+# Ten node task Chua chay ben ~/fire_drone_ws (bridge khoi dong qua danh sach trang).
+FIRE_TASK = "fire_mission"
+
+
 class Backend(QObject):
     stateChanged = Signal()
     langChanged = Signal()
@@ -91,6 +95,9 @@ class Backend(QObject):
         bus.on("wp", self._on_wp)
         bus.on("param", lambda e: self._params.update(e["data"]))
         bus.on("text", self._on_text)
+        # Task dang chay tren companion — bridge bao moi giay (topic "mission").
+        self._task = ""
+        bus.on("mission", lambda e: setattr(self, "_task", e["data"].get("running") or ""))
         # San sang ARM: bit PREARM_CHECK trong SYS_STATUS — cung nguon Mission
         # Planner/QGC dung. Do that 19/09 tren MicoAir743: log 144628 co loi
         # PreArm -> bit False ca phien; log 155159 khong loi -> True tu giay dau.
@@ -225,10 +232,10 @@ class Backend(QObject):
             "battLeft": left, "leftLevel": left_level(left) or "ok",
             "sats": sats, "gpsLevel": gps_level(fix, sats, hdop)[0] or "ok",
             "hasVideo": bool(self.profile and video_url(self.profile)),
-            # So nguoi: Jetson publish /vision/person_count, ros2_bridge day len
-            # topic `persons` (het tuoi sau 2 s = khong biet). Camera dung hinh thi
-            # model cung dang dem tren mot canh cu -> khong hien.
-            "persons": None if self.video_src.frozen else REGISTRY.value("persons.n"),
+            # So nguoi: VideoSource hoi `/status` cua Jetson moi 0,5 s (loi/het gio
+            # = None = "--"). Camera dung hinh thi model cung dang dem tren mot
+            # canh cu -> khong hien.
+            "persons": None if self.video_src.frozen else self.video_src.persons,
             "alerts": [{"text": s, "crit": sev <= ERR_SEV} for s, sev in self.alerts.shown()],
             "ready": self._ready(armed is True),
             "warns": self._warns(armed, left, dist),
@@ -242,6 +249,9 @@ class Backend(QObject):
             # Ly do KHONG nhich duoc, "" neu duoc: can ao mo di va noi ro vi sao,
             # chu khong nam do im lang cho nguoi bay keo mai khong hieu.
             "nudgeWhy": self.cmd.nudge_block(self._live()) or "",
+            # --- task tren companion -------------------------------------
+            "task": self._task if self.profile is not None else "",
+            "taskFire": self.profile is not None and self._task == FIRE_TASK,
             # Kich ban #8: hai nguon lech vi tri qua nguong. Dong rieng chu khong
             # day vao `alerts`: no lap lai 5 Hz, vao do la dem "xN" chay loan.
             "diverge": div if div is not None and div > DIVERGE_M else None,
@@ -495,6 +505,22 @@ class Backend(QObject):
             self.cmd.say("touch.locked", 4)
             return
         self.cmd.goto(lat, lon, self.map.wp_alt)
+
+    @Slot(str)
+    def task(self, name):
+        """Bat ("fire_mission") / huy ("") task. Loi duong truyen do _soft() bao."""
+        self.cmd.task(name)
+
+    @Slot(float, float)
+    def fireAt(self, lat, lon):
+        """Diem chay da chot (nhu gotoAt). Chi khi task Chua chay dang chay."""
+        if not self._live():
+            self.cmd.say("touch.locked", 4)
+            return
+        if self._task != FIRE_TASK:
+            self.cmd.say("task.not_running", 4)
+            return
+        self.cmd.fire_target(lat, lon)
 
     @Slot(float, float)
     def goto(self, x, y):

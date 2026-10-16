@@ -66,7 +66,10 @@ Item {
             // vua chi: diem do khong ve ra ban do, va ban do thi dang chay theo
             // drone. Dung chung dong chu voi vet ghi o tab Thong bao.
             "goto": gotoAt ? tr("act.goto", {"lat": gotoAt[0], "lon": gotoAt[1],
-                                             "alt": st.wpAlt}) : ""
+                                             "alt": st.wpAlt}) : "",
+            "fire": gotoAt ? tr("act.fire_target", {"lat": gotoAt[0], "lon": gotoAt[1]}) : "",
+            "taskStart": tr("touch.task_start_title"),
+            "taskStop": tr("touch.task_stop_title")
         }[pending] || ""
     }
     function openWp(x, y) {
@@ -81,7 +84,9 @@ Item {
             "takeoff": tr("touch.do_takeoff", {"alt": takeoffAlt}),
             "land": tr("touch.do_land"), "rtl": tr("touch.do_rtl"),
             "kill": tr("touch.do_kill"), "mode": tr("touch.do_mode", {"name": pendingArg}),
-            "goto": tr("touch.do_goto", {"alt": st.wpAlt})
+            "goto": tr("touch.do_goto", {"alt": st.wpAlt}),
+            "fire": tr("touch.do_fire"),
+            "taskStart": tr("touch.do_task_start"), "taskStop": tr("touch.do_task_stop")
         }[pending] || ""
         return tr("touch.slide", {"what": what})
     }
@@ -440,6 +445,13 @@ Item {
             onTap: ask(st.armed ? "disarm" : "arm")
         }
         ActBtn { glyph: "M"; label: tr("touch.btn_mode"); onTap: ask("modePick") }
+        // Task Chua chay: bat roi moi chi diem chay duoc tren ban do (cham-giu).
+        ActBtn {
+            objectName: "taskBtn"
+            glyph: "⚑"
+            label: st.taskFire ? tr("touch.btn_task_stop") : tr("touch.btn_task")
+            onTap: ask(st.taskFire ? "taskStop" : "taskStart")
+        }
         ActBtn { glyph: "✕"; label: tr("touch.btn_kill"); danger: true; onTap: ask("kill") }
     }
 
@@ -617,6 +629,16 @@ Item {
                     opacity: enabled ? 1 : 0.4
                     onTap: { win.gotoAt = backend.pickGoto(win.wpX, win.wpY); ask("goto") }
                 }
+                // Chi co khi task Chua chay dang chay: diem chay la DU LIEU cua task,
+                // khong phai mot lenh bay thuong tren ban do.
+                Chip {
+                    objectName: "wpFire"
+                    visible: st.taskFire === true
+                    text: tr("touch.wp_fire")
+                    enabled: st.live
+                    opacity: enabled ? 1 : 0.4
+                    onTap: { win.gotoAt = backend.pickGoto(win.wpX, win.wpY); ask("fire") }
+                }
             }
             Flow {
                 width: parent.width
@@ -778,6 +800,12 @@ Item {
                     win.pending = ""
                     if (a === "goto")
                         backend.gotoAt(win.gotoAt[0], win.gotoAt[1])
+                    else if (a === "fire")
+                        backend.fireAt(win.gotoAt[0], win.gotoAt[1])
+                    else if (a === "taskStart")
+                        backend.task("fire_mission")
+                    else if (a === "taskStop")
+                        backend.task("")
                     else
                         backend.act(a, arg)
                 }

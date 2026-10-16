@@ -13,6 +13,11 @@ Hau qua, noi thang ra de khong ai bat ngo:
   - node offboard tren companion khong bao gio nhan duoc quyen nua. `/gcs/authority`
     chot cung o "gcs" ngay luc bridge khoi dong (tools/ros2_bridge.py) va khong
     co duong nao doi. Node co chay cung khong duoc stream setpoint.
+  - NGOAI LE CO Y (16/10/2026): TASK. Nguoi bay bat task (TASKS trong
+    laptop/tabs/control.py, nut task o man bay cam ung) va chi diem thi node task
+    (vd fire_mission ben ~/fire_drone_ws) duoc lai ROI MOT VIEC CO GIOI HAN. Node do
+    khong doc `/gcs/authority`; lay lai quyen la doi mode / nut do qua SiK (node
+    thay mat GUIDED la buong, khong tranh) hoac huy task (bridge giet han node).
   - nua ROS2 chi con la NGUON TELEMETRY: vi tri, van toc, video, trang thai node.
     Mat no la mat tam nhin, khong phai mat quyen dieu khien.
   - moi lenh xuong FC — ke ca nap duong bay — di duong SiK tu chinh app nay.

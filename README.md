@@ -476,8 +476,24 @@ sẽ **hiện ra chính cái key** trên màn hình, không im lặng rơi về 
 Không còn switch MANUAL/AUTO. Mọi lệnh xuống FC — kể cả nạp đường bay — đi từ
 app này qua SiK. `/gcs/authority` chốt cứng ở `"gcs"` ngay lúc `ros2_bridge.py`
 khởi động và không có đường nào đổi, nên **node offboard trên companion không
-bao giờ được lái**. Nửa ROS2 chỉ còn là nguồn telemetry: vị trí, vận tốc, video,
-tên node đang chạy. Mất nó là mất tầm nhìn, không phải mất quyền điều khiển.
+bao giờ được lái** — trừ một ngoại lệ có ý, mục Task ngay dưới. Nửa ROS2 còn lại
+là nguồn telemetry: vị trí, vận tốc, video, tên node đang chạy. Mất nó là mất tầm
+nhìn, không phải mất quyền điều khiển.
+
+### Task Chữa cháy — ngoại lệ có ý của "laptop cầm toàn quyền" (16/10/2026)
+
+Người bay **bật task** (nút **⚑ Chữa cháy** ở màn bay cảm ứng, hoặc tab Điều khiển →
+chọn task → **Bắt đầu task**) → `ros2_bridge.py --spawn` khởi động node
+`fire_mission` (gói `fire_drone` ở `~/fire_drone_ws`, có trong `MISSIONS_OK`). Rồi
+**giữ 2 s trên bản đồ → "Chữa cháy tại đây" → trượt xác nhận** gửi
+`{"action":"fire_target","args":{lat,lon}}` qua WebSocket → `/gcs/command`. Từ đó node
+tự lái một việc có giới hạn: bay tới điểm, bay vòng tìm, thả bóng, bay vòng kiểm tra,
+RTL. Từng bước hiện ở tab Thông báo (STATUSTEXT tiền tố `FIRE:`).
+
+Lấy lại quyền không cần hỏi node: đổi mode khác GUIDED hay nút đỏ (vẫn đi SiK) → node
+buông ngay, không thả, không tự đổi mode; **Huỷ task** → bridge giết node, drone treo
+tại chỗ. Chip "Chữa cháy tại đây" chỉ hiện khi task đang chạy. Chi tiết luồng phía
+drone: `~/fire_drone_ws/README.md`.
 
 ### Đường bay waypoint — đọc và ghi
 

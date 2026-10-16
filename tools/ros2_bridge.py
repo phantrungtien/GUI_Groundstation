@@ -35,7 +35,6 @@ from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import HomePosition, State
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
-from rosidl_runtime_py.utilities import get_message
 from sensor_msgs.msg import BatteryState, NavSatFix
 from std_msgs.msg import Float64, String
 from websockets.sync.server import serve
@@ -44,12 +43,23 @@ from websockets.sync.server import serve
 # bridge nhan lenh qua WebSocket tu ngoai mang, cho chay ten tuy y la mo cua cho
 # bat ky ai vao WiFi bai bay chay lenh tren companion. Them mission moi thi them
 # ten vao day — mot dong, va la mot lan can nhac co y thuc.
-MISSION_PKG = "simtofly_mavros_sitl"
-MISSIONS_OK = {"mission_simple", "mission_circle", "mission_gates",
-               "trackinghuman", "verify_frame"}
+# Ten node -> package ROS2 chua no. Dict LITERAL: tools/selfcheck.py doc no bang
+# ast.literal_eval de khoi import rclpy.
+#
+# fire_mission = task Chua chay (~/fire_drone_ws): node tu lai sau khi nguoi bay
+# bat task va chi diem chay — ngoai le co y cua nguyen tac 2.1, xem
+# core/authority.py. Bridge phai chay trong moi truong da
+# `source ~/fire_drone_ws/setup.bash` thi `ros2 run fire_drone ...` moi thay goi.
+MISSIONS_OK = {
+    "mission_simple": "simtofly_mavros_sitl",
+    "mission_circle": "simtofly_mavros_sitl",
+    "mission_gates": "simtofly_mavros_sitl",
+    "trackinghuman": "simtofly_mavros_sitl",
+    "verify_frame": "simtofly_mavros_sitl",
+    "fire_mission": "fire_drone",
+}
 
 # MAVROS phat telemetry o BEST_EFFORT; dat RELIABLE la khong nhan duoc goi nao.
-PERSONS_TOPIC = "/vision/person_count"
 
 SENSOR_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -129,13 +139,6 @@ class Bridge(Node):
                                  self._on_batt, SENSOR_QOS)
         self.create_subscription(State, "/mavros/state", self._on_state, 10)
 
-        # So nguoi model tren Jetson dem (11/10/2026). Kieu msg KHONG go cung: hoi
-        # do thi ROS luc chay roi lay `.data` (std_msgs Int32/UInt16/... deu co) —
-        # doi kieu ben Jetson thi bridge khong phai sua. Topic chua co thi cu 1 s hoi lai.
-        # BEST_EFFORT: khop ca publisher RELIABLE lan BEST_EFFORT.
-        self.persons_sub = None
-        self.persons_at = 0.0
-        self.create_timer(1.0, self._find_persons)
 
     # --- day len laptop ---------------------------------------------------
 
@@ -193,30 +196,6 @@ class Bridge(Node):
     def _on_state(self, m):
         self.push("heartbeat", {"armed": m.armed, "mode": m.mode})
 
-    def _find_persons(self):
-        if self.persons_sub:
-            return
-        types = dict(self.get_topic_names_and_types()).get(PERSONS_TOPIC)
-        if not types:
-            return
-        self.persons_sub = self.create_subscription(
-            get_message(types[0]), PERSONS_TOPIC, self._on_persons, SENSOR_QOS)
-        self.get_logger().info(f"{PERSONS_TOPIC} [{types[0]}] -> topic 'persons'")
-
-    def _on_persons(self, m):
-        # Model chay ~25 Hz; mot con so tren man bay 5 Hz la du, khoi day WebSocket.
-        # GUI coi so het tuoi sau 2 s (core/field.py STALE) — nen ben Jetson phai
-        # publish DEU (moi khung), khong chi luc so doi.
-        now = time.time()
-        if now - self.persons_at < 0.2:
-            return
-        self.persons_at = now
-        try:
-            self.push("persons", {"n": int(m.data)})
-        except (AttributeError, TypeError, ValueError):
-            self.get_logger().error(f"{PERSONS_TOPIC}: msg khong co truong so `.data`",
-                                    throttle_duration_sec=30)
-
     # --- nhan lenh tu laptop ----------------------------------------------
 
     def handle_command(self, raw):
@@ -264,7 +243,7 @@ class Bridge(Node):
         # ma hai node van song). Cho ca cum mot nhom rieng roi theo doi/giet ca
         # nhom moi dung.
         self.mission_proc = subprocess.Popen(
-            ["ros2", "run", MISSION_PKG, name], start_new_session=True
+            ["ros2", "run", MISSIONS_OK[name], name], start_new_session=True
         )
         self.mission_pgid = os.getpgid(self.mission_proc.pid)
         self.mission_name = name

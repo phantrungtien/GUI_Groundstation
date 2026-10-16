@@ -28,7 +28,9 @@ Khac tile o ba cho, va ca ba deu la cho de sai:
 """
 
 import collections
+import json
 import os
+import socket
 import threading
 import time
 import urllib.error
@@ -39,6 +41,7 @@ from urllib.parse import urlparse
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QWidget
 
 from core.i18n import t
@@ -116,6 +119,34 @@ def video_url(profile):
     return profile.get("video") or (url_for(profile["remote"]) if profile.get("remote") else None)
 
 
+def count_loss(data, last):
+    """(goi TS nhan, goi mat) trong mot datagram MPEG-TS; `last` = {pid: cc} giu giua
+    cac lan. Goc la `count_loss` cua h264_feedback.py tren Jetson (~/pi5) — run_gui.py
+    tinh nguong ha/tang bitrate theo dung con so nay.
+
+    Buoc nhay CC >= 8 (nguoi dung 15/10/2026): coi la goi den sai thu tu (lui lai =
+    nhay 15) hoac ffmpeg vua khoi dong lai (CC ve 0) -> BO QUA, khong tinh mat va khong
+    doi moc, nen goi den tre khong lam goi sau no bi tinh mat oan.
+    ponytail: tran — mat lien >= 7 goi tren mot PID (>= 2 datagram 1128 B = 6 goi TS
+    lien nhau) cung ra buoc nhay >= 8 nen KHONG duoc dem; mat chum tren LTE bi bo sot.
+    """
+    got = lost = 0
+    for i in range(0, len(data) - 187, 188):
+        if data[i] != 0x47:
+            continue
+        pid = ((data[i + 1] & 0x1F) << 8) | data[i + 2]
+        if pid == 0x1FFF or not data[i + 3] & 0x10:  # null / khong co payload: CC dung yen
+            continue
+        cc = data[i + 3] & 0x0F
+        got += 1
+        if pid in last and cc != last[pid]:  # cc trung = goi lap, hop le
+            step = (cc - last[pid]) & 0x0F
+            if step >= 8:
+                continue  # sai thu tu / ffmpeg khoi dong lai: khong dem, giu moc cu
+            lost += step - 1
+        last[pid] = cc
+    return got, lost
+
 
 def _read_frame(resp):
     """Doc mot phan multipart/x-mixed-replace, tra ve byte JPEG."""
@@ -172,6 +203,12 @@ class VideoSource(QObject):
         self._rep_t = time.monotonic()
         self._player = None   # du phong khong co GStreamer: tao lan dau, roi giu mai
         self._pipe = None     # pipeline GStreamer cua nguon H.264 dang chay
+        self.status = None    # url /status (key `status` cua profile), hoi moi nhip _watch
+        self.persons = None   # `total` cua lan tra loi moi nhat; loi/het gio = None
+        self._net = None
+        self._seq = self._seen = 0  # tra loi ve lon xon thi bo cai cu hon cai da hien
+        self.feedback = None  # (host, port) Jetson nhan "loss=..." (key `feedback`)
+        self._loss = None     # ti le mat goi giay vua qua, ghi vao dong log fps
 
         self._arrived.connect(self._decode)
         self._image.connect(self._on_image)
@@ -181,9 +218,13 @@ class VideoSource(QObject):
 
     # ------------------------------------------------------------------ dieu khien
 
-    def start(self, url):
+    def start(self, url, status=None, feedback=None):
         self.stop()
         self.url = url
+        self.status = status
+        host, _, port = (feedback or "").rpartition(":")
+        self.feedback = (host, int(port)) if host else None
+        self._loss = None
         self.note = ("vid.connecting", {})
         self._hash, self._frozen = None, False
         self._n = self._bytes = 0
@@ -221,7 +262,7 @@ class VideoSource(QObject):
             self._player.stop()  # giu player lai cho lan start() sau, xem start()
         if self.url:
             _log("stop")
-        self.url = None
+        self.url = self.status = self.persons = None
         self.pixmap = None
         self.alive = False
         self._hash, self._frozen = None, False
@@ -251,12 +292,43 @@ class VideoSource(QObject):
         GStreamer tu chay tiep khi goi UDP toi lai, ke ca Jetson khoi dong lai luong."""
         u = urlparse(url)
         self._pipe = Gst.parse_launch(
-            f"udpsrc address={u.hostname or '0.0.0.0'} port={u.port} "
+            f"udpsrc name=u address={u.hostname or '0.0.0.0'} port={u.port} "
             "caps=video/mpegts,systemstream=true ! tsdemux ! h264parse ! avdec_h264 "
             "! videoconvert ! video/x-raw,format=RGBx "
             "! appsink name=s emit-signals=true sync=false max-buffers=1 drop=true")
         self._pipe.get_by_name("s").connect("new-sample", self._on_sample, gen)
+        if self.feedback:
+            # Bao mat goi ve Jetson moi giay -> run_gui.py --h264-fb-port tu ha/tang
+            # bitrate. Chay tren luong GStreamer, ngay khi goi vua toi, truoc demux.
+            st = {"cc": {}, "got": 0, "lost": 0, "t": time.monotonic(), "to": self.feedback,
+                  "sock": socket.socket(socket.AF_INET, socket.SOCK_DGRAM)}
+            self._pipe.get_by_name("u").get_static_pad("src").add_probe(
+                Gst.PadProbeType.BUFFER, self._on_udp, st)
         self._pipe.set_state(Gst.State.PLAYING)
+
+    def _on_udp(self, _pad, info, st):
+        """Luong GStreamer: dem goi TS mat (count_loss), moi giay gui "loss=0.0123".
+        Khong co goi nao thi IM — Jetson im 5 s tu coi la mat het va ha bitrate."""
+        buf = info.get_buffer()
+        ok, m = buf.map(Gst.MapFlags.READ)
+        if ok:
+            try:
+                g, lost = count_loss(m.data, st["cc"])
+            finally:
+                buf.unmap(m)
+            st["got"] += g
+            st["lost"] += lost
+        now = time.monotonic()
+        if now - st["t"] >= 1.0:
+            if st["got"]:
+                self._loss = st["lost"] / (st["got"] + st["lost"])
+                try:
+                    st["sock"].sendto(f"loss={self._loss:.4f}".encode(), st["to"])
+                except OSError:
+                    pass  # mang dang rot: lan sau gui tiep, Jetson tu xu ly im lang
+            st["got"] = st["lost"] = 0
+            st["t"] = now
+        return Gst.PadProbeReturn.OK
 
     def _on_sample(self, sink, gen):
         """Luong GStreamer: chep khung ra QImage (QImage dung o thread phu duoc,
@@ -348,7 +420,37 @@ class VideoSource(QObject):
             return 0.0
         return (len(s) - 1) / (s[-1] - s[0])
 
+    def _ask_status(self):
+        """So nguoi: `GET /status` moi 0,5 s, lay `total`, timeout 1 s.
+
+        Doc thang server camera chu khong qua ros2_bridge: nhe hon, khong can ROS2
+        tren Jetson. Loi hay het gio thi `persons = None` (man bay hien "--") NGAY,
+        khong giu so cu — so cu tren giao dien cuu ho la nguoi lai tin nham."""
+        if not self.status:
+            return
+        if self._net is None:
+            self._net = QNetworkAccessManager(self)
+        req = QNetworkRequest(QUrl(self.status))
+        req.setTransferTimeout(1000)
+        rep = self._net.get(req)
+        self._seq += 1
+        rep.finished.connect(lambda r=rep, g=self._gen, q=self._seq: self._on_status(r, g, q))
+
+    def _on_status(self, rep, gen, seq):
+        rep.deleteLater()
+        if gen != self._gen or seq < self._seen:
+            return  # cua lan start() truoc, hoac ve sau mot tra loi moi hon
+        self._seen = seq
+        n = None
+        if rep.error() == QNetworkReply.NetworkError.NoError:
+            try:
+                n = int(json.loads(bytes(rep.readAll()))["total"])
+            except (ValueError, KeyError, TypeError):
+                pass
+        self.persons = n
+
     def _check_stale(self):
+        self._ask_status()
         if self._pipe:  # vd "bind failed": cong 5600 dang bi tien trinh khac giu
             msg = self._pipe.get_bus().pop_filtered(Gst.MessageType.ERROR)
             if msg:
@@ -359,6 +461,8 @@ class VideoSource(QObject):
         if self.url and now - self._rep_t >= REPORT_S:
             dt = now - self._rep_t
             kb = f"  {self._bytes / dt / 1000:4.0f} KB/s" if self._bytes else ""  # H.264: khong dem
+            if self._loss is not None:
+                kb += f"  mat {self._loss:.1%}"
             _log(f"fps {self._n / dt:5.1f}{kb}")
             self._n = self._bytes = 0
             self._rep_t = now

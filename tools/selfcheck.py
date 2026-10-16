@@ -394,8 +394,23 @@ def check_video_h264(app):
     import shutil
     import subprocess
 
+    import socket
+
     import laptop.widgets.video as video_mod
-    from laptop.widgets.video import VideoSource
+    from laptop.widgets.video import VideoSource, count_loss
+
+    # Dem goi TS mat theo continuity counter — Jetson ha bitrate theo dung so nay.
+    def ts(pid, cc, payload=True):
+        return bytes([0x47, pid >> 8, pid & 0xFF, (0x10 if payload else 0x20) | cc]) + bytes(184)
+    last = {}
+    assert count_loss(ts(256, 0) + ts(256, 1) + ts(256, 3), last) == (3, 1), "mat CC 2 ma khong dem"
+    assert count_loss(ts(256, 3) + ts(0x1FFF, 9) + ts(257, 7, payload=False), last) == (1, 0), \
+        "goi lap / null / khong payload bi tinh la mat"
+    # Nhay 7 (mat 6 goi = 1 datagram 1128 B) van dem; nhay >= 8 = sai thu tu / ffmpeg
+    # khoi dong lai -> bo qua, va goi den tre khong lam goi ke tiep bi tinh mat.
+    assert count_loss(ts(256, 10), last) == (1, 6), "nhay 7 phai dem mat 6 goi"
+    assert count_loss(ts(256, 9) + ts(256, 11), last) == (2, 0), "goi den tre (lui 1) bi tinh la mat"
+    assert count_loss(ts(256, 3), last) == (1, 0), "nhay 8 (ffmpeg khoi dong lai) bi tinh la mat"
 
     gst = shutil.which("gst-launch-1.0")
     if not gst or subprocess.run(["gst-inspect-1.0", "x264enc"], capture_output=True).returncode:
@@ -422,12 +437,28 @@ def check_video_h264(app):
 
     frozen_s, video_mod.FROZEN_S = video_mod.FROZEN_S, 1.0
     src = VideoSource()
+    fb = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # dong vai Jetson :5601
+    fb.bind(("127.0.0.1", 0))
+    fb.setblocking(False)
+    reports = []
+
+    def heard():
+        try:
+            reports.append(fb.recv(64).decode())
+        except BlockingIOError:
+            pass
+        return reports
+
     s = sender(moving)
     try:
-        src.start(f"udp://0.0.0.0:{port}")
+        src.start(f"udp://0.0.0.0:{port}", feedback=f"127.0.0.1:{fb.getsockname()[1]}")
         assert until(lambda: src.pixmap is not None, 8000), f"H.264 khong ra khung: {src.note}"
         assert src.pixmap.width() == 320 and src.alive
         assert not until(lambda: src.frozen, 2500), "hinh dang chay ma bao dung hinh"
+        # Bao cao dung dinh dang run_gui.py doc: "loss=<ti le>", localhost thi ~0.
+        assert until(heard, 3000), "co goi H.264 ma khong bao mat goi ve Jetson"
+        loss = float(reports[-1].split("=", 1)[1])
+        assert reports[-1].startswith("loss=") and loss < 0.02, f"bao cao sai: {reports}"
 
         # Thu tu nhu ngoai doi: nguon tat -> o xam -> nguon len lai. Tat roi bat
         # NGAY (khong nghi) thi QMediaPlayer co luc dung them ~4,8 s vi DTS nhay
@@ -436,6 +467,9 @@ def check_video_h264(app):
         s.kill(); s.wait()  # mat goi UDP
         assert until(lambda: not src.alive and not src.frozen, 4000), "het goi ma khong o xam"
         assert src.pixmap is None and src.note[0] == "vid.lost", src.note
+        # Het goi thi IM, khong gui "loss=0": Jetson im 5 s moi tu ha bitrate.
+        reports.clear()
+        assert not until(heard, 1500), f"khong co goi ma van bao cao: {reports}"
 
         s = sender(frozen)  # camera treo: khung van toi deu, anh dung yen
         assert until(lambda: src.frozen, 10000), "anh dong bang qua x264 ma khong bao dung hinh"
@@ -457,6 +491,7 @@ def check_video_h264(app):
         s.kill()
         s.wait()
         src.stop()
+        fb.close()
         video_mod.FROZEN_S = frozen_s
 
     # Du phong may khong co GStreamer (Windows): QMediaPlayer van phai ra hinh
@@ -476,7 +511,8 @@ def check_video_h264(app):
     src.deleteLater()
     app.processEvents()
     print("  ok  video H.264/UDP — giai ma that; dung hinh (anh dong bang qua x264) xoa anh; "
-          "mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh")
+          "mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh; dem goi TS mat "
+          "va bao \"loss=\" ve Jetson moi giay, het goi thi im")
 
 
 def check_tabs(app):
@@ -1003,10 +1039,11 @@ def check_takeoff_guard(app):
 
 
 def check_mission_readonly(app):
-    """Tab Control khong con gui duoc lenh nao sang ROS2, chi doc trang thai.
+    """Tab Control chi gui sang ROS2 DUNG hai lenh: bat/huy task trong TASKS.
 
-    Bo nut di roi thi phai chac la bo THAT: mot nut con sot lai se gui lenh cho
-    mot node khong con quyen lai — bam khong co gi xay ra, va khong ai biet vi sao.
+    Ngoai le co y cua nguyen tac 2.1 (16/10/2026, xem core/authority.py). Moi nut
+    khac van khong duoc ra cong `remote`: mot nut sot lai se gui lenh cho mot node
+    khong co quyen lai — bam khong co gi xay ra, va khong ai biet vi sao.
     """
     import ast
 
@@ -1034,7 +1071,12 @@ def check_mission_readonly(app):
         for b in ct.findChildren(type(ct.btn_arm)):
             if b not in ct.reds and b is not ct.btn_kill:
                 b.click()
-        assert not sent["remote"], f"van con nut gui lenh sang ROS2: {sent['remote']}"
+        from laptop.tabs.control import TASKS
+        ok = {("mission", n) for _, n in TASKS} | {("mission", "")}
+        stray = [(a, g) for a, g in sent["remote"]
+                 if a != "mission" or set(g or {}) != {"name"} or (a, g["name"]) not in ok]
+        assert not stray, f"nut gui lenh sang ROS2 ngoai bat/huy task: {stray}"
+        assert ("mission", {"name": ""}) in sent["remote"], "phai co nut huy task"
 
         # Trang thai companion thi VAN phai hien — day la telemetry, khong phai lai.
         bus.emit("remote", "mission", {"running": "mission_circle"})
@@ -1061,7 +1103,7 @@ def check_mission_readonly(app):
         authority.unregister("sik")
         authority.unregister("remote")
         ct.close()
-    print("  ok  nua ROS2 chi con la nguon telemetry (khong nut, bridge chot quyen)")
+    print("  ok  ROS2: chi nut bat/huy task trong TASKS, bridge chot quyen, ten khop danh sach trang")
 
 
 def check_replay_locks(app):
@@ -1905,8 +1947,10 @@ def check_video(app):
     assert video_url({"conn": "tcp:127.0.0.1:5763"}) is None
     import yaml
     from laptop.connection import ROOT as _root
+    # Chi ap cho profile SITL xem camera JETSON. Profile xem camera CUA SIM
+    # (fire_drone_ws, MJPEG http) co y nghe nguon khac, nen khong tinh.
     sitl = [p for p in yaml.safe_load((_root / "config" / "connections.yaml").read_text())
-            if p.get("mode") == "SIM"]
+            if p.get("mode") == "SIM" and not str(p.get("video", "")).startswith("http")]
     # Jetson DAY H.264 thang ve laptop (11/10/2026): profile SITL phai nghe dung cong
     # cua profile bay that — doi cong ben Jetson ma quen sua SITL thi bai nay keu.
     real = next(p for p in yaml.safe_load((_root / "config" / "connections.yaml").read_text())
@@ -2092,6 +2136,37 @@ def check_video(app):
     for word in ("gui start", "gui connected", "gui fps", "gui lost", "gui stop"):
         assert word in log, f"log video thieu '{word}':\n{log}"
 
+    # --- so nguoi: GET /status moi 0,5 s, lay `total`; loi thi "--" ngay ----
+    class StatusHandler(BaseHTTPRequestHandler):
+        def do_GET(self):  # dung dang tra loi cua Jetson do 11/10
+            body = b'{"counts": {"person": 3}, "total": 3, "ms": null, "t": 1.0}'
+            self.send_response(200 if self.path == "/status" else 404)
+            self.end_headers()
+            self.wfile.write(body if self.path == "/status" else b"")
+
+        def log_message(self, *a):
+            pass
+
+    srv3 = ThreadingHTTPServer(("127.0.0.1", VIDEO_PORT), StatusHandler)
+    threading.Thread(target=srv3.serve_forever, daemon=True).start()
+    def until(pred, s):
+        t0 = time.monotonic()
+        while not pred() and time.monotonic() - t0 < s:
+            app.processEvents()
+            time.sleep(0.02)
+        return time.monotonic() - t0
+
+    src.start(f"http://127.0.0.1:{VIDEO_PORT}/stream", f"http://127.0.0.1:{VIDEO_PORT}/status")
+    until(lambda: src.persons is not None, 5)
+    assert src.persons == 3, f"khong doc duoc `total` tu /status: {src.persons}"
+    # Server chet -> "--" ngay o lan hoi sau, KHONG giu so cu.
+    srv3.shutdown()
+    srv3.server_close()
+    dt = until(lambda: src.persons is None, 5)
+    assert src.persons is None, "/status loi ma van giu so nguoi cu"
+    assert dt < 1.5, f"/status loi {dt:.1f} s moi xoa so nguoi (phai <= 0,5 s + timeout 1 s)"
+    src.stop()
+
     # Huy DUT DIEM ngay tai day, tren main thread. VideoSource so huu mot QTimer
     # chay suot (`_watch`); tha cho no roi khoi tam vuc thi Python thu gom luc
     # nao khong biet — va neu luc do la mot thread khac thi Qt keu "Timers cannot
@@ -2106,7 +2181,7 @@ def check_video(app):
     app.processEvents()
     print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu; camera dung hinh "
           "(khung ve deu ma anh trung tung byte) cung xoa, chu doi sang mau canh bao, tin hieu ban "
-          "mot lan moi luot, camera chay lai thi tu hien tro lai")
+          "mot lan moi luot, camera chay lai thi tu hien tro lai; so nguoi doc tu /status")
 
 
 def check_i18n(app):
@@ -2846,10 +2921,9 @@ def check_touch_flight(app):
         # bo dem da chet).
         assert persons.isVisible() and persons.property("value") == "--", \
             f"thanh NGUOI khi chua co so: {persons.isVisible()} {persons.property('value')!r}"
-        # So toi tu ros2_bridge (topic `persons`, xem tools/ros2_bridge.py)
-        def ppl(n, age=0.0):
-            bus.emit_envelope({"src": "remote", "topic": "persons",
-                               "ts": time.time() - age, "data": {"n": n}})
+        # So lay tu VideoSource.persons (hoi /status, xem check_video)
+        def ppl(n):
+            b.video_src.persons = n
             b.refresh()
             app.processEvents()
             return persons.property("value")
@@ -2860,7 +2934,7 @@ def check_touch_flight(app):
         b.video_src._frozen = True  # camera dung hinh: model dang dem mot canh cu
         assert ppl(4) == "--", "dung hinh ma van hien so nguoi"
         b.video_src._frozen = False
-        assert ppl(4, age=3) == "--", "so nguoi het tuoi (bridge im 3 s) ma van hien"
+        assert ppl(None) == "--", "/status loi ma van hien so nguoi"
         b.profile = old_prof
         b.refresh()
 
@@ -3022,11 +3096,9 @@ def check_touch_flight(app):
         b.voice.reset()
         b.voice.spoken.clear()
         b.profile = {"name": "x", "mode": "SIM", "video": "http://127.0.0.1:9/stream"}
-        bus.emit_envelope({"src": "remote", "topic": "persons", "ts": time.time(),
-                           "data": {"n": 2}})
+        b.video_src.persons = 2
         b.refresh()
-        bus.emit_envelope({"src": "remote", "topic": "persons", "ts": time.time() - 3,
-                           "data": {"n": 2}})  # de het tuoi cho cac bai sau
+        b.video_src.persons = None  # khong de so lai cho cac bai sau
         b.profile = old_prof
         assert "Phát hiện 2 người" in b.voice.spoken, b.voice.spoken
         # Giong Piper (neu da tai): tong hop duoc ca hai thu tieng, do dai hop ly.

@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
         # khung JPEG. Dia chi: key `video`, khong thi suy tu `remote` (video_url).
         url = video_url(profile)
         if url:
-            self.video.start(url)
+            self.video.start(url, profile.get("status"), profile.get("feedback"))
 
         self.control_tab.set_mode(self.mode)
         self.status_tab.attach(self.adapter)
