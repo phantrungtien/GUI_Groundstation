@@ -125,6 +125,12 @@ class ControlTab(QWidget):
         self.task_hint.setStyleSheet(f"color:{theme.MUTED};")
         mg.addWidget(self.task_hint, 2, 0, 1, 3)
         bus.on("mission", self._on_mission_state)
+        # Bridge im qua STALE (2 s) thi dong nay ve "chua co tin", khong dung mai
+        # o ten task cuoi cung nghe duoc.
+        self._mission_timer = QTimer(self)
+        self._mission_timer.timeout.connect(
+            lambda: self._show_mission(REGISTRY.value("mission.running")))
+        self._mission_timer.start(1000)
 
         # --- NUT DO ---
         self.btn_rtl = QPushButton("RTL")

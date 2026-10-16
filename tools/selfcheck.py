@@ -151,7 +151,9 @@ def check_source_filter():
     # RADIO_STATUS do chinh radio duoi dat chen vao, khong phai FC — nhung do la
     # nguon RSSI duy nhat khi bay that.
     assert from_autopilot(Msg(68, "RADIO_STATUS")), "RADIO_STATUS phai giu lai"
-    print("  ok  chi nhan goi tu FC (bo MAVROS/MAVProxy, giu RADIO_STATUS)")
+    # Node task tren companion bao "FIRE: ..." qua MAVROS -> FC chuyen tiep tu 1/191.
+    assert from_autopilot(Msg(191, "STATUSTEXT")), "STATUSTEXT cua node task (qua MAVROS) bi bo"
+    print("  ok  chi nhan goi tu FC (bo MAVROS/MAVProxy, giu RADIO_STATUS + STATUSTEXT)")
 
 
 def check_flatten():
@@ -494,6 +496,27 @@ def check_video_h264(app):
         fb.close()
         video_mod.FROZEN_S = frozen_s
 
+    # Khong giu khung: gui DUNG 20 khung 5 fps roi im — khung nao ket lai trong
+    # duong ong (h264parse cho khung SAU de biet khung nay het) la khong bao gio ra.
+    # Do 16/10/2026 voi mpegtsmux: thieu `alignment=au` -> 19/20, co -> 20/20.
+    n = [0]
+    src.updated.connect(lambda: n.__setitem__(0, n[0] + (src.pixmap is not None)))
+    src.start(f"udp://0.0.0.0:{port + 2}")
+    s = subprocess.Popen(
+        [gst, "-q", "videotestsrc", "is-live=true", "pattern=ball", "num-buffers=20",
+         "!", "video/x-raw,width=320,height=240,framerate=5/1", "!", "x264enc",
+         "tune=zerolatency", "speed-preset=ultrafast", "key-int-max=25", "!", "mpegtsmux",
+         "!", "udpsink", "host=127.0.0.1", f"port={port + 2}"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert until(lambda: s.poll() is not None, 10000), "ben gui 20 khung khong xong"
+        until(lambda: n[0] >= 20, 1000)
+        assert n[0] == 20, f"duong ong giu khung: gui 20, ra {n[0]} (thieu = tre bay nhieu khung)"
+    finally:
+        s.kill()
+        s.wait()
+        src.stop()
+
     # Du phong may khong co GStreamer (Windows): QMediaPlayer van phai ra hinh
     # (tre hon ~0,9 s, xem dau video.py — nhung co hinh con hon o xam).
     gst_mod, video_mod.Gst = video_mod.Gst, None
@@ -512,7 +535,7 @@ def check_video_h264(app):
     app.processEvents()
     print("  ok  video H.264/UDP — giai ma that; dung hinh (anh dong bang qua x264) xoa anh; "
           "mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh; dem goi TS mat "
-          "va bao \"loss=\" ve Jetson moi giay, het goi thi im")
+          "va bao \"loss=\" ve Jetson moi giay, het goi thi im; khong giu khung (20/20)")
 
 
 def check_tabs(app):
@@ -2389,7 +2412,7 @@ def check_touch(app):
     from PySide6.QtQuick import QQuickItem
     from PySide6.QtTest import QTest
 
-    from core import authority
+    from core import authority, bus
     from core.field import REGISTRY
     from laptop.app import MainWindow
 
@@ -2532,6 +2555,95 @@ def check_touch(app):
         assert root.property("pending") == "", "truot xong ma bang xac nhan van mo"
         sent.clear()
 
+        # --- task Chua chay: nut ⚑ bat/huy, chip diem chay chi khi task chay --
+        #
+        # Lenh task di cong `remote` (WebSocket -> ros2_bridge), KHONG qua SiK.
+        # Trang thai lay tu bridge (topic `mission`, 1 lan/giay): bridge im qua
+        # STALE thi coi nhu khong biet — chip khong duoc gui vao node co the da chet.
+        rsent = []
+
+        class FakeRemote:
+            def send(self, action, args=None):
+                rsent.append((action, dict(args or {})))
+                return {"ok": action}
+
+        def tap(item):
+            QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier,
+                             item.mapToScene(QPointF(item.width() / 2,
+                                                     item.height() / 2)).toPoint())
+            wait(100)
+
+        def bridge(running, age=0.0):
+            bus.emit_envelope({"src": "remote", "topic": "mission", "ts": time.time() - age,
+                               "data": {"running": running, "spawn": True}})
+            wait(250)  # refresh() chay moi 200 ms
+
+        def open_wp():
+            root.setProperty("wpOpen", True)
+            wait(100)
+
+        authority.register("remote", FakeRemote())
+        task_btn = root.findChild(QQuickItem, "taskBtn")
+        fire = root.findChild(QQuickItem, "wpFire")
+        assert task_btn is not None and task_btn.isVisible(), "khong thay nut ⚑ Chua chay"
+        bridge("")
+        open_wp()
+        assert fire is not None and not fire.isVisible(), "task chua bat ma da co chip diem chay"
+        win.touch.fireAt(10.8, 106.6)
+        assert rsent == [], f"task chua bat ma diem chay van gui: {rsent}"
+
+        tap(task_btn)
+        assert root.property("pending") == "taskStart", root.property("pending")
+        drag(0.5)
+        assert rsent == [], f"tha giua chung ma task da bat: {rsent}"
+        drag(1.0)
+        assert rsent == [("mission", {"name": "fire_mission"})], rsent
+        assert sent == [], f"lenh task lot xuong SiK: {sent}"
+        rsent.clear()
+
+        bridge("fire_mission")
+        open_wp()
+        assert fire.isVisible(), "task dang chay ma khong co chip 'Chua chay tai day'"
+        tap(fire)
+        assert root.property("pending") == "fire", "cham diem chay ma khong hoi xac nhan"
+        aimed = root.property("gotoAt")
+        m.set_position(10.8250000, 106.6900000)  # ban do chay theo drone luc dang truot
+        wait(100)
+        drag(0.5)
+        assert rsent == [], f"tha giua chung ma diem chay da gui: {rsent}"
+        drag(1.0)
+        assert [a for a, _ in rsent] == ["fire_target"], rsent
+        got = rsent[0][1]
+        assert abs(got["lat"] - aimed[0]) < 1e-6 and abs(got["lon"] - aimed[1]) < 1e-6, (
+            f"ban do chay theo drone ma diem chay gui cho khac: {got} != {aimed}")
+        assert sent == [], f"diem chay lot xuong SiK: {sent}"
+        rsent.clear()
+
+        # Dang chay thi cung nut do la Huy task
+        tap(task_btn)
+        assert root.property("pending") == "taskStop", root.property("pending")
+        drag(1.0)
+        assert rsent == [("mission", {"name": ""})], rsent
+        rsent.clear()
+
+        # Bridge im 3 s (WebSocket chet / bridge treo): chip an, fireAt tu choi,
+        # tab Dieu khien ve "chua co tin" thay vi dung o ten task cu.
+        bridge("fire_mission")
+        assert win.touch._state["taskFire"] is True
+        bridge("fire_mission", age=3)
+        open_wp()
+        assert win.touch._state["taskFire"] is False, "bridge im 3 s ma van coi task dang chay"
+        assert not fire.isVisible(), "bridge im 3 s ma chip diem chay van hien"
+        win.touch.fireAt(*aimed)
+        assert rsent == [], f"bridge im ma diem chay van gui: {rsent}"
+        win.control_tab._mission_timer.timeout.emit()
+        assert win.control_tab.mission_now.text() == t("ctl.mission_none"), (
+            f"bridge im ma tab Dieu khien van bao: {win.control_tab.mission_now.text()}")
+        authority.unregister("remote")
+        root.setProperty("wpOpen", False)
+        root.setProperty("pending", "")
+        wait(50)
+
         # --- camera dung hinh phai NOI LEN man bay ----------------------------
         #
         # O video da doi mau chu, nhung o PiP nam goc duoi trai 240x135: nguoi lai
@@ -2651,7 +2763,9 @@ def check_touch(app):
         win.close()
     print("  ok  tab Bay cam ung: mo san, chung Commands, tha giua chung khong co lenh, "
           "truot het moi di, cat dong co truot het la di (khong giu), mat SiK la huy; \"bay toi day\" "
-          "cung phai truot, toa do chot luc chi chu khong doc lai pixel; camera dung hinh noi len "
+          "cung phai truot, toa do chot luc chi chu khong doc lai pixel; task Chua chay: nut ⚑ "
+          "bat/huy qua `remote` (khong qua SiK), chip diem chay chi khi task chay, bridge im 3 s "
+          "thi an chip + tu choi + tab Dieu khien 'chua co tin'; camera dung hinh noi len "
           "man bay + tab Thong bao, dong \"chay lai\" chi vao tab Thong bao; ban do: giu 2 s "
           "(co vong tron) moi mo bang diem den, cham mot cai/tha som thi khong, keo thi khong mo; cham dup "
           "(ke ca ngon tay rung) ve dung cho drone")

@@ -95,9 +95,6 @@ class Backend(QObject):
         bus.on("wp", self._on_wp)
         bus.on("param", lambda e: self._params.update(e["data"]))
         bus.on("text", self._on_text)
-        # Task dang chay tren companion — bridge bao moi giay (topic "mission").
-        self._task = ""
-        bus.on("mission", lambda e: setattr(self, "_task", e["data"].get("running") or ""))
         # San sang ARM: bit PREARM_CHECK trong SYS_STATUS — cung nguon Mission
         # Planner/QGC dung. Do that 19/09 tren MicoAir743: log 144628 co loi
         # PreArm -> bit False ca phien; log 155159 khong loi -> True tu giay dau.
@@ -250,8 +247,13 @@ class Backend(QObject):
             # chu khong nam do im lang cho nguoi bay keo mai khong hieu.
             "nudgeWhy": self.cmd.nudge_block(self._live()) or "",
             # --- task tren companion -------------------------------------
-            "task": self._task if self.profile is not None else "",
-            "taskFire": self.profile is not None and self._task == FIRE_TASK,
+            # Bridge bao moi giay (topic `mission`). Im qua STALE (2 s) — WebSocket
+            # chet, bridge treo — thi KHONG BIET task con chay: an chip diem chay
+            # thay vi de no gui vao mot node co the da chet.
+            # ponytail: STALE chung 2 s = du 1 lan bao tre/mat; LTE rung hon thi
+            # chip nhap nhay — luc do cho Field mot STALE rieng.
+            "task": v("mission.running") or "",
+            "taskFire": v("mission.running") == FIRE_TASK,
             # Kich ban #8: hai nguon lech vi tri qua nguong. Dong rieng chu khong
             # day vao `alerts`: no lap lai 5 Hz, vao do la dem "xN" chay loan.
             "diverge": div if div is not None and div > DIVERGE_M else None,
@@ -517,7 +519,7 @@ class Backend(QObject):
         if not self._live():
             self.cmd.say("touch.locked", 4)
             return
-        if self._task != FIRE_TASK:
+        if REGISTRY.value("mission.running") != FIRE_TASK:
             self.cmd.say("task.not_running", 4)
             return
         self.cmd.fire_target(lat, lon)

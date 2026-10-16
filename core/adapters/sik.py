@@ -133,8 +133,15 @@ def from_autopilot(msg):
     Component 0 (MAV_COMP_ID_ALL) cung cho qua: mot so nguon gui don gian va log
     cu ghi nhu vay. Chan no thi REPLAY mot .tlog la ra man hinh trong tron — dung
     kieu hong ma muc 2.2 cam.
+
+    STATUSTEXT cung giu lai, tu component nao cung vay: node tren companion (task
+    Chua chay) bao tung buoc qua MAVROS `/mavros/statustext/send`, FC chuyen tiep
+    voi nguon 1/191. Do 16/10/2026 tren SITL fire_drone_ws: 3/3 dong "FIRE: ..."
+    toi cong GCS 5762 deu la 1/191 — loc theo component thi tab Thong bao khong
+    bao gio thay buoc nao cua task. Chu khong doi trang thai ARM hay dia chi lenh.
     """
-    return msg.get_srcComponent() in (0, AUTOPILOT) or msg.get_type() == "RADIO_STATUS"
+    return (msg.get_srcComponent() in (0, AUTOPILOT)
+            or msg.get_type() in ("RADIO_STATUS", "STATUSTEXT"))
 
 # (stream_id, Hz) — Phu luc 7.2
 #

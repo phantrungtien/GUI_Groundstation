@@ -289,11 +289,20 @@ class VideoSource(QObject):
     def _gst_start(self, url, gen):
         """udpsrc -> MPEG-TS -> H.264 -> RGBx -> appsink. sync=false + 1 buffer, bo
         khung cu: luon ve khung MOI NHAT, khong co dong ho phat nao giu khung lai.
-        GStreamer tu chay tiep khi goi UDP toi lai, ke ca Jetson khoi dong lai luong."""
+        GStreamer tu chay tiep khi goi UDP toi lai, ke ca Jetson khoi dong lai luong.
+
+        `alignment=au` sau tsdemux: moi PES la TRON mot khung (ffmpeg/mpegtsmux deu
+        vay), noi ro thi h264parse nha khung ngay thay vi cho khung SAU de biet khung
+        nay het. Do 16/10/2026, 40 khung 5 fps cau hinh x264 cua Jetson: khong co ->
+        38/40 khung ra, tre 2 khung; co -> 39/40, tre 1 khung (khung con lai la
+        tsdemux cho PES ke tiep vi ffmpeg bo do dai PES — Jetson them
+        `-omit_video_pes_length 0` thi 40/40, tre 4 ms). Doi `avdec_h264` sang
+        `max-threads=1` / `thread-type=slice` (kieu ffmpeg low_delay): khong doi gi."""
         u = urlparse(url)
         self._pipe = Gst.parse_launch(
             f"udpsrc name=u address={u.hostname or '0.0.0.0'} port={u.port} "
-            "caps=video/mpegts,systemstream=true ! tsdemux ! h264parse ! avdec_h264 "
+            "caps=video/mpegts,systemstream=true ! tsdemux "
+            "! video/x-h264,stream-format=byte-stream,alignment=au ! h264parse ! avdec_h264 "
             "! videoconvert ! video/x-raw,format=RGBx "
             "! appsink name=s emit-signals=true sync=false max-buffers=1 drop=true")
         self._pipe.get_by_name("s").connect("new-sample", self._on_sample, gen)
