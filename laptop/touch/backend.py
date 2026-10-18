@@ -513,16 +513,17 @@ class Backend(QObject):
         """Bat ("fire_mission") / huy ("") task. Loi duong truyen do _soft() bao."""
         self.cmd.task(name)
 
-    @Slot(float, float)
-    def fireAt(self, lat, lon):
-        """Diem chay da chot (nhu gotoAt). Chi khi task Chua chay dang chay."""
+    @Slot(float, float, float)
+    def fireAt(self, lat, lon, alt):
+        """Diem chay da chot (nhu gotoAt) + do cao chon tren thanh truot.
+        Chi khi task Chua chay dang chay."""
         if not self._live():
             self.cmd.say("touch.locked", 4)
             return
         if REGISTRY.value("mission.running") != FIRE_TASK:
             self.cmd.say("task.not_running", 4)
             return
-        self.cmd.fire_target(lat, lon)
+        self.cmd.fire_target(lat, lon, float(max(WP_ALT_MIN, min(WP_ALT_MAX, alt))))
 
     @Slot(float, float)
     def goto(self, x, y):

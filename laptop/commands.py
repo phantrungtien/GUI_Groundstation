@@ -239,10 +239,12 @@ class Commands(QObject):
         self._soft(what, authority.dispatch(
             {"target": "remote", "action": "mission", "args": {"name": name}}))
 
-    def fire_target(self, lat, lon):
-        """Giao diem chay cho task Chua chay. Node tu bay toi, tim, tha, kiem tra, ve."""
-        self._soft(t("act.fire_target", lat=lat, lon=lon), authority.dispatch(
-            {"target": "remote", "action": "fire_target", "args": {"lat": lat, "lon": lon}}))
+    def fire_target(self, lat, lon, alt):
+        """Giao diem chay cho task Chua chay. Node cat canh/bay o `alt` m, tu tim, tha,
+        kiem tra, ve. Node tu choi alt ngoai [min_alt, max_alt] cua no (bao o tab Thong bao)."""
+        self._soft(t("act.fire_target", lat=lat, lon=lon, alt=alt), authority.dispatch(
+            {"target": "remote", "action": "fire_target",
+             "args": {"lat": lat, "lon": lon, "alt": float(alt)}}))
 
     # ---- nhich vi tri ----------------------------------------------------
 

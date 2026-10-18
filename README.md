@@ -82,51 +82,17 @@ không có gì để cắm lại, và cổng hỏng ngay từ lần mở đầu 
 
 ### SIM — chạy với SITL + ROS2
 
-Ba terminal:
+Chỉ một profile: **`SITL`** — SITL + Gazebo của `~/fire_drone_ws`.
 
 ```bash
-# 1. Gazebo + SITL + MAVROS + mission (mo 4 cua so rieng)
-cd ~/ros2-ardupilot-sitl-hardware
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-ros2 launch simtofly_mavros_sitl sitl_mission.launch.py
-
-# 2. Cau noi ROS2 -> WebSocket (that ra chay tren companion)
-source /opt/ros/humble/setup.bash
-source ~/ros2-ardupilot-sitl-hardware/install/setup.bash
-python3 ~/GUI_NATIVE/tools/ros2_bridge.py --host 127.0.0.1
-
-# 3. Giao dien
-cd ~/GUI_NATIVE && python3 -m laptop.app
+~/fire_drone_ws/scripts/run_sim.sh         # Gazebo + SITL + MAVROS + ros2_bridge + video camera sim
+cd ~/GUI_NATIVE && python3 -m laptop.app   # chọn profile "SITL"
+~/fire_drone_ws/scripts/run_sim.sh stop    # tắt hết
 ```
 
-Rồi chọn profile **`SITL + ROS2 (sitl_mission.launch.py)`**.
-
-**Video khi mô phỏng vẫn lấy từ Jetson.** Địa chỉ video bình thường suy từ `remote`
-(`ws://<máy>:8765` → `http://<máy>:8080/stream`), nhưng với SITL nửa ROS2 chạy
-ngay trên laptop (`127.0.0.1`) còn camera nằm trên Jetson — nên profile SITL có key
-`video` riêng:
-
-```yaml
-video: "http://trungtien-drone.tailff0d80.ts.net:8080/stream"
-```
-
-Companion gọi bằng **tên Tailscale** (MagicDNS), không bằng `.local` hay IP: bay
-bằng USB LTE thì hai máy không chung LAN. Laptop phải `tailscale up` cùng tài khoản
-với Jetson. Cùng LAN thì Tailscale tự đi thẳng — đo 10/10/2026: 3 ms, 15 fps.
-
-Có `video` thì dùng nó, không có thì suy từ `remote` như cũ. Video chạy độc lập
-với nửa ROS2 (`laptop/widgets/video.py: video_url`).
-
-**Cổng nào cắm vào đâu:** MAVProxy giữ TCP 5760, MAVROS giữ UDP 14550. SITL còn
-mở sẵn **5762/5763** — app cắm vào 5763, không phải sửa launch file bên ROS2.
-
-Home của SITL mặc định đặt ở ĐH Công nghiệp TP.HCM để trùng với tile bản đồ
-offline. Đổi chỗ bay:
-
-```bash
-ros2 launch simtofly_mavros_sitl sitl_mission.launch.py location:=<lat>,<lon>,10,0
-```
+App cắm `tcp:127.0.0.1:5762` (SITL chạy `--no-mavproxy`, MAVROS giữ 5760, 5763 im
+lặng), nửa ROS2 `ws://127.0.0.1:8765`, video là camera nadir của sim
+`http://127.0.0.1:8080/stream`.
 
 ### REPLAY — xem lại chuyến bay
 
@@ -485,8 +451,8 @@ nhìn, không phải mất quyền điều khiển.
 Người bay **bật task** (nút **⚑ Chữa cháy** ở màn bay cảm ứng, hoặc tab Điều khiển →
 chọn task → **Bắt đầu task**) → `ros2_bridge.py --spawn` khởi động node
 `fire_mission` (gói `fire_drone` ở `~/fire_drone_ws`, có trong `MISSIONS_OK`). Rồi
-**giữ 2 s trên bản đồ → "Chữa cháy tại đây" → trượt xác nhận** gửi
-`{"action":"fire_target","args":{lat,lon}}` qua WebSocket → `/gcs/command`. Từ đó node
+**giữ 2 s trên bản đồ → "Chữa cháy tại đây" → chọn độ cao (mặc định 20 m) → trượt xác
+nhận** gửi `{"action":"fire_target","args":{lat,lon,alt}}` qua WebSocket → `/gcs/command`. Từ đó node
 tự lái một việc có giới hạn: bay tới điểm, bay vòng tìm, thả bóng, bay vòng kiểm tra,
 RTL. Từng bước hiện ở tab Thông báo (STATUSTEXT tiền tố `FIRE:`).
 

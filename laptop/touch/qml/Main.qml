@@ -23,6 +23,11 @@ Item {
     property string pending: ""      // lenh dang cho truot
     property string pendingArg: ""
     property real takeoffAlt: 5
+    // Do cao task Chua chay: cat canh + bay tim. Rieng voi takeoffAlt — 5 m cat canh
+    // tay la hop, 5 m bay tim lua trong rung thi khong. 20 = search_alt cua node.
+    property real fireAlt: 20
+    // = drop_alt cua fire_mission: bay cao bao nhieu cung ha ve day moi tha (khong leo len).
+    readonly property real fireDropAlt: 20
     // Cham-giu ban do thay cho menu chuot phai cua tab Bay cu: nho lai diem vua
     // cham de "dat waypoint o day" / "bay toi day" con biet la o dau.
     property bool wpOpen: false
@@ -67,7 +72,8 @@ Item {
             // drone. Dung chung dong chu voi vet ghi o tab Thong bao.
             "goto": gotoAt ? tr("act.goto", {"lat": gotoAt[0], "lon": gotoAt[1],
                                              "alt": st.wpAlt}) : "",
-            "fire": gotoAt ? tr("act.fire_target", {"lat": gotoAt[0], "lon": gotoAt[1]}) : "",
+            "fire": gotoAt ? tr("act.fire_target", {"lat": gotoAt[0], "lon": gotoAt[1],
+                                                    "alt": fireAlt}) : "",
             "taskStart": tr("touch.task_start_title"),
             "taskStop": tr("touch.task_stop_title")
         }[pending] || ""
@@ -85,7 +91,7 @@ Item {
             "land": tr("touch.do_land"), "rtl": tr("touch.do_rtl"),
             "kill": tr("touch.do_kill"), "mode": tr("touch.do_mode", {"name": pendingArg}),
             "goto": tr("touch.do_goto", {"alt": st.wpAlt}),
-            "fire": tr("touch.do_fire"),
+            "fire": tr("touch.do_fire", {"alt": fireAlt, "drop": Math.min(fireAlt, fireDropAlt)}),
             "taskStart": tr("touch.do_task_start"), "taskStop": tr("touch.do_task_stop")
         }[pending] || ""
         return tr("touch.slide", {"what": what})
@@ -735,16 +741,25 @@ Item {
                     MouseArea { anchors.fill: parent; anchors.margins: -10; onClicked: win.pending = "" }
                 }
             }
+            // Cung mot hang chon do cao cho cat canh tay va task Chua chay, moi cai
+            // nho so rieng cua minh.
             Flow {
-                visible: win.pending === "takeoff"
+                id: altRow
+                visible: win.pending === "takeoff" || win.pending === "fire"
+                readonly property bool fire: win.pending === "fire"
+                readonly property real alt: fire ? win.fireAlt : win.takeoffAlt
+                function pick(v) {
+                    if (fire) win.fireAlt = v; else win.takeoffAlt = v
+                    askTimer.restart()
+                }
                 width: parent.width
                 spacing: 8 * s
                 Repeater {
-                    model: [3, 5, 10, 20, 30]
+                    model: altRow.fire ? [10, 20, 50, 100] : [3, 5, 10, 20, 30]
                     delegate: Chip {
                         text: modelData + " m"
-                        selected: win.takeoffAlt === modelData
-                        onTap: { win.takeoffAlt = modelData; askTimer.restart() }
+                        selected: altRow.alt === modelData
+                        onTap: altRow.pick(modelData)
                     }
                 }
                 // Go so tuy y, giong o do cao waypoint. Kep hai dau o day, va
@@ -760,8 +775,8 @@ Item {
                     font.pixelSize: 14 * s
                     textFromValue: function (v) { return v + " m" }
                     valueFromText: function (txt) { return parseInt(txt) || takeoffBox.value }
-                    Binding on value { value: win.takeoffAlt }
-                    onValueModified: { win.takeoffAlt = value; askTimer.restart() }
+                    Binding on value { value: altRow.alt }
+                    onValueModified: altRow.pick(value)
                 }
             }
             Flow {
@@ -801,7 +816,7 @@ Item {
                     if (a === "goto")
                         backend.gotoAt(win.gotoAt[0], win.gotoAt[1])
                     else if (a === "fire")
-                        backend.fireAt(win.gotoAt[0], win.gotoAt[1])
+                        backend.fireAt(win.gotoAt[0], win.gotoAt[1], win.fireAlt)
                     else if (a === "taskStart")
                         backend.task("fire_mission")
                     else if (a === "taskStop")

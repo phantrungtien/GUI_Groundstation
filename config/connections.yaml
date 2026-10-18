@@ -37,30 +37,13 @@
   status: "http://100.117.32.3:8080/status"   # IP Tailscale: dang nhap lai tai khoan la doi
   feedback: "100.117.32.3:5601"   # bao mat goi -> Jetson tu chinh bitrate (run_gui --h264-fb-port)
 
-# Mo phong. Can hai thu chay truoc:
-#   1. ros2 launch simtofly_mavros_sitl sitl_mission.launch.py
-#   2. source /opt/ros/humble/setup.bash && python3 tools/ros2_bridge.py
-#
-# Cong nao cam vao dau: MAVProxy giu TCP 5760, MAVROS giu UDP 14550. SITL con mo
-# san 5762/5763 — cam vao 5763 thi khong phai sua launch file ben ROS2.
-- name: "SITL + ROS2 (sitl_mission.launch.py)"
-  mode: SIM
-  conn: "tcp:127.0.0.1:5763"
-  sysid: 254
-  remote: "ws://127.0.0.1:8765"
-  # Nua ROS2 o tren chay NGAY TREN laptop, con camera van nam tren Jetson va day
-  # H.264 thang ve laptop — nen video phai khai rieng (bo dong nay thi app di tim
-  # MJPEG o 127.0.0.1:8080, khong co).
-  video: "udp://0.0.0.0:5600"
-
-# Mo phong ~/fire_drone_ws (SITL + Gazebo): camera la camera NADIR CUA SIM, khong phai
-# Jetson — de xem drone tim ma ArUco "dom lua". Chay truoc:
-#   ~/fire_drone_ws/scripts/run_sim.sh
-# script do mo SITL (MAVROS giu 5760) va mjpeg_server day /rgb/image ra cong 8080.
-# Cong 5762, KHONG phai 5763 nhu profile tren: SITL do chay --no-mavproxy, do 15/10/2026
-# 5762 co heartbeat con 5763 im lang.
-# Nua ROS2 (`remote`) chi co khi tu chay them tools/ros2_bridge.py.
-- name: "SITL Gazebo fire_drone_ws (camera sim)"
+# Mo phong: DUY NHAT mot profile SITL tren laptop — SITL + Gazebo cua ~/fire_drone_ws.
+# Chay truoc:  ~/fire_drone_ws/scripts/run_sim.sh   (tat: run_sim.sh stop)
+# Script do mo SITL --no-mavproxy (MAVROS giu 5760), ros2_bridge (8765) va mjpeg_server
+# day camera NADIR CUA SIM ra 8080. Cong 5762, khong phai 5763: do 15/10/2026 5762 co
+# heartbeat con 5763 im lang. Profile sim cu (simtofly sitl_mission.launch.py, 5763,
+# video Jetson) da bo 18/10/2026 — can lai thi xem git log.
+- name: "SITL"
   mode: SIM
   conn: "tcp:127.0.0.1:5762"
   sysid: 254
@@ -70,15 +53,3 @@
 - name: "Phat lai chuyen bay (.tlog)"
   mode: REPLAY
   path: "logs/*.tlog"
-
-# Chi xem video Jetson, khong co SiK radio cam vao. Nua SiK se do (dung vay — khong
-# co radio that), nua video van chay vi no di duong WiFi rieng. Cam radio roi
-# bam "Quet lai cong USB" thi dung profile "SiK radio" o tren, khong dung cai nay.
-- name: "Chi video (camera Jetson)"
-  mode: REAL
-  conn: "udp:127.0.0.1:14550"   # cong trong — chi de profile hien ra, khong co FC
-  sysid: 254
-  remote: "ws://trungtien-drone.tailff0d80.ts.net:8765"
-  video: "udp://0.0.0.0:5600"
-  status: "http://100.117.32.3:8080/status"   # IP Tailscale: dang nhap lai tai khoan la doi
-  feedback: "100.117.32.3:5601"   # bao mat goi -> Jetson tu chinh bitrate (run_gui --h264-fb-port)

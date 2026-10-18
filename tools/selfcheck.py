@@ -1994,7 +1994,9 @@ def check_video(app):
     # cua profile bay that — doi cong ben Jetson ma quen sua SITL thi bai nay keu.
     real = next(p for p in yaml.safe_load((_root / "config" / "connections.yaml").read_text())
                 if p["name"] == "SiK radio")
-    assert sitl and all(video_url(p) == video_url(real) for p in sitl), \
+    # Không còn profile SITL nào nghe video Jetson (18/10/2026 bỏ profile simtofly) thì
+    # không có gì để so - rỗng là đạt, chứ không phải lỗi.
+    assert all(video_url(p) == video_url(real) for p in sitl), \
         f"profile SITL nghe video khac profile bay that: {[video_url(p) for p in sitl]}"
 
     # JPEG that chu khong phai byte rac: bat loi giai ma, khong chi bat loi truyen.
@@ -2605,7 +2607,7 @@ def check_touch(app):
         bridge("")
         open_wp()
         assert fire is not None and not fire.isVisible(), "task chua bat ma da co chip diem chay"
-        win.touch.fireAt(10.8, 106.6)
+        win.touch.fireAt(10.8, 106.6, 20)
         assert rsent == [], f"task chua bat ma diem chay van gui: {rsent}"
 
         tap(task_btn)
@@ -2622,6 +2624,14 @@ def check_touch(app):
         assert fire.isVisible(), "task dang chay ma khong co chip 'Chua chay tai day'"
         tap(fire)
         assert root.property("pending") == "fire", "cham diem chay ma khong hoi xac nhan"
+        # Bang truot diem chay co chon do cao, va so do di thang vao lenh
+        box = root.findChild(QQuickItem, "takeoffAltBox")
+        assert box is not None and box.isVisible(), "bang diem chay khong co chon do cao"
+        root.setProperty("fireAlt", 15)
+        wait(50)
+        assert box.property("value") == 15, "o do cao khong theo fireAlt"
+        assert "15 m" in root.findChild(QQuickItem, "slider").property("text"), (
+            "thanh truot khong hien do cao se cat canh")
         aimed = root.property("gotoAt")
         m.set_position(10.8250000, 106.6900000)  # ban do chay theo drone luc dang truot
         wait(100)
@@ -2632,6 +2642,8 @@ def check_touch(app):
         got = rsent[0][1]
         assert abs(got["lat"] - aimed[0]) < 1e-6 and abs(got["lon"] - aimed[1]) < 1e-6, (
             f"ban do chay theo drone ma diem chay gui cho khac: {got} != {aimed}")
+        assert got["alt"] == 15.0, f"diem chay khong mang dung do cao da chon: {got}"
+        assert root.property("takeoffAlt") == 5, "chon do cao chua chay de len cat canh tay"
         assert sent == [], f"diem chay lot xuong SiK: {sent}"
         rsent.clear()
 
@@ -2650,7 +2662,7 @@ def check_touch(app):
         open_wp()
         assert win.touch._state["taskFire"] is False, "bridge im 3 s ma van coi task dang chay"
         assert not fire.isVisible(), "bridge im 3 s ma chip diem chay van hien"
-        win.touch.fireAt(*aimed)
+        win.touch.fireAt(*aimed, 20)
         assert rsent == [], f"bridge im ma diem chay van gui: {rsent}"
         win.control_tab._mission_timer.timeout.emit()
         assert win.control_tab.mission_now.text() == t("ctl.mission_none"), (
