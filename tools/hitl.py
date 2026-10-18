@@ -25,6 +25,26 @@ sys.path.insert(0, str(ROOT))
 
 PORT = os.environ.get("HITL_PORT", "/dev/ttyACM0")
 BAUD = int(os.environ.get("HITL_BAUD", "57600"))
+# Thieu "bridge" thi stream_table() coi la radio -> RC_CHANNELS 1 Hz, khac han app
+# that (connection.py dat bridge=False cho cong CDC cua FC). Do that 18/10 15:53:
+# ga doc 988 luc 0,70 s, ARM gui 1,17 s, that ra ga da 1470 -> FC tu choi.
+BRIDGE = "ttyUSB" in PORT
+
+
+def ready(rc, hold=[None, 0.0]):
+    """Ga o day VA yaw o giua, giu 1 s — dung dieu kien FC kiem khi ARM
+    ("Throttle/Yaw (RCn) is not neutral"). Do that 18/10 15:55: keo ga bang ngon
+    cai, yaw lech 1720 -> FC tu choi. Can ga lo xo tu ve 1500 nen phai giu tay."""
+    now = time.time()
+    if now - hold[1] > 0.5:  # vong cho moi: khong mang moc giu tu vong truoc
+        hold[0] = None
+    hold[1] = now
+    g, y = rc.get("RC_CHANNELS.chan3_raw"), rc.get("RC_CHANNELS.chan4_raw")
+    if g is None or y is None or g >= 1150 or abs(y - 1500) > 30:
+        hold[0] = None
+        return False
+    hold[0] = hold[0] or now
+    return now - hold[0] >= 1.0
 
 
 def _mav(timeout=15):
@@ -61,8 +81,9 @@ def kb12():
 
     app = QApplication.instance() or QApplication([])
     prof = {"name": "SITL (that ra la FC that)", "mode": "SIM",
-            "conn": PORT, "baud": BAUD, "sysid": 254}
+            "conn": PORT, "baud": BAUD, "sysid": 254, "bridge": BRIDGE}
     win = MainWindow([prof])
+    win.show()  # nguoi bay xem duoc app dang lam gi (offscreen thi van an)
     win.panel.select(prof["name"])
     win.panel.btn_connect.click()
 
@@ -102,8 +123,9 @@ def _child(do_arm):
 
     app = QApplication.instance() or QApplication([])
     prof = {"name": "FC that qua USB", "mode": "REAL",
-            "conn": PORT, "baud": BAUD, "sysid": 254}
+            "conn": PORT, "baud": BAUD, "sysid": 254, "bridge": BRIDGE}
     win = MainWindow([prof])
+    win.show()  # nguoi bay xem duoc app dang lam gi (offscreen thi van an)
     win.panel.select(prof["name"])
     win.panel.btn_connect.click()
 
@@ -258,8 +280,9 @@ def kb_disarm():
 
     app = QApplication.instance() or QApplication([])
     prof = {"name": "FC that qua USB", "mode": "REAL",
-            "conn": PORT, "baud": BAUD, "sysid": 254}
+            "conn": PORT, "baud": BAUD, "sysid": 254, "bridge": BRIDGE}
     win = MainWindow([prof])
+    win.show()  # nguoi bay xem duoc app dang lam gi (offscreen thi van an)
     win.panel.select(prof["name"])
     win.panel.btn_connect.click()
     ct = win.control_tab
@@ -281,22 +304,24 @@ def kb_disarm():
                 return True
         return False
 
-    spin(20, lambda: "armed" in hb)
-    assert "armed" in hb, "khong nhan duoc heartbeat qua app"
-    print(f"  ban dau: armed={hb['armed']}")
-
-    print("  >>> HA GA VE MIN VA GIU (~25s) — dang cho...", flush=True)
-    if not spin(90, lambda: (rc.get("RC_CHANNELS.chan3_raw") or 9999) < 1150):
-        sys.exit("ga khong ve min sau 90s")
-    print(f"  ga = {rc.get('RC_CHANNELS.chan3_raw')} — ARM", flush=True)
-
-    logs.clear()
-    ct.btn_arm.click()
-    spin(6, lambda: hb.get("armed"))
-    assert hb.get("armed"), f"khong ARM duoc: {logs}"
-    print(f"  ARM   : armed={hb['armed']}   log={logs}")
-
+    # Ca phan ARM nam TRONG try: do that 18/10 15:53 ARM hong -> assert thoat
+    # khong disconnect -> "QThread: Destroyed while thread is still running", exit -6.
     try:
+        spin(20, lambda: "armed" in hb)
+        assert "armed" in hb, "khong nhan duoc heartbeat qua app"
+        print(f"  ban dau: armed={hb['armed']}")
+
+        print("  >>> HA GA VE MIN VA GIU (~25s) — dang cho...", flush=True)
+        if not spin(90, lambda: ready(rc)):
+            sys.exit("ga khong ve min sau 90s")
+        print(f"  ga = {rc.get('RC_CHANNELS.chan3_raw')} — ARM", flush=True)
+
+        logs.clear()
+        ct.btn_arm.click()
+        spin(6, lambda: hb.get("armed"))
+        assert hb.get("armed"), f"khong ARM duoc: {logs}"
+        print(f"  ARM   : armed={hb['armed']}   log={logs}")
+
         _disarm_body(ct, hb, rc, spin, logs, REGISTRY)
     finally:
         # Bai nay co y dua FC vao dung trang thai kho ngat nhat. Thoat ma de no
@@ -361,8 +386,9 @@ def kb_armcycle(cycles=3):
 
     app = QApplication.instance() or QApplication([])
     prof = {"name": "FC that qua USB", "mode": "REAL",
-            "conn": PORT, "baud": BAUD, "sysid": 254}
+            "conn": PORT, "baud": BAUD, "sysid": 254, "bridge": BRIDGE}
     win = MainWindow([prof])
+    win.show()  # nguoi bay xem duoc app dang lam gi (offscreen thi van an)
     win.panel.select(prof["name"])
     win.panel.btn_connect.click()
     ct = win.control_tab
@@ -414,9 +440,9 @@ def kb_armcycle(cycles=3):
             print("      log:", x)
         return res
 
-    spin(20, lambda: "armed" in hb)
-    assert "armed" in hb, "khong nhan duoc heartbeat qua app"
     try:
+        spin(20, lambda: "armed" in hb)
+        assert "armed" in hb, "khong nhan duoc heartbeat qua app"
         _armcycle_body(ct, hb, rc, ga, spin, press, cycles)
     finally:
         # Bai test HITL khong duoc phep thoat ma de may bay con armed, ke ca khi
@@ -437,7 +463,7 @@ def kb_armcycle(cycles=3):
 def _armcycle_body(ct, hb, status, ga, spin, press, cycles):
     print("\n--- A. chu ky ARM/DISARM o ga min ---")
     print("  >>> HA GA VE MIN VA GIU — dang cho...", flush=True)
-    if not spin(90, lambda: (ga() or 9999) < 1150):
+    if not spin(90, lambda: ready(status)):
         sys.exit("ga khong ve min sau 90s")
     print(f"  ga = {ga()}\n")
     for i in range(cycles):
@@ -456,7 +482,12 @@ def _armcycle_body(ct, hb, status, ga, spin, press, cycles):
     #   1 = tren mat dat, 2 = tren khong, 3 = dang cat canh, 4 = dang ha
     def land():
         return status.get("EXTENDED_SYS_STATE.landed_state")
-    press(ct.btn_arm, "ARM")
+    # Do that 18/10 15:52: chang nay khong nhac, nguoi bay nha ga (1187) -> app
+    # chan ARM -> vong duoi thoat ngay va in "FC tu disarm sau 0.0s" la sai.
+    print("  >>> HA GA VE MIN VA GIU (~15s) — dang cho...", flush=True)
+    if not spin(90, lambda: ready(status)):
+        sys.exit("ga khong ve min sau 90s")
+    assert press(ct.btn_arm, "ARM") == 0 and hb["armed"], "chang B khong ARM duoc"
     t0 = time.time()
     seen = []
     while time.time() - t0 < 25 and hb.get("armed"):
@@ -489,7 +520,7 @@ def _armcycle_body(ct, hb, status, ga, spin, press, cycles):
 
     print("\n--- D. lenh thua ---")
     print("  >>> HA GA VE MIN VA GIU — dang cho...", flush=True)
-    if not spin(90, lambda: (ga() or 9999) < 1150):
+    if not spin(90, lambda: ready(status)):
         sys.exit("ga khong ve min")
     press(ct.btn_disarm, "DISARM luc da disarm")
     press(ct.btn_arm, "ARM")

@@ -1029,6 +1029,22 @@ def check_takeoff_guard(app):
         logs.clear()
         ct.cmd.check_climb(0.0, n - 1)
         assert not logs, logs
+        # Takeoff 1 m trong nha leo 0,95 m: dang len that, KHONG duoc keu
+        REGISTRY.feed({"src": "sik", "topic": "position", "data": {"alt_rel": 0.95},
+                       "ts": time.time()})
+        ct.cmd.check_climb(0.0, n, 1.0)
+        assert not logs, f"takeoff 1 m len 0,95 m ma van keu: {logs}"
+        ct.cmd.check_climb(0.0, n, 5.0)  # 5 m ma moi 0,95 m thi van keu
+        assert "độ cao không đổi" in logs[-1], logs
+        # DISARM trong 6 s (do that 18/10 15:38): nguoi bay tu dung, khong keu
+        logs.clear()
+        REGISTRY.feed({"src": "sik", "topic": "position", "data": {"alt_rel": 0.0},
+                       "ts": time.time()})
+        REGISTRY.feed({"src": "sik", "topic": "heartbeat",
+                       "data": {"mode": "GUIDED", "armed": False}, "ts": time.time()})
+        ct.cmd.check_climb(0.0, n, 5.0)
+        assert not logs, f"da DISARM ma van do loi cho companion: {logs}"
+        REGISTRY.fields.pop("heartbeat.armed", None)
 
         # O REAL phai xac nhan — nhung KHONG duoc xac nhan bang hop thoai chan.
         # Do that: trong luc mot QMessageBox mo, activeModalWidget() khac None nen

@@ -166,18 +166,23 @@ class Commands(QObject):
         # sau DISARM_DELAY. Khong doi chieu do cao thi giao dien trong y het thanh cong.
         QTimer.singleShot(
             CLIMB_CHECK_S * 1000,
-            lambda a0=REGISTRY.value("position.alt_rel", 0.0), n=self._climb_seq:
-                self.check_climb(a0, n))
+            lambda a0=REGISTRY.value("position.alt_rel", 0.0), n=self._climb_seq, w=alt:
+                self.check_climb(a0, n, w))
         return True
 
-    def check_climb(self, alt0, seq=None):
+    def check_climb(self, alt0, seq=None, want=None):
         # Chi doi chieu khi FC da CHAP NHAN dung lan takeoff nay. Do that 19/09
         # 16:06:46: takeoff luc chua ARM -> FC TU CHOI, 6 s sau van hien "FC da
         # nhan nhung do cao khong doi" — sai ca su that lan ly do.
         if seq is not None and (seq != self._climb_seq or self._takeoff_ok is not True):
             return
+        # DISARM trong 6 s la nguoi bay tu dung. Do that 18/10 15:38: takeoff
+        # 15:38:00, DISARM 15:38:05, 15:38:06 van do loi cho node companion.
+        if REGISTRY.value("heartbeat.armed") is False:
+            return
+        # Nguong 1 m co dinh thi takeoff 1 m trong nha (leo ~0,95 m) bi bao la nam im.
         alt = REGISTRY.value("position.alt_rel")
-        if alt is None or alt - alt0 >= 1.0:
+        if alt is None or alt - alt0 >= (1.0 if want is None else min(1.0, 0.5 * want)):
             return
         self.say("log.takeoff_no_climb", 3, sec=CLIMB_CHECK_S)
 
