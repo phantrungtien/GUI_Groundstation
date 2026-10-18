@@ -1926,6 +1926,11 @@ def check_copy_tiles(app):
         assert ticks, "chep xong khong bao ban do quet lai"
         assert copy_tiles(str(src), dst) == 0, "lan mo sau van chep lai"
 
+    # Log chuyen bay tren dien thoai nam NGOAI files/app: p4a xoa sach no moi lan cai lai.
+    from laptop.connection import ROOT, logs_dir
+    assert logs_dir(False) == ROOT / "logs", "laptop doi cho ghi log"
+    assert not logs_dir(True).is_relative_to(ROOT), "log dien thoai nam trong thu muc bi xoa khi cai lai"
+
 
 def check_dual_link(app):
     """Profile hai duong (dien thoai: SiK OTG + mang): SiK im thi tu sang mang.

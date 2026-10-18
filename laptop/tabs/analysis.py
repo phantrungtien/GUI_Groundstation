@@ -50,9 +50,9 @@ from core import bus, i18n, logdata
 from core.field import REGISTRY
 from core.i18n import t
 from laptop import theme
+from laptop.connection import LOGS
 from laptop.widgets.trajectory3d import Trajectory3D
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Tran duong tren mot do thi. Qua sau duong thi khong con doc duoc mau nao ra mau
 # nao, va do thi log thi de doi chieu vai duong voi nhau chu khong de xem tat ca.
@@ -677,7 +677,7 @@ class AnalysisTab(QWidget):
         keep = self.picker.currentData()
         self.picker.clear()
         files = [q for pat in ("*.tlog", "*.bin", "*.BIN")
-                 for q in (ROOT / "logs").glob(pat)]
+                 for q in LOGS.glob(pat)]
         for p in sorted(files, key=lambda q: q.stat().st_mtime, reverse=True):
             self.picker.addItem(f"{p.name}  ({p.stat().st_size // 1024} KB)", str(p))
         if keep:  # dang chon file nao thi giu nguyen, khong nhay ve dau danh sach
@@ -726,7 +726,7 @@ class AnalysisTab(QWidget):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, t("an.pick_log"), str(ROOT / "logs"), t("an.log_filter"))
+            self, t("an.pick_log"), str(LOGS), t("an.log_filter"))
         if path:
             self.picker.insertItem(0, Path(path).name, path)
             self.picker.setCurrentIndex(0)

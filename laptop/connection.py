@@ -45,6 +45,18 @@ MODE_COLOR = theme.MODE_COLOR
 ANDROID = hasattr(sys, "getandroidapilevel")
 
 
+def logs_dir(android=ANDROID):
+    """Thu muc log (.tlog, .bin tai tu FC, commands.log, video.log).
+
+    Dien thoai: ROOT la <files>/app, ma p4a XOA SACH no moi lan cai ban moi — log chuyen
+    bay se mat theo. Ghi ra <files>/logs ngay canh, nhu tile ban do o <files>/tiles.
+    """
+    return ROOT.parent / "logs" if android else ROOT / "logs"
+
+
+LOGS = logs_dir()
+
+
 def load_profiles(path=CONFIG):
     """Profile co `android: true/false` chi hien tren dung nen tang do — SITL o
     127.0.0.1 vo nghia tren dien thoai, cau OTG (tcp:127.0.0.1:5760) vo nghia tren laptop."""

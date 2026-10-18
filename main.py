@@ -15,6 +15,7 @@ from PySide6.QtCore import QDir, QDirIterator, QFile, QObject, Signal, QStandard
 from PySide6.QtWidgets import QApplication
 
 from laptop import app
+from laptop.connection import LOGS
 from laptop.widgets import map_widget
 
 ASSET_TILES = "assets:/tiles"  # tools/build_apk.sh: android.add_assets
@@ -61,7 +62,8 @@ class _MapRefresh(QObject):
 
 def main():
     # APK khong mang thu muc rong: thieu logs/ thi commands.log, video.log mat im lang.
-    (Path(__file__).resolve().parent / "logs").mkdir(exist_ok=True)
+    # (Dien thoai: <files>/logs, ngoai files/app — xem connection.logs_dir.)
+    LOGS.mkdir(parents=True, exist_ok=True)
     qapp = QApplication(sys.argv)  # truoc khi doc assets:/ — Qt dang ky no luc tao app
     if hasattr(sys, "getandroidapilevel"):  # chi Python cua Android co ham nay
         files = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)

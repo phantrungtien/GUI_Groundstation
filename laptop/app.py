@@ -37,7 +37,7 @@ from core.adapters.sik import STALE, SikAdapter
 from core.field import REGISTRY
 from core.i18n import t
 from laptop import connection
-from laptop.connection import (ROOT, ConnectionPanel, ModeBanner, detect_serial,
+from laptop.connection import (LOGS, ConnectionPanel, ModeBanner, detect_serial,
                                load_profiles, same_port)
 from laptop.link_faults import LinkFaults
 from laptop.link_status import LinkStatus
@@ -292,7 +292,7 @@ class MainWindow(QMainWindow):
         self.touch.alerts.push(text, sev)  # tu choi/ket hang thi noi len man bay
         try:
             line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  [{self.mode or '-'}]  {text}\n"
-            (ROOT / "logs" / "commands.log").open("a", encoding="utf-8").write(line)
+            (LOGS / "commands.log").open("a", encoding="utf-8").write(line)
         except OSError:
             pass  # het dia hay khong ghi duoc thi cung khong duoc lam chet giao dien
 
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
         self.banner.show_waiting(profile)  # chua byte nao ve thi chua duoc noi la da noi
         self.panel.set_connected(True, profile)
 
-        self.adapter = SikAdapter(profile, logdir=ROOT / "logs")
+        self.adapter = SikAdapter(profile, logdir=LOGS)
         # Signal la ranh gioi thread duy nhat: slot nay chay o main thread.
         self.adapter.envelope.connect(bus.emit_envelope)
         self.adapter.failed.connect(self._on_failed)

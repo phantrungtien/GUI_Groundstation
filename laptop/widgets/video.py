@@ -35,7 +35,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, Signal
@@ -46,6 +45,7 @@ from PySide6.QtWidgets import QWidget
 
 from core.i18n import t
 from laptop import theme
+from laptop.connection import LOGS
 
 try:
     import gi
@@ -85,7 +85,7 @@ MAX_FRAME_B = 8_000_000  # chan may chu hong bao Content-Length khong lo
 # tools/video_timeline.sh. So fps ve tren khung chi cho biet LUC NAY; video giat
 # luc 13:40 thi phai co dong log luc 13:40.
 REPORT_S = 5.0  # cung chu ky voi dong `[mjpeg] nguon ...` ben Pi
-LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "video.log"
+LOG_PATH = LOGS / "video.log"
 
 
 def _log(msg):
