@@ -3,6 +3,8 @@
 #
 #   tools/build_apk.sh stage   # chi dung thu muc build + thu chay tren may tinh
 #   tools/build_apk.sh         # stage + build APK
+#   NO_TILES=1 tools/build_apk.sh  # APK khong kem ban do (~155 MB) — de dang cong khai:
+#                              # tile Google khong duoc phat tan lai; app tu tai khi co mang
 #
 # Build trong thu muc RIENG ngoai repo ($STAGE): buildozer gom moi .png/.py duoi
 # thu muc chay vao APK — o repo la 344 MB tile + 121 MB giong Piper + tlog. O day
@@ -66,7 +68,7 @@ pyside6-android-deploy --init --name GCS -f --keep-deployment-files \
 mkdir -p "$C/androidlibs"
 unzip -j -o -q "$C/wheels/pyside6-6.11.1-6.11.1-cp311-cp311-android_aarch64.whl" \
     PySide6/Qt/plugins/imageformats/libplugins_imageformats_qjpeg_arm64-v8a.so -d "$C/androidlibs"
-ROOT="$ROOT" C="$C" python3 - <<'PY'
+ROOT="$ROOT" C="$C" NO_TILES="${NO_TILES:-}" python3 - <<'PY'
 import configparser, os, re, shlex
 p = "buildozer.spec"; c = configparser.ConfigParser(interpolation=None); c.optionxform = str
 c.read(p); a = c["app"]
@@ -108,7 +110,10 @@ a.update({"android.add_src": os.environ["ROOT"] + "/android/java",
 # Ban do offline dong chung APK (nguoi dung chot 19/10) dang ASSET, khong vao
 # private.tar: p4a giai nen private.tar tren luong chinh -> +345 MB la ANR (do 19/10).
 # main.py chep assets:/tiles ra bo nho trong o thread nen. aapt khong nen .png.
-a["android.add_assets"] = os.environ["ROOT"] + "/assets/tiles:tiles"
+if not os.environ.get("NO_TILES"):
+    a["android.add_assets"] = os.environ["ROOT"] + "/assets/tiles:tiles"
+else:
+    a.pop("android.add_assets", None)
 # Cam radio telemetry la app tu nhan (va tu duoc cap quyen sau lan "Luon" dau tien).
 # singleTask: app dang chay ma cam radio thi Android goi lai CHINH activity nay —
 # mac dinh "standard" la tao activity thu hai = khoi dong Python/Qt lan nua.

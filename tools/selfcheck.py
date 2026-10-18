@@ -1925,6 +1925,12 @@ def check_copy_tiles(app):
         assert (dst / "3" / "1" / "2.png").read_bytes() == b"da tai", "chep de len tile da co"
         assert ticks, "chep xong khong bao ban do quet lai"
         assert copy_tiles(str(src), dst) == 0, "lan mo sau van chep lai"
+        # APK khong kem ban do: khong co gi de chep -> KHONG danh dau, cai ban day du sau van chep.
+        empty, dst2 = Path(d) / "empty", Path(d) / "dst2"
+        empty.mkdir()
+        dst2.mkdir()
+        assert copy_tiles(str(empty), dst2) == 0 and not (dst2 / ".copied").exists(), \
+            "APK khong ban do da danh dau .copied"
 
     # Log chuyen bay tren dien thoai nam NGOAI files/app: p4a xoa sach no moi lan cai lai.
     from laptop.connection import ROOT, logs_dir

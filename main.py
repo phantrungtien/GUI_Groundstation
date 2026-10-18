@@ -39,7 +39,8 @@ def copy_tiles(src, dst, tick=lambda: None):
         n += 1
         if n % 2000 == 0:
             tick()  # ban do hien dan tung phan, khong doi chep xong
-    done.write_text(f"{n}\n")
+    if n:  # APK khong kem ban do (NO_TILES=1): khong danh dau — cai ban day du sau van chep
+        done.write_text(f"{n}\n")
     tick()
     return n
 
