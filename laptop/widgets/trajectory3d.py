@@ -3,7 +3,7 @@
 Vi sao ve tay chu khong dung QtDataVisualization: Q3DScatter chi ve DIEM roi
 rac, khong noi duoc thanh duong — ma quy dao thi cai can doc la duong di, khong
 phai dam may diem. Ve tay con chay duoc offscreen nen selfcheck kiem tra duoc,
-giong het cach attitude.py va compass.py dang lam.
+giong het cach attitude.py dang lam.
 
 Truc giao chu khong phoi canh: nhin quy dao bay la de DO — cao bao nhieu, xa bao
 nhieu. Phoi canh lam vat o xa nho di, tuc la cung mot 10 met o hai dau duong bay

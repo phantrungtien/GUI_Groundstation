@@ -17,8 +17,20 @@ Item {
     Rectangle { anchors.fill: parent; color: theme.BG_DEEP }
 
     readonly property var st: backend.state
-    // Mot don vi co gian theo chieu cao: dien thoai ngang ~390 dp, laptop 720 px.
-    readonly property real s: Math.max(0.7, Math.min(1.4, height / 640))
+    // Mot don vi co gian theo CA HAI chieu (thieu chieu nao lay chieu do): laptop
+    // ~1260x620 -> ~1; dien thoai ngang ~800x330 dp -> ~0.52. San 0.5 chu khong 0.7:
+    // 0.7 tren man 330 dp la cot nut dai hon man hinh, de len la ban va o camera.
+    readonly property real s: Math.max(0.5, Math.min(1.4, Math.min(height / 640, width / 1138)))
+    // Chu khong nho theo s xuong duoi 0.85 — nho hon nua la khong doc noi khi bay.
+    readonly property real f: Math.max(s, 0.85)
+    // Man thap (dien thoai ngang): bo chan troi, nut phai xep 2x2, bot HDG (da co
+    // la ban), bang duong bay cuon duoc. Cao hon 480 dp thi giu bo cuc laptop.
+    readonly property bool compact: height < 480
+    // Dong ho tu the: tinh o day de ca no lan dai canh bao ban do cung dung. Doc
+    // `x`/`width` cua chinh WidgetItem tu binding khac ra null luc nap (kieu Python).
+    readonly property real dialW: compact ? Math.max(84, 110 * s) : 100 * s
+    readonly property real dialX: !compact ? width - dialW - 14 * s
+                                  : pip.visible ? pip.x + pip.width + 10 * s : 14 * s
     property bool camBig: false
     property string pending: ""      // lenh dang cho truot
     property string pendingArg: ""
@@ -214,7 +226,7 @@ Item {
     Rectangle {
         id: topBar
         anchors { left: parent.left; right: parent.right; top: parent.top }
-        height: 52 * s
+        height: Math.max(52 * s, 34 * f)
         gradient: Gradient {
             GradientStop { position: 0; color: "#f008111a" }
             GradientStop { position: 1; color: "#9908111a" }
@@ -222,9 +234,22 @@ Item {
         Row {
             anchors { left: parent.left; leftMargin: 10 * s; verticalCenter: parent.verticalCenter }
             spacing: 12 * s
+            // Dien thoai: thanh nay LA thanh cong cu duy nhat (kieu QGC/DJI) — nut ☰
+            // mo menu cac trang khac (app.py), thay hang tab + banner cua laptop.
+            Rectangle {
+                objectName: "menuBtn"
+                visible: backend.phone
+                anchors.verticalCenter: parent.verticalCenter
+                height: pill.height; width: height
+                radius: 8 * s
+                color: theme.SURFACE
+                border.color: theme.BORDER
+                Text { anchors.centerIn: parent; text: "☰"; color: theme.TEXT; font.pixelSize: 18 * f }
+                MouseArea { anchors.fill: parent; anchors.margins: -6; onClicked: backend.menu() }
+            }
             Rectangle {
                 id: pill
-                height: 34 * s
+                height: Math.max(34 * s, pillText.implicitHeight + 6)
                 width: pillText.implicitWidth + 24 * s
                 radius: height / 2
                 anchors.verticalCenter: parent.verticalCenter
@@ -234,16 +259,27 @@ Item {
                     anchors.centerIn: parent
                     text: st.status
                     color: theme.BG_DEEP
-                    font.pixelSize: 15 * s
+                    font.pixelSize: 15 * f
                     font.bold: true
                 }
             }
-            Text {
+            Rectangle {  // che do bay — cham de doi, nhu "Flight Mode" tren thanh cong cu QGC
+                objectName: "modeChip"
                 anchors.verticalCenter: parent.verticalCenter
-                text: st.fcMode
-                color: theme.TEXT
-                font.pixelSize: 20 * s
-                font.bold: true
+                height: pill.height
+                width: modeText.implicitWidth + 20 * s
+                radius: 8 * s
+                color: "transparent"
+                border.color: st.live ? theme.BORDER : "transparent"
+                Text {
+                    id: modeText
+                    anchors.centerIn: parent
+                    text: (st.fcMode || "--") + (st.live ? " ▾" : "")
+                    color: theme.TEXT
+                    font.pixelSize: 18 * f
+                    font.bold: true
+                }
+                MouseArea { anchors.fill: parent; enabled: st.live; onClicked: ask("modePick") }
             }
             // ---- so nguoi: giao dien cuu ho, day la con so nguoi lai can thay
             // nhat. Co nguoi -> nen ACCENT dac (khac han mau trang thai OK/WARN/
@@ -257,7 +293,7 @@ Item {
                 property color word: known && st.persons > 0 ? theme.BG_DEEP : theme.TEXT_DIM
                 visible: !!st.hasVideo
                 anchors.verticalCenter: parent.verticalCenter
-                height: 40 * s
+                height: Math.max(40 * s, personsRow.implicitHeight + 4)
                 width: personsRow.implicitWidth + 28 * s
                 radius: 8 * s
                 color: !known ? "transparent" : st.persons > 0 ? theme.ACCENT : theme.SURFACE_HI
@@ -268,10 +304,11 @@ Item {
                     anchors.centerIn: parent
                     spacing: 10 * s
                     Text {
+                        visible: !win.compact
                         anchors.verticalCenter: parent.verticalCenter
                         text: tr("fly.persons_pre")
                         color: personsBar.word
-                        font.pixelSize: 15 * s
+                        font.pixelSize: 15 * f
                         font.bold: true
                     }
                     Text {
@@ -279,28 +316,45 @@ Item {
                         text: personsBar.value
                         color: !personsBar.known ? theme.MUTED
                                : st.persons > 0 ? theme.BG_DEEP : theme.TEXT
-                        font.pixelSize: 28 * s
+                        font.pixelSize: 28 * f
                         font.bold: true
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: tr("fly.persons_post")
                         color: personsBar.word
-                        font.pixelSize: 15 * s
+                        font.pixelSize: 15 * f
                         font.bold: true
                     }
                 }
             }
         }
+        // Chi bao kieu QGC/DJI: cham mau = muc, nhan, gia tri. Mau lay tu lan cuoi THAT
+        // SU co goi (backend._links), khong tu viec adapter con chay.
         Row {
-            anchors { right: parent.right; rightMargin: 16 * s; verticalCenter: parent.verticalCenter }
-            spacing: 22 * s
-            Stat { label: "GPS"; value: st.sats === null || st.sats === undefined ? "--" : st.sats; tint: lvl(st.gpsLevel) }
-            Stat {
+            anchors { right: parent.right; rightMargin: 12 * s; verticalCenter: parent.verticalCenter }
+            spacing: 16 * s
+            Ind {  // duong MAVLink dang dung: SiK hay 4G (DualLink), % mat goi
+                objectName: "linkInd"
+                label: st.linkPath || "SiK"
+                value: st.linkLevel === "ok" || st.linkLevel === "warn" ? num(st.linkLoss, 0, "%") : ""
+                lv: st.linkLevel
+            }
+            Ind {  // nua companion (task/video/so nguoi) qua Tailscale
+                visible: st.remoteLevel !== null && st.remoteLevel !== undefined
+                label: "Jetson"
+                lv: st.remoteLevel || "none"
+            }
+            Ind {
+                label: "GPS"
+                value: st.sats === null || st.sats === undefined ? "--" : String(st.sats)
+                lv: st.sats === null || st.sats === undefined ? "none" : st.gpsLevel
+            }
+            Ind {
                 label: "PIN"
-                value: st.battPct === null || st.battPct === undefined ? num(st.volt, 1, " V")
-                       : st.battPct + "%  " + num(st.volt, 1, "V")
-                tint: lvl(st.battLevel)
+                value: st.battPct === null || st.battPct === undefined ? num(st.volt, 1, "V")
+                       : st.battPct + "% " + num(st.volt, 1, "V")
+                lv: st.battPct === null || st.battPct === undefined ? "none" : st.battLevel
             }
         }
     }
@@ -322,31 +376,23 @@ Item {
             anchors.centerIn: parent
             text: tr("fly.diverge", {"m": st.diverge || 0})
             color: theme.BG_DEEP
-            font.pixelSize: 14 * s
+            font.pixelSize: 14 * f
             font.bold: true
         }
     }
 
-    // ---- la ban va chan troi (widget cu, ve qua WidgetItem) -----------------
+    // ---- dong ho tu the: chan troi (pitch/roll) trong vong la ban (yaw), kieu QGC ----
+    // Mot dong ho thay hai o cu (chan troi goc trai + la ban goc phai). Man thap: o goc
+    // duoi, giua o camera va thanh so lieu (cum dong ho kieu DJI) — cot nut phai can
+    // ca chieu cao. Man cao: goc tren-phai nhu la ban cu.
     WidgetItem {
-        id: compass
-        name: "compass"
-        fps: 5
-        anchors { top: topBar.bottom; topMargin: 8 * s
-                  right: parent.right; rightMargin: 14 * s }
-        width: 96 * s
-        height: 96 * s
-    }
-    // Chan troi o goc tren-TRAI, doi xung voi la ban. Khong de duoi la ban va
-    // cung khong de tren can ao: canh phai da co cot nut ARM/Mode/Kill cat ngang
-    // (do 1156x643: cot do chiem y 207-437, chan troi de o do la de len nhau).
-    WidgetItem {
-        name: "attitude"
-        fps: 5
-        anchors { left: parent.left; leftMargin: 14 * s
-                  top: topBar.bottom; topMargin: 8 * s }
-        width: 120 * s
-        height: 84 * s
+        objectName: "dial"
+        name: "dial"
+        fps: 10
+        width: win.dialW
+        height: width
+        x: win.dialX
+        y: win.compact ? win.height - height - 10 * s : topBar.height + 8 * s
     }
 
     // ---- dong "san sang ARM": nam CO DINH o day, loi noi len thi DE LEN no ----
@@ -367,7 +413,7 @@ Item {
             elide: Text.ElideRight
             horizontalAlignment: Text.AlignHCenter
             color: theme.BG_DEEP
-            font.pixelSize: 14 * s
+            font.pixelSize: 14 * f
             font.bold: true
         }
     }
@@ -395,7 +441,7 @@ Item {
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
                     color: theme.BG_DEEP
-                    font.pixelSize: (modelData.crit ? 16 : 13) * s
+                    font.pixelSize: (modelData.crit ? 16 : 13) * f
                     font.bold: true
                 }
             }
@@ -424,7 +470,7 @@ Item {
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
                     color: theme.BG_DEEP
-                    font.pixelSize: 14 * s
+                    font.pixelSize: 14 * f
                     font.bold: true
                 }
             }
@@ -434,15 +480,21 @@ Item {
     // ---- nut lenh: trai = bay, phai = dong co / che do ----------------------
     Column {
         id: leftCol
-        anchors { left: parent.left; leftMargin: 14 * s; verticalCenter: parent.verticalCenter }
+        anchors { left: parent.left; leftMargin: 14 * s }
+        // Man thap: ngay duoi thanh tren (giua man thi de len o camera). Cao: giua man.
+        y: win.compact ? topBar.height + 6 * s : (win.height - height) / 2
         spacing: 8 * s
         ActBtn { glyph: "▲"; label: tr("touch.btn_takeoff"); onTap: ask("takeoff") }
         ActBtn { glyph: "▼"; label: tr("touch.btn_land"); danger: true; onTap: ask("land") }
         ActBtn { glyph: "⌂"; label: tr("touch.btn_rtl"); danger: true; onTap: ask("rtl") }
     }
-    Column {
+    Grid {
         id: rightCol
-        anchors { right: parent.right; rightMargin: 14 * s; verticalCenter: parent.verticalCenter }
+        columns: win.compact ? 2 : 1
+        anchors { right: parent.right; rightMargin: 14 * s }
+        // Man thap: ngay duoi la ban. Cao: giua man nhu ban laptop.
+        // Man thap: ngay duoi thanh tren (dong ho tu the da xuong goc duoi). Cao: giua man.
+        y: win.compact ? topBar.height + 6 * s : (win.height - height) / 2
         spacing: 8 * s
         ActBtn {
             glyph: st.armed ? "■" : "●"
@@ -450,7 +502,7 @@ Item {
             danger: st.armed
             onTap: ask(st.armed ? "disarm" : "arm")
         }
-        ActBtn { glyph: "M"; label: tr("touch.btn_mode"); onTap: ask("modePick") }
+        ActBtn { glyph: "M"; label: tr("touch.btn_mode"); visible: !backend.phone; onTap: ask("modePick") }
         // Task Chua chay: bat roi moi chi diem chay duoc tren ban do (cham-giu).
         ActBtn {
             objectName: "taskBtn"
@@ -485,7 +537,7 @@ Item {
     Rectangle {
         id: tele
         anchors { bottom: parent.bottom; bottomMargin: 10 * s; horizontalCenter: parent.horizontalCenter }
-        height: 54 * s
+        height: Math.max(54 * s, teleRow.implicitHeight + 8)
         width: teleRow.implicitWidth + 32 * s
         radius: 14 * s
         color: "#ee0d1722"
@@ -498,13 +550,37 @@ Item {
             Stat { label: "D"; value: num(st.dist, 0, " m") }
             Stat { label: "H.S"; value: num(st.hs, 1, " m/s") }
             Stat { label: "V.S"; value: num(st.vs, 1, " m/s") }
-            Stat { label: "HDG"; value: num(st.heading, 0, "°") }
+            Stat { label: "HDG"; value: num(st.heading, 0, "°"); visible: !win.compact }
             Stat { label: "T"; value: st.flightTime ? mmss(st.flightTime) : "--"; tint: st.armed ? theme.CRIT : theme.TEXT }
             Stat {
                 label: tr("touch.left")
                 value: st.battLeft === null || st.battLeft === undefined ? "--" : mmss(st.battLeft)
                 tint: st.battLeft === null || st.battLeft === undefined ? theme.TEXT : lvl(st.leftLevel)
             }
+        }
+    }
+
+    // ---- canh bao cua ban do (dien thoai): ngay tren thanh so lieu ---------
+    Rectangle {
+        objectName: "mapNote"
+        visible: !!st.mapNote
+        // Nam giua dong ho (man thap: goc duoi trai) va cum can ao/nut leo-ha ben phai.
+        readonly property real minX: win.compact ? win.dialX + win.dialW + 8 * s : win.width * 0.2
+        readonly property real maxX: climbCol.visible ? climbCol.x - 8 * s : win.width - 14 * s
+        anchors { bottom: tele.top; bottomMargin: 4 * s }
+        width: Math.min(noteText.implicitWidth + 16 * s, maxX - minX)
+        x: Math.max(minX, Math.min(tele.x + (tele.width - width) / 2, maxX - width))
+        height: noteText.implicitHeight + 6 * s
+        radius: 6 * s
+        color: "#b0000000"
+        Text {
+            id: noteText
+            anchors { fill: parent; leftMargin: 8 * s; rightMargin: 8 * s }
+            verticalAlignment: Text.AlignVCenter
+            text: st.mapNote || ""
+            elide: Text.ElideRight
+            color: theme.TEXT
+            font.pixelSize: 11 * f
         }
     }
 
@@ -519,7 +595,7 @@ Item {
         opacity: st.nudgeWhy === "" ? 1 : 0.35
         anchors { right: parent.right; rightMargin: 14 * s
                   bottom: parent.bottom; bottomMargin: 10 * s }
-        width: Math.max(120, 136 * s)
+        width: Math.max(win.compact ? 100 : 120, 136 * s)
         height: width
         Rectangle {
             anchors.fill: parent
@@ -564,15 +640,15 @@ Item {
         opacity: stick.opacity
         anchors { right: stick.left; rightMargin: 8 * s; verticalCenter: stick.verticalCenter }
         spacing: 8 * s
-        HoldBtn { glyph: "⤒"; value: 1 }
-        HoldBtn { glyph: "⤓"; value: -1 }
+        HoldBtn { glyph: "↑"; value: 1 }
+        HoldBtn { glyph: "↓"; value: -1 }
     }
     Text {
         visible: stick.visible && st.nudgeWhy !== ""
         anchors { right: stick.right; bottom: stick.top; bottomMargin: 2 * s }
         text: st.nudgeWhy
         color: theme.WARN
-        font.pixelSize: 12 * s
+        font.pixelSize: 12 * f
     }
 
     // ---- bang duong bay: mo bang cham-giu tren ban do ------------------------
@@ -580,25 +656,34 @@ Item {
         id: wpSheet
         visible: win.wpOpen
         anchors { horizontalCenter: parent.horizontalCenter; bottom: tele.top; bottomMargin: 12 * s }
-        width: Math.min(560 * s, win.width - 2 * (leftCol.width + 44 * s))
-        height: wpCol.implicitHeight + 24 * s
+        width: Math.min(Math.max(560 * s, 360), win.width - 2 * (leftCol.width + 44 * s))
+        // Man thap: 4 hang chip + nut cao hon cho trong -> cat chieu cao, cuon ben trong.
+        height: Math.min(wpCol.implicitHeight + 24 * s, tele.y - topBar.height - 16 * s)
         radius: 16 * s
         color: "#f00d1722"
         border.color: theme.BORDER
         border.width: 2
         MouseArea { anchors.fill: parent }  // cham vao bang khong roi xuong ban do
+        Flickable {
+            id: wpFlick
+            anchors { fill: parent; margins: 12 * s }
+            contentWidth: width  // khong de contentItem suy rong tu con: vong lap voi wpCol
+            contentHeight: wpCol.implicitHeight
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
+            clip: true
         Column {
             id: wpCol
-            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12 * s }
+            width: wpFlick.width
             spacing: 10 * s
             Item {
                 width: parent.width
-                height: 30 * s
+                height: Math.max(30 * s, 22)
                 Text {
                     anchors { left: parent.left; right: wpClose.left; verticalCenter: parent.verticalCenter }
                     text: tr("touch.wp_title") + (st.draftN ? "  ·  " + st.draftN : "")
                     color: theme.TEXT
-                    font.pixelSize: 16 * s
+                    font.pixelSize: 16 * f
                     font.bold: true
                     elide: Text.ElideRight
                 }
@@ -607,7 +692,7 @@ Item {
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter }
                     text: "✕"
                     color: theme.MUTED
-                    font.pixelSize: 22 * s
+                    font.pixelSize: 22 * f
                     MouseArea { anchors.fill: parent; anchors.margins: -10; onClicked: win.wpOpen = false }
                 }
             }
@@ -617,7 +702,7 @@ Item {
                 text: tr("touch.wp_hint")
                 wrapMode: Text.Wrap
                 color: theme.MUTED
-                font.pixelSize: 13 * s
+                font.pixelSize: 13 * f
             }
             Flow {
                 width: parent.width
@@ -652,7 +737,7 @@ Item {
                 Text {
                     text: tr("touch.wp_alt")
                     color: theme.MUTED
-                    font.pixelSize: 13 * s
+                    font.pixelSize: 13 * f
                 }
                 Repeater {
                     model: backend.wpAlts
@@ -673,8 +758,8 @@ Item {
                     from: backend.wpAltMin
                     to: backend.wpAltMax
                     stepSize: 1
-                    height: 38 * s
-                    font.pixelSize: 14 * s
+                    height: Math.max(38 * s, 34)
+                    font.pixelSize: 14 * f
                     textFromValue: function (v) { return v + " m" }
                     valueFromText: function (txt) { return parseInt(txt) || altBox.value }
                     // Chip va o nhap la HAI cua vao mot con so: bam chip thi o
@@ -703,6 +788,7 @@ Item {
                 }
             }
         }
+        }
     }
 
     // ---- bang xac nhan: chon tham so + thanh truot ---------------------------
@@ -710,7 +796,7 @@ Item {
         id: confirm
         visible: win.pending !== ""
         anchors { horizontalCenter: parent.horizontalCenter; bottom: tele.top; bottomMargin: 12 * s }
-        width: Math.min(540 * s, win.width - 2 * (leftCol.width + 44 * s))
+        width: Math.min(Math.max(540 * s, 360), win.width - 2 * (leftCol.width + 44 * s))
         height: col.implicitHeight + 24 * s
         radius: 16 * s
         color: "#f00d1722"
@@ -723,12 +809,12 @@ Item {
             spacing: 10 * s
             Item {
                 width: parent.width
-                height: 30 * s
+                height: Math.max(30 * s, 22)
                 Text {
                     anchors { left: parent.left; right: closeBtn.left; verticalCenter: parent.verticalCenter }
                     text: titleText()
                     color: theme.TEXT
-                    font.pixelSize: 16 * s
+                    font.pixelSize: 16 * f
                     font.bold: true
                     elide: Text.ElideRight
                 }
@@ -737,7 +823,7 @@ Item {
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter }
                     text: "✕"
                     color: theme.MUTED
-                    font.pixelSize: 22 * s
+                    font.pixelSize: 22 * f
                     MouseArea { anchors.fill: parent; anchors.margins: -10; onClicked: win.pending = "" }
                 }
             }
@@ -771,8 +857,8 @@ Item {
                     from: backend.wpAltMin
                     to: backend.wpAltMax
                     stepSize: 1
-                    height: 38 * s
-                    font.pixelSize: 14 * s
+                    height: Math.max(38 * s, 34)
+                    font.pixelSize: 14 * f
                     textFromValue: function (v) { return v + " m" }
                     valueFromText: function (txt) { return parseInt(txt) || takeoffBox.value }
                     Binding on value { value: altRow.alt }
@@ -798,7 +884,7 @@ Item {
                 text: tr("touch.kill_note")
                 wrapMode: Text.Wrap
                 color: theme.CRIT
-                font.pixelSize: 15 * s
+                font.pixelSize: 15 * f
                 font.bold: true
             }
             SlideConfirm {
@@ -806,7 +892,7 @@ Item {
                 objectName: "slider"
                 visible: win.pending !== "" && win.pending !== "modePick"
                 width: parent.width
-                height: 60 * s
+                height: Math.max(60 * s, 44)
                 text: slideText()
                 tint: danger(win.pending) ? theme.CRIT : theme.ACCENT
                 onConfirmed: {
@@ -829,12 +915,35 @@ Item {
     }
 
     // ---- khoi dung chung -----------------------------------------------------
+    component Ind: Row {
+        property string label
+        property string value: ""
+        property string lv: "none"
+        spacing: 5 * s
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: 9 * f; height: width; radius: width / 2
+            color: lvl(lv)
+        }
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: label; color: theme.MUTED
+            font.pixelSize: 12 * f; font.bold: true
+        }
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: value !== ""
+            text: value; color: theme.TEXT
+            font.pixelSize: 15 * f; font.bold: true
+        }
+    }
+
     component Stat: Column {
         property string label
         property string value
         property color tint: theme.TEXT
-        Text { text: label; color: theme.MUTED; font.pixelSize: 11 * s }
-        Text { text: value; color: tint; font.pixelSize: 17 * s; font.bold: true }
+        Text { text: label; color: theme.MUTED; font.pixelSize: 11 * f }
+        Text { text: value; color: tint; font.pixelSize: 17 * f; font.bold: true }
     }
 
     component ActBtn: Item {
@@ -843,7 +952,7 @@ Item {
         property string label
         property bool danger: false
         signal tap()
-        width: 66 * s
+        width: Math.max(66 * s, circle.width + 6, lbl.width + 4)  // nhan dai khong tran sang nut ke
         height: circle.height + lbl.height + 2 * s
         opacity: st.live ? 1 : 0.35
         Rectangle {
@@ -859,7 +968,7 @@ Item {
                 anchors.centerIn: parent
                 text: ab.glyph
                 color: ab.danger ? theme.CRIT : theme.TEXT
-                font.pixelSize: 22 * s
+                font.pixelSize: 22 * f
                 font.bold: true
             }
         }
@@ -875,7 +984,7 @@ Item {
                 anchors.centerIn: parent
                 text: ab.label
                 color: theme.TEXT
-                font.pixelSize: 11 * s
+                font.pixelSize: 11 * f
                 font.bold: true
             }
         }
@@ -897,7 +1006,7 @@ Item {
             anchors.centerIn: parent
             text: glyph
             color: hb.pressed ? theme.BG_DEEP : theme.TEXT
-            font.pixelSize: 20 * s
+            font.pixelSize: 20 * f
             font.bold: true
         }
         MouseArea {
@@ -916,7 +1025,7 @@ Item {
         property bool selected: false
         signal tap()
         width: ct.implicitWidth + 24 * s
-        height: 36 * s
+        height: Math.max(36 * s, 32)
         radius: height / 2
         color: selected ? theme.ACCENT : theme.SURFACE
         border.color: selected ? theme.ACCENT : theme.BORDER
@@ -925,7 +1034,7 @@ Item {
             anchors.centerIn: parent
             text: chip.text
             color: chip.selected ? theme.BG_DEEP : theme.TEXT
-            font.pixelSize: 14 * s
+            font.pixelSize: 14 * f
             font.bold: true
         }
         MouseArea { anchors.fill: parent; onClicked: chip.tap() }
@@ -936,12 +1045,12 @@ Item {
         property string text
         signal tap()
         width: bt.implicitWidth + 28 * s
-        height: 44 * s
+        height: Math.max(44 * s, 40)
         radius: 10 * s
         color: enabled ? theme.SURFACE : "#0b1117"
         border.color: enabled ? theme.ACCENT : theme.BORDER
         opacity: enabled ? 1 : 0.5
-        Text { id: bt; anchors.centerIn: parent; text: btn.text; color: theme.TEXT; font.pixelSize: 15 * s }
+        Text { id: bt; anchors.centerIn: parent; text: btn.text; color: theme.TEXT; font.pixelSize: 15 * f }
         MouseArea { anchors.fill: parent; enabled: btn.enabled; onClicked: btn.tap() }
     }
 }

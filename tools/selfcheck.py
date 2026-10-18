@@ -1174,8 +1174,7 @@ def check_widgets(app):
     """Widget tu ve: ep paintEvent chay that bang grab()."""
     from PySide6.QtCore import QPoint
 
-    from laptop.widgets.attitude import AttitudeWidget
-    from laptop.widgets.compass import Compass
+    from laptop.widgets.attitude import AttitudeDial
     from laptop.widgets.map_widget import MapWidget, deg2num, num2deg
 
     lat, lon, z = 10.762, 106.66, 16
@@ -1183,13 +1182,19 @@ def check_widgets(app):
     back = num2deg(x, y, z)
     assert abs(back[0] - lat) < 1e-9 and abs(back[1] - lon) < 1e-9, back
 
-    c = Compass()
-    c.set_heading(137.0)
-    assert not c.grab().isNull()
-
-    a = AttitudeWidget()
+    # Dong ho tu the ve theo kich thuoc o, ke ca o nho tren dien thoai: la ban cu co
+    # dinh 120 px, nhet vao o 50 dp thi chi con mot goc (19/10). Vong la ban + chu N
+    # phai nam trong o -> dem diem anh khac nen o ca bon goc trong vung tron.
+    a = AttitudeDial()
     a.set_attitude(0.3, -0.15)
-    assert not a.grab().isNull()
+    a.set_heading(137.0)
+    for side in (50, 140):
+        a.resize(side, side)
+        img = a.grab().toImage()
+        assert not img.isNull()
+        bg = img.pixelColor(0, 0)
+        for x, y in ((side // 2, 3), (side // 2, side - 4), (3, side // 2), (side - 4, side // 2)):
+            assert img.pixelColor(x, y) != bg, f"dong ho {side}px bi cat o ({x},{y})"
 
     m = MapWidget()
     m.resize(400, 300)
@@ -1232,7 +1237,7 @@ def check_widgets(app):
         note = f"doc duoc tile that ({len(tiles)} tile trong assets/tiles)"
     else:
         note = "map khong co tile van ve luoi"
-    print(f"  ok  compass/attitude/telemetry/map deu ve duoc ({note})")
+    print(f"  ok  dong ho tu the/telemetry/map deu ve duoc ({note})")
 
 
 def check_fence(app):
@@ -1897,6 +1902,116 @@ def check_banner_health(app):
     assert "mô phỏng SITL" in states[1], states[1]
     assert "MẤT KẾT NỐI" in states[2], states[2]
     print("  ok  banner: cho du lieu -> dang chay -> mat ket noi")
+
+
+def check_copy_tiles(app):
+    """Android: tile chep tu assets:/tiles ra bo nho trong (main.py). O day nguon la
+    thu muc thuong — QDirIterator doc ca hai nhu nhau."""
+    import tempfile
+    from main import copy_tiles
+
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = Path(d) / "src", Path(d) / "dst"
+        for z, x, y in [(3, 1, 2), (3, 1, 3), (17, 5, 9)]:
+            (src / str(z) / str(x)).mkdir(parents=True, exist_ok=True)
+            (src / str(z) / str(x) / f"{y}.png").write_bytes(b"tile%d" % y)
+        (src / "SOURCE.txt").write_text("Google\n")
+        (dst / "3" / "1").mkdir(parents=True)
+        (dst / "3" / "1" / "2.png").write_bytes(b"da tai")  # tile tai qua mang truoc do
+        ticks = []
+        assert copy_tiles(str(src), dst, lambda: ticks.append(1)) == 4
+        assert (dst / "17" / "5" / "9.png").read_bytes() == b"tile9"
+        assert (dst / "SOURCE.txt").exists(), "thieu SOURCE.txt -> tai bu tu Esri thay Google"
+        assert (dst / "3" / "1" / "2.png").read_bytes() == b"da tai", "chep de len tile da co"
+        assert ticks, "chep xong khong bao ban do quet lai"
+        assert copy_tiles(str(src), dst) == 0, "lan mo sau van chep lai"
+
+
+def check_dual_link(app):
+    """Profile hai duong (dien thoai: SiK OTG + mang): SiK im thi tu sang mang.
+
+    SikAdapter that, hai nguon UDP gia cung la "FC" — lat 1 qua duong SiK, lat 2 qua
+    duong mang, de biet goi nao di duong nao. 1,5 s dau ca hai noi; sau do SiK chi
+    con heartbeat cua MAVROS (1/191) — no van den khi drone ra ngoai tam, khong
+    duoc tinh la FC con song.
+    """
+    from PySide6.QtCore import QTimer
+    from pymavlink import mavutil
+    from core.adapters.sik import STREAMS, stream_table
+    from laptop import connection
+
+    sik_port, net_port = PORT + 20, PORT + 21
+    lats, texts, paths = [], [], []
+    adapter = SikAdapter({"name": "dual", "mode": "REAL", "bridge": True,
+                          "conn": f"udpin:127.0.0.1:{sik_port}",
+                          "conn2": f"udpin:127.0.0.1:{net_port}"})
+    adapter.envelope.connect(lambda e: lats.append(e["data"]["lat"])
+                             if e["topic"] == "position" else None)
+    adapter.envelope.connect(lambda e: texts.append(e["data"]["text"])
+                             if e["topic"] == "text" else None)
+    adapter.envelope.connect(lambda e: paths.append(e["data"].get("path"))
+                             if e["topic"] == "link" else None)
+    adapter.start()
+    stop = threading.Event()
+
+    def sender():
+        time.sleep(0.4)  # cho adapter bind cong
+        fc = {port: mavutil.mavlink_connection(f"udpout:127.0.0.1:{port}", source_system=1,
+                                               source_component=1)
+              for port in (sik_port, net_port)}
+        mavros = mavutil.mavlink_connection(f"udpout:127.0.0.1:{sik_port}", source_system=1,
+                                            source_component=191)
+        t0 = time.time()
+        while not stop.is_set():
+            ports = (sik_port, net_port) if time.time() - t0 < 1.5 else (net_port,)
+            for port in ports:
+                fc[port].mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_QUADROTOR,
+                                            mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0)
+                fc[port].mav.global_position_int_send(0, 10000000 * (1 + (port == net_port)),
+                                                      0, 0, 0, 0, 0, 0, 0)
+            mavros.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
+                                      mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+            time.sleep(0.1)
+
+    threading.Thread(target=sender, daemon=True).start()
+    QTimer.singleShot(6000, app.quit)
+    app.exec()
+    stop.set()
+    adapter.stop()
+
+    assert lats and lats[0] == 1.0, f"luc dau phai di duong SiK: {lats[:5]}"
+    k = lats.index(2.0) if 2.0 in lats else None
+    assert k is not None, f"SiK im ma khong sang duong mang: {sorted(set(lats))}"
+    assert set(lats[k:]) == {2.0}, "tron goi hai duong sau khi doi"
+    assert any("mang" in t for t in texts), f"doi duong ma khong bao: {texts}"
+    assert paths and paths[-1] == "mang", paths
+
+    # SiK CHUA TUNG nghe FC (chua cam radio) thi khong duoc sang mang, du mang song.
+    from core.adapters.sik import DualLink
+
+    class Quiet:
+        def recv_match(self, blocking=False):
+            return None
+
+    d = DualLink([Quiet(), Quiet()], stale=0.0)
+    d.t0 = 0.0
+    d.rx = [0.0, time.time()]
+    d._pick()
+    assert d.path == "SiK", "chua noi duoc SiK ma da cho bay qua LTE"
+    d.rx = [time.time() - 5, time.time()]
+    d._pick()
+    assert d.path == "mang", "SiK da tung noi roi im ma khong sang mang"
+
+    # Dien thoai thay DUNG mot profile ket noi, va no la profile hai duong.
+    saved = connection.ANDROID
+    try:
+        connection.ANDROID = True
+        # Khuon "SiK radio" khong co conn -> khong hien (chi cho muon baud/remote).
+        conns = [p for p in connection.load_profiles() if p.get("conn")]
+    finally:
+        connection.ANDROID = saved
+    assert len(conns) == 1 and conns[0].get("conn2"), [p["name"] for p in conns]
+    assert stream_table(conns[0]) is STREAMS, "profile dien thoai xin stream nhanh qua radio"
 
 
 def check_adapter_live(app):
@@ -2844,6 +2959,16 @@ def check_touch_flight(app):
         b.attach({"name": "selfcheck", "mode": "SIM"}, fake)
         b.map.resize(600, 400)
         b.map.center = (lat, lon)
+
+        # Goi "link" adapter tu phat moi giay du khong co goi nao tu drone — khong
+        # duoc tinh la drone dang noi (vien "San sang" luc chua cam FC, 19/10).
+        bus.emit_envelope({"src": "sik", "topic": "link", "data": {"bps": 0}, "ts": time.time()})
+        # ... va dong loi lenh adapter tu sinh (mode khi chua co FC): khong tinh, khong
+        # thi 2 s sau bao "MAT TIN HIEU SiK" khi SiK chua tung noi (19/10 tren dien thoai).
+        bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),
+                           "data": {"severity": 3, "text": "lenh mode loi: x", "local": True}})
+        b.refresh()
+        assert b.state["statusLevel"] != "ok", f"chua co goi FC ma bao: {b.state['status']}"
 
         # --- waypoint: cham-giu ban do --------------------------------------
         b.setWpAlt(30)
@@ -4019,6 +4144,9 @@ def check_analysis(app):
     assert stream_table({"mode": "REAL", "conn": "/dev/ttyS0"}) is STREAMS, (
         "cong serial chua ro loai ma da xin nhanh")
     assert stream_table({"mode": "REPLAY", "path": "x.tlog"}) is STREAMS
+    # Radio SiK cam OTG vao dien thoai toi app qua TCP noi bo — van la radio.
+    assert stream_table({"mode": "REAL", "conn": "tcp:127.0.0.1:5760", "bridge": True}) is STREAMS, (
+        "cau OTG tcp: bi coi la SITL -> xin stream nhanh, nghen radio 57600")
 
     # Quet cong phai mang co `bridge` sang profile, khong thi stream_table() mu.
     from laptop.connection import detect_serial
@@ -4578,6 +4706,8 @@ if __name__ == "__main__":
     check_dead_socket(app)
     check_banner_health(app)
     check_adapter_live(app)
+    check_dual_link(app)
+    check_copy_tiles(app)
     check_video(app)
     check_i18n(app)
     check_param_doc(app)

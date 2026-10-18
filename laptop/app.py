@@ -2,18 +2,33 @@
 
 Vao thang GUI, panel chon nguon nam o dock ben phai. App khong tu ket noi:
 chua bam "Ket noi" thi banner xam va khong co byte nao chay.
+
+Dien thoai (connection.ANDROID) khac — nguoi dung chot 19/10: khong panel Ket noi,
+TU noi profile duy nhat (radio SiK cam OTG + mang); khong thanh trang thai duoi,
+khong banner; man Bay chiem ca man hinh va thanh cong cu cua no (kieu QGC/DJI:
+trang thai, che do, duong truyen, GPS, pin) la thanh tren duy nhat. Cac trang
+khac mo tu nut ☰ tren thanh do; trang nao lon hon man hinh thi vuot de cuon.
 """
 
 import sys
 import time
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
+    QFrame,
+    QHBoxLayout,
     QMainWindow,
+    QMenu,
     QMessageBox,
+    QScrollArea,
+    QScroller,
+    QToolButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from core import authority, bus, i18n
@@ -21,6 +36,7 @@ from core.adapters.remote import RemoteAdapter
 from core.adapters.sik import STALE, SikAdapter
 from core.field import REGISTRY
 from core.i18n import t
+from laptop import connection
 from laptop.connection import (ROOT, ConnectionPanel, ModeBanner, detect_serial,
                                load_profiles, same_port)
 from laptop.link_faults import LinkFaults
@@ -45,10 +61,22 @@ CLOSE_CONFIRM_S = 3.0
 RECONNECT_MS = 1000  # nhip quet cong USB trong luc cho cam lai
 
 
-def mount(page, widget):
-    """Nhet widget viet tay vao mot tab trong do Designer de san."""
+def mount(page, widget, scroll=True):
+    """Nhet widget viet tay vao mot tab trong do Designer de san.
+
+    Dien thoai: boc trong vung cuon. Man ~800x360 dp nho hon kich thuoc toi thieu
+    cua nhieu tab laptop (bang tham so, luoi nut) — khong boc thi bi CAT mat, boc
+    thi vuot ngon tay la thay het. Man Bay va Camera tu co gian, khong boc.
+    """
     lay = QVBoxLayout(page)
     lay.setContentsMargins(0, 0, 0, 0)
+    if scroll and connection.ANDROID:
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setWidget(widget)
+        QScroller.grabGesture(sa.viewport(), QScroller.TouchGesture)
+        widget = sa
     lay.addWidget(widget)
 
 
@@ -89,7 +117,9 @@ class MainWindow(QMainWindow):
         # ponytail: addTab bang code, khoi phai sua .ui roi chay lai build_ui.sh.
         self.video = VideoSource(self)
         self.camera_tab = VideoView(self.video)
-        self.ui.tabWidget.addTab(self.camera_tab, "")
+        self.camera_page = QWidget()
+        mount(self.camera_page, self.camera_tab, scroll=False)
+        self.ui.tabWidget.addTab(self.camera_page, "")
 
         # MOT man bay duy nhat, cam ung het (QML kieu DJI) — nam trong chinh trang
         # "Flight" cua Designer, mo san. Truoc day co hai tab bay song song, moi
@@ -102,16 +132,20 @@ class MainWindow(QMainWindow):
         self.touch.openMessage.connect(self._open_message)
         self.video.frozen_changed.connect(self._on_video_frozen)
         self.touch.stateChanged.connect(lambda: self.control_tab.show_flight(self.touch.state))
-        mount(self.ui.Flight, self.touch_view)
+        mount(self.ui.Flight, self.touch_view, scroll=False)
         self.ui.tabWidget.setCurrentWidget(self.ui.Flight)
 
         # Tab Phan tich doc log tu dia, khong dinh gi toi ket noi dang chay —
         # xem lai chuyen truoc trong luc dang cam FC cung khong sao.
         self.analysis_tab = AnalysisTab()
-        self.ui.tabWidget.addTab(self.analysis_tab, "")
+        self.analysis_page = QWidget()
+        mount(self.analysis_page, self.analysis_tab)
+        self.ui.tabWidget.addTab(self.analysis_page, "")
 
         self.settings_tab = SettingsTab()
-        self.ui.tabWidget.addTab(self.settings_tab, "")
+        self.settings_page = QWidget()
+        mount(self.settings_page, self.settings_tab)
+        self.ui.tabWidget.addTab(self.settings_page, "")
 
         # Trong tai da nguon an theo bus, tab Flight doc lai tu no.
         bus.on("*", REGISTRY.feed)
@@ -141,6 +175,9 @@ class MainWindow(QMainWindow):
         self.link_status = LinkStatus()
         self.ui.statusbar.addPermanentWidget(self.link_status)
         bus.on("*", self.link_status.on_envelope)
+        # Nua companion (task/video qua LTE) cua profile hai duong: cho SiK nghe FC.
+        self._lte_pending = None
+        bus.on("heartbeat", self._on_heartbeat)
 
         # Rut day USB giua chung: giu nguon cu, quet cong moi giay, thay dung thiet
         # bi do cam lai thi tu noi. Chi cho cong serial — tcp/udp da co
@@ -155,15 +192,74 @@ class MainWindow(QMainWindow):
         self._health.start(500)
 
         i18n.on_change(self._retext)
+        if connection.ANDROID:
+            self._phone_layout(profiles)
+
+    def _phone_layout(self, profiles):
+        """Ban dien thoai: bo dock Ket noi + thanh duoi + banner, an thanh tab, tu ket noi."""
+        self.conn_dock.hide()
+        # Banner bo (nguoi dung 19/10): trang thai da nam tren thanh cong cu man Bay. No
+        # van nam o o luoi cu, an di — _refresh_banner chay tiep cung khong sao.
+        self.banner.hide()
+        self.ui.statusbar.hide()  # LinkStatus van chay ngam: banner doc last_seen cua no
+        tabs = self.ui.tabWidget
+        tabs.tabBar().hide()
+        tabs.setDocumentMode(True)
+        # Thanh tab ngang nuot ~35 dp cua ~360 dp chieu cao — gan 10% man bay — ma chi
+        # de chuyen trang thinh thoang. Man Bay: nut ☰ nam trong thanh cong cu QML
+        # (backend.menuRequested). Trang khac: mot hang mong chi co nut nay.
+        self.page_btn = QToolButton()
+        self.page_btn.setObjectName("pageBtn")
+        self.page_btn.setPopupMode(QToolButton.InstantPopup)
+        self.page_btn.setMenu(QMenu(self.page_btn))
+        # O cham ~44 dp: menu mac dinh cua Qt cao ~22 px/dong, lam cho chuot.
+        self.page_btn.setStyleSheet("QToolButton { padding: 6px 12px; font-size: 15px; }")
+        self.page_btn.menu().setStyleSheet(
+            "QMenu::item { padding: 12px 32px 12px 20px; font-size: 16px; }")
+        self.page_btn.menu().aboutToShow.connect(self._fill_page_menu)
+        tabs.currentChanged.connect(self._page_changed)
+        top = QWidget()
+        row = QHBoxLayout(top)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(self.page_btn)
+        row.addStretch(1)
+        self.ui.gridLayout.addWidget(top, 0, 0)
+        self._top = top
+        self.touch.menuRequested.connect(self._popup_pages)
+        self._page_changed()
+        live = [p for p in profiles if p.get("conn")]
+        if live:
+            # ponytail: profile co conn dau tien — dien thoai chi co mot (config).
+            QTimer.singleShot(0, lambda: self.connect_to(live[0]))
+
+    def _fill_page_menu(self):
+        m = self.page_btn.menu()
+        m.clear()
+        tabs = self.ui.tabWidget
+        for i in range(tabs.count()):
+            act = m.addAction(tabs.tabText(i))
+            act.setCheckable(True)
+            act.setChecked(i == tabs.currentIndex())
+            act.triggered.connect(lambda _=False, i=i: tabs.setCurrentIndex(i))
+
+    def _page_changed(self, *_):
+        tabs = self.ui.tabWidget
+        self.page_btn.setText("☰  " + tabs.tabText(tabs.currentIndex()))
+        self._top.setVisible(tabs.currentWidget() is not self.ui.Flight)
+
+    def _popup_pages(self):
+        self._fill_page_menu()
+        self.page_btn.menu().popup(self.mapToGlobal(QPoint(8, 8)))
 
     def _retext(self):
         tabs = self.ui.tabWidget
         for w, key in ((self.ui.Flight, "tab.flight"),
                        (self.ui.Status, "tab.status"),
                        (self.ui.Control, "tab.control"), (self.ui.Messages, "tab.messages"),
-                       (self.camera_tab, "tab.camera"),
-                       (self.analysis_tab, "tab.analysis"),
-                       (self.settings_tab, "tab.settings")):
+                       (self.camera_page, "tab.camera"),
+                       (self.analysis_page, "tab.analysis"),
+                       (self.settings_page, "tab.settings")):
             tabs.setTabText(tabs.indexOf(w), t(key))
         self._show_unread(self._unread)  # doi ngon ngu khong duoc nuot mat con so
         self.conn_dock.setWindowTitle(t("dock.conn"))
@@ -179,6 +275,8 @@ class MainWindow(QMainWindow):
         tabs = self.ui.tabWidget
         i = tabs.indexOf(self.ui.Messages)
         tabs.setTabText(i, t("tab.messages") + (f"  ({n})" if n else ""))
+        if hasattr(self, "page_btn"):
+            self._page_changed()
 
     def _on_cmd_log(self, text, sev=5):
         """Ket qua moi lan bam nut: thanh trang thai + tab Thong bao + file
@@ -241,6 +339,25 @@ class MainWindow(QMainWindow):
         self.adapter.start()
         authority.register("sik", self.adapter)
 
+        # Profile hai duong (dien thoai): LTE chi mo SAU KHI SiK nghe FC — xem
+        # _on_heartbeat. Profile khac: mo ngay nhu truoc.
+        if profile.get("conn2"):
+            self._lte_pending = profile
+        else:
+            self._start_companion(profile)
+
+        self.control_tab.set_mode(self.mode)
+        self.status_tab.attach(self.adapter)
+        self.analysis_tab.attach(self.adapter)
+        self.replay_bar.attach(self.adapter if self.mode == "REPLAY" else None)
+        self.link_faults.attach(self.adapter if self.mode == "SIM" else None,
+                                self.remote if self.mode == "SIM" else None)
+        self.faults_dock.setVisible(self.mode == "SIM")
+        self.touch.attach(profile, self.adapter)
+        self.ui.statusbar.showMessage(
+            t("conn.opening_msg", target=profile.get("conn") or profile.get("path")), 5000)
+
+    def _start_companion(self, profile):
         # Nua ROS2: chi noi khi profile khai bao. Mat no thi nua SiK van chay.
         if profile.get("remote"):
             self.remote = RemoteAdapter(profile["remote"])
@@ -255,16 +372,15 @@ class MainWindow(QMainWindow):
         if url:
             self.video.start(url, profile.get("status"), profile.get("feedback"))
 
-        self.control_tab.set_mode(self.mode)
-        self.status_tab.attach(self.adapter)
-        self.analysis_tab.attach(self.adapter)
-        self.replay_bar.attach(self.adapter if self.mode == "REPLAY" else None)
-        self.link_faults.attach(self.adapter if self.mode == "SIM" else None,
-                                self.remote if self.mode == "SIM" else None)
-        self.faults_dock.setVisible(self.mode == "SIM")
-        self.touch.attach(profile, self.adapter)
-        self.ui.statusbar.showMessage(
-            t("conn.opening_msg", target=profile.get("conn") or profile.get("path")), 5000)
+    def _on_heartbeat(self, env):
+        """Heartbeat dau tien cua FC qua SiK -> moi mo nua LTE (task, video).
+
+        Heartbeat src "sik" truoc khi SiK nghe FC la khong the: DualLink chua cho
+        doi sang mang luc do (core/adapters/sik.py), nen goi nay di qua radio that.
+        """
+        if self._lte_pending and env["src"] == SikAdapter.SRC:
+            profile, self._lte_pending = self._lte_pending, None
+            self._start_companion(profile)
 
     def _refresh_banner(self):
         """Hai nua hong theo hai kieu khac nhau — banner phai noi ro nua nao.
@@ -306,6 +422,7 @@ class MainWindow(QMainWindow):
 
     def disconnect(self):
         self._reconnect.stop()  # bam Ngat = thoi cho cam lai
+        self._lte_pending = None
         for name, attr in (("sik", "adapter"), ("remote", "remote")):
             a = getattr(self, attr, None)
             if a:
@@ -412,12 +529,23 @@ class MainWindow(QMainWindow):
         super().closeEvent(e)
 
 
-def main():
-    app = QApplication(sys.argv)
+def main(app=None):
+    app = app or QApplication(sys.argv)  # main.py (Android) tao truoc de doc assets:/
+    # Ky hieu (☰ ⚑ ⌂ ▲ ✕ ⚠ ...): font chinh cua Android (Roboto/SysFont) khong co, ma
+    # fallback cua Qt chap chon theo khoi Unicode -> o vuong (do 19/10 tren OPPO: ⌂ hien,
+    # ☰ ⚑ thi khong, du cung nam trong mot font he thong). Kem font con cua DejaVu Sans
+    # (pyftsubset cac khoi ky hieu, doi ten "GCS Symbols", giay phep laptop/fonts/) lam
+    # font du phong ngay sau font mac dinh — cho ca widget lan QML.
+    fid = QFontDatabase.addApplicationFont(str(Path(__file__).parent / "fonts" / "gcs_symbols.ttf"))
+    if fid >= 0:
+        font = app.font()
+        font.setFamilies([font.family(), *QFontDatabase.applicationFontFamilies(fid)])
+        app.setFont(font)
     app.setStyleSheet(QSS)
     i18n.load()  # phai truoc MainWindow: widget lay chu ngay trong __init__
     win = MainWindow(load_profiles())
-    win.show()
+    # Dien thoai: an ca thanh trang thai Android (~33 dp cua ~360 dp chieu cao).
+    win.showFullScreen() if connection.ANDROID else win.show()
     return app.exec()
 
 

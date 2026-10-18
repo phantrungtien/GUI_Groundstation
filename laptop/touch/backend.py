@@ -25,14 +25,13 @@ from laptop.commands import (MODES, NUDGE_HZ, NUDGE_V0, NUDGE_VMAX, WP_ALT_MAX,
                              WP_ALT_MIN, WP_ALTS,
                              WP_CONFIRM_S, Commands)
 from laptop.widgets.alerts import ERR_SEV, AlertBook
-from laptop.widgets.attitude import AttitudeWidget
-from laptop.widgets.compass import Compass
+from laptop.widgets.attitude import AttitudeDial
 from laptop.widgets.map_widget import MapWidget
 from laptop.widgets.telemetry_bar import (batt_level, gps_level, left_level, reserve_mah,
                                            time_left_s)
 from laptop.widgets.video import VideoSource, VideoView, video_url
 from laptop.touch.items import WIDGETS
-from laptop import safety
+from laptop import connection, safety
 from laptop.voice import Voice
 
 LIVE = ("REAL", "SIM")
@@ -53,6 +52,7 @@ class Backend(QObject):
     stateChanged = Signal()
     langChanged = Signal()
     openMessage = Signal(str)  # cham dong loi -> app.py mo tab Thong bao toi dong do
+    menuRequested = Signal()   # nut ☰ tren thanh cong cu (dien thoai) -> app.py mo menu trang
 
     def __init__(self, cmd=None, video_src=None, parent=None):
         super().__init__(parent)
@@ -69,16 +69,17 @@ class Backend(QObject):
         self._state = {}
         self._wp_confirm = 0.0   # lan bam "nap" dau khi dang bay AUTO
         self._stick = (0.0, 0.0, 0.0)  # can ao: (dong, bac, len), tam [-1, 1]
+        self._link = {}  # goi "link" moi nhat cua adapter: duong (SiK/mang), % mat goi
 
         # Ban do, camera, la ban va chan troi la widget CU, ve len QML qua
         # WidgetItem. Viet lai bang QML la hai ban de lech nhau — xem items.py.
         self.map = MapWidget()
         self.video_src = video_src or VideoSource(self)
         self.video = VideoView(self.video_src)
-        self.compass = Compass()
-        self.attitude = AttitudeWidget()
+        self.dial = AttitudeDial()  # chan troi + la ban trong mot dong ho
+        self.map.draw_note = not connection.ANDROID  # QML hien thay (mapNote)
         WIDGETS.update(map=self.map, video=self.video,
-                       compass=self.compass, attitude=self.attitude)
+                       dial=self.dial)
 
         self.alerts = AlertBook()
         self.voice = Voice()
@@ -95,6 +96,7 @@ class Backend(QObject):
         bus.on("wp", self._on_wp)
         bus.on("param", lambda e: self._params.update(e["data"]))
         bus.on("text", self._on_text)
+        bus.on("link", lambda e: self._link.update(e["data"]) if e["src"] == SikAdapter.SRC else None)
         # San sang ARM: bit PREARM_CHECK trong SYS_STATUS — cung nguon Mission
         # Planner/QGC dung. Do that 19/09 tren MicoAir743: log 144628 co loi
         # PreArm -> bit False ca phien; log 155159 khong loi -> True tu giay dau.
@@ -137,8 +139,42 @@ class Backend(QObject):
 
     # ---- trang thai --------------------------------------------------------
 
+    @Property(bool, constant=True)
+    def phone(self):
+        """Ban dien thoai: thanh cong cu QML co nut ☰ (thay hang tab/banner cua app laptop)."""
+        return connection.ANDROID
+
+    @Slot()
+    def menu(self):
+        self.menuRequested.emit()
+
+    def _links(self):
+        """Chi bao duong truyen kieu QGC/DJI: (duong MAVLink, % mat, muc), (muc 4G companion).
+
+        Muc lay tu lan cuoi THAT SU co goi (last_seen, da tru topic `link`), khong tu
+        viec adapter con chay. Companion None = profile khong co `remote` -> an o.
+        """
+        now = time.time()
+
+        def level(src):
+            seen = self.last_seen.get(src)
+            return "none" if seen is None else "crit" if now - seen > STALE else "ok"
+
+        mav = level(SikAdapter.SRC)
+        loss = self._link.get("loss")
+        if mav == "ok" and loss is not None and loss >= 10:
+            mav = "warn"
+        path = "4G" if self._link.get("path") == "mang" else "SiK"
+        remote = level("remote") if self.profile and self.profile.get("remote") else None
+        return path, loss, mav, remote
+
     def _seen(self, env):
-        self.last_seen[env["src"]] = time.time()
+        # Tru "link": adapter TU phat moi giay ke ca khi khong co goi nao tu drone
+        # (giong LinkStatus.on_envelope). Tinh no thi vien bao "San sang" luc chua
+        # cam FC — do 19/10 tren dien thoai, chi co radio, khong co drone.
+        local = isinstance(env["data"], dict) and env["data"].get("local")
+        if env["topic"] != "link" and not local:  # loi lenh/doi duong: adapter tu sinh
+            self.last_seen[env["src"]] = time.time()
 
     def _status(self, armed, fix):
         """(key, kwargs, muc) cho vien trang thai tren cung — giong banner app laptop."""
@@ -185,8 +221,8 @@ class Backend(QObject):
             hdg = v("position.heading")
         self.map.heading = hdg  # mui tam giac tren ban do quay cung kim la ban
         self.map.alt_rel = v("position.alt_rel")
-        self.compass.set_heading(hdg)
-        self.attitude.set_attitude(v("attitude.roll"), v("attitude.pitch"))
+        self.dial.set_heading(hdg)
+        self.dial.set_attitude(v("attitude.roll"), v("attitude.pitch"))
 
         armed = v("heartbeat.armed")
         pct = v("battery.remaining")
@@ -209,9 +245,13 @@ class Backend(QObject):
         if self.map.pos and self.map.home and self.map.home_from_fc:
             dist = haversine_m(*self.map.pos, *self.map.home)
         key, kw, level = self._status(armed, fix)
+        link_path, link_loss, link_level, remote_level = self._links()
 
         self._state = {
             "connected": self.profile is not None,
+            "mapNote": "" if self.map.draw_note else self.map.note(),
+            "linkPath": link_path, "linkLoss": link_loss, "linkLevel": link_level,
+            "remoteLevel": remote_level,
             "live": self._live(),
             "mode": self.mode or "",
             "profile": self.profile["name"] if self.profile else "",
@@ -595,6 +635,7 @@ class Backend(QObject):
         if profile is None:
             self.profile = self.mode = self.adapter = None
             self.last_seen.clear()
+            self._link.clear()
             self._prearm, self._prearm_why = None, {}
             # Xoa luon so lieu cu. `map.reset()` co xoa home, nhung `refresh()` chay
             # 5 Hz va no doc thang REGISTRY: con vi tri cu trong do la 200 ms sau no
@@ -616,5 +657,6 @@ class Backend(QObject):
         else:
             if profile is not self.profile:
                 self.last_seen.clear()
+                self._link.clear()
             self.profile, self.mode, self.adapter = profile, profile["mode"], adapter
         self.refresh()

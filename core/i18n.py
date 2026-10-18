@@ -115,6 +115,11 @@ STR = {
                     "NOT CONNECTED  ·  pick a source in the right-hand panel"),
     "banner.waiting": ("{mode}  ·  {name}  ·  đang chờ dữ liệu…",
                        "{mode}  ·  {name}  ·  waiting for data…"),
+    # Dien thoai: khong co panel chon nguon; profile hai duong cho SiK truoc (LTE sau).
+    "banner.none_phone": ("CHƯA KẾT NỐI  ·  đang mở radio telemetry…",
+                          "NOT CONNECTED  ·  opening the telemetry radio…"),
+    "banner.waiting_sik": ("{mode}  ·  cắm radio telemetry vào cổng USB  ·  chờ FC qua SiK…",
+                           "{mode}  ·  plug the telemetry radio into USB  ·  waiting for FC over SiK…"),
     "banner.lost": ("⚠  MẤT KẾT NỐI  ·  {name}  ·  {why}",
                     "⚠  LINK LOST  ·  {name}  ·  {why}"),
     "mode.REAL": ("bay thật", "live flight"),
@@ -342,6 +347,7 @@ STR = {
     "link.never": ("chưa kết nối", "not connected"),
     "link.alive": ("{bps} B/s · mất {loss:.1f}%", "{bps} B/s · {loss:.1f}% lost"),
     "link.dead": ("MẤT — {sec:.0f}s", "LOST — {sec:.0f}s"),
+    "link.path_mang": ("Mạng", "Net"),  # DualLink dang di duong mang thay SiK
 
     # --- mo phong dut duong truyen ---------------------------------------
     "flt.ros2_box": ("Nửa ROS2 — WebSocket tới companion",

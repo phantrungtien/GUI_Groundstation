@@ -7,6 +7,7 @@ chuoi ket noi — quyet dinh mau banner va viec khoa nut dieu khien.
 
 import glob
 import os
+import sys
 from pathlib import Path
 
 import yaml
@@ -40,8 +41,15 @@ MODE_COLOR = theme.MODE_COLOR
 # Chu thich mode nam trong bang chu (core/i18n.py) duoi key "mode.<MODE>".
 
 
+# Chi Python cua Android co sys.getandroidapilevel (main.py cung dung dau hieu nay).
+ANDROID = hasattr(sys, "getandroidapilevel")
+
+
 def load_profiles(path=CONFIG):
-    return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
+    """Profile co `android: true/false` chi hien tren dung nen tang do — SITL o
+    127.0.0.1 vo nghia tren dien thoai, cau OTG (tcp:127.0.0.1:5760) vo nghia tren laptop."""
+    ps = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
+    return [p for p in ps if p.get("android") in (None, ANDROID)]
 
 
 def usb_id(p):
@@ -138,7 +146,7 @@ class ModeBanner(QLabel):
 
     def show_disconnected(self):
         self._last = (self.show_disconnected, (), {})
-        self._paint(None, t("banner.none"))
+        self._paint(None, t("banner.none_phone" if ANDROID else "banner.none"))
 
     def show_waiting(self, profile):
         """Da mo nguon nhung chua nhan duoc byte nao.
@@ -148,7 +156,9 @@ class ModeBanner(QLabel):
         cua mode luon thi banner dang noi doi.
         """
         self._last = (self.show_waiting, (profile,), {})
-        self._paint("WAIT", t("banner.waiting", mode=profile["mode"], name=profile["name"]))
+        # Profile hai duong: SiK phai noi truoc (LTE mo sau) -> noi ro can lam gi.
+        key = "banner.waiting_sik" if profile.get("conn2") else "banner.waiting"
+        self._paint("WAIT", t(key, mode=profile["mode"], name=profile["name"]))
 
     def show_profile(self, profile):
         self._last = (self.show_profile, (profile,), {})

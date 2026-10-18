@@ -371,6 +371,15 @@ class MapWidget(QWidget):
             self.fetcher.start()
         self.setMouseTracking(True)
 
+    # Dien thoai: man bay QML tu hien dai chu nay (tren thanh so lieu) — ve o mep duoi
+    # ban do thi bi o camera va thanh so lieu de len.
+    draw_note = True
+
+    def note(self):
+        """Canh bao cua ban do (rao, HOME TAM, duong bay, CHUA NAP), "" neu khong co."""
+        return "  ·  ".join(x for x in (self._fence_note(), self._home_note(),
+                                        self._wp_note(), self._draft_note()) if x)
+
     def _on_fetched(self):
         """Chay o main thread (qua signal). Tile moi ve -> co the co muc zoom moi."""
         self._zooms = None
@@ -902,8 +911,7 @@ class MapWidget(QWidget):
         # do tam, "nhay doi de bam lai" va ten nguon anh da bo 19/09 cho do roi.
         # Khong con gi thi khong ke dai. Chu tren anh ve tinh thi chim han, nen ke
         # mot dai toi mo phia sau.
-        note = "  ·  ".join(x for x in (self._fence_note(), self._home_note(),
-                                        self._wp_note(), self._draft_note()) if x)
+        note = self.note() if self.draw_note else ""
         if not note:
             return
         p.setFont(QFont("", 8))

@@ -1,0 +1,8 @@
+<!-- Chen vao <activity> (buildozer android.manifest.intent_filters). Cam radio telemetry ->
+     Android hoi "Mo GCS khi ket noi thiet bi nay?"; tick "Luon" la tu cap quyen USB moi
+     lan cam sau, khong con hop thoai xin quyen cua SikBridge (cach QGroundControl lam). -->
+<intent-filter>
+    <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+</intent-filter>
+<meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+           android:resource="@xml/device_filter" />

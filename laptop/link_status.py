@@ -29,7 +29,7 @@ class LinkStatus(QWidget):
         self.last_seen = {}  # src -> ts goi cuoi
         self.bps = {}
         self.loss = {}  # src -> % goi mat trong giay vua roi (thay cho RSSI)
-        self._dots, self._info = {}, {}
+        self._dots, self._info, self._names = {}, {}, {}
 
         grid = QGridLayout(self)
         grid.setContentsMargins(6, 0, 6, 0)
@@ -43,7 +43,7 @@ class LinkStatus(QWidget):
             grid.addWidget(dot, row, 0)
             grid.addWidget(name, row, 1)
             grid.addWidget(info, row, 2)
-            self._dots[src], self._info[src] = dot, info
+            self._dots[src], self._info[src], self._names[src] = dot, info, name
 
         self._tick()
         self._timer = QTimer(self)
@@ -59,7 +59,12 @@ class LinkStatus(QWidget):
         if env["topic"] == "link":
             self.bps[env["src"]] = env["data"].get("bps", 0)
             self.loss[env["src"]] = env["data"].get("loss", 0.0)
+            path = env["data"].get("path")  # profile hai duong: dang di SiK hay mang
+            if path:
+                self._names[env["src"]].setText(t("link.path_mang") if path == "mang" else path)
             return
+        if isinstance(env["data"], dict) and env["data"].get("local"):
+            return  # adapter tu sinh (loi lenh, doi duong) — khong phai drone noi
         self.last_seen[env["src"]] = env["ts"]
 
     def _tick(self):

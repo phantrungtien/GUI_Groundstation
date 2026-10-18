@@ -1,0 +1,77 @@
+"""Diem vao ban Android. pyside6-android-deploy bat buoc file ten `main.py` o
+thu muc goc; tren may tinh `python3 main.py` chay y het `python3 -m laptop.app`.
+
+Ban do offline dong chung APK, nhung la Android asset (assets:/tiles), KHONG nam
+trong private.tar: p4a giai nen private.tar tren luong chinh cua Android ngay trong
+onCreate — them 345 MB tile la ANR, he thong dong app (do 19/10). Lan mo dau mot
+thread nen chep tile ra <files>/tiles; nam ngoai files/app vi p4a xoa sach files/app
+moi lan cai ban moi. Co mang thi tile tai them cung vao do.
+"""
+import sys
+import threading
+from pathlib import Path
+
+from PySide6.QtCore import QDir, QDirIterator, QFile, QObject, Signal, QStandardPaths
+from PySide6.QtWidgets import QApplication
+
+from laptop import app
+from laptop.widgets import map_widget
+
+ASSET_TILES = "assets:/tiles"  # tools/build_apk.sh: android.add_assets
+
+
+def copy_tiles(src, dst, tick=lambda: None):
+    """Chep moi file duoi src ra dst, bo qua file da co; xong ghi dau `.copied`.
+
+    ponytail: co dau la thoi — APK sau co them tile thi xoa `.copied` (hay go cai app).
+    """
+    done = dst / ".copied"
+    if done.exists():
+        return 0
+    it = QDirIterator(src, QDir.Filter.Files, QDirIterator.IteratorFlag.Subdirectories)
+    n = 0
+    while it.hasNext():
+        f = it.next()
+        out = dst / f[len(src) + 1:]
+        out.parent.mkdir(parents=True, exist_ok=True)
+        QFile.copy(f, str(out))  # khong ghi de: tile da tai qua mang giu nguyen
+        n += 1
+        if n % 2000 == 0:
+            tick()  # ban do hien dan tung phan, khong doi chep xong
+    done.write_text(f"{n}\n")
+    tick()
+    return n
+
+
+class _MapRefresh(QObject):
+    """Bao ban do quet lai dia. Signal phat tu thread chep, slot chay o main thread
+    (QObject nay song o main thread) — cham widget tu thread khac la hong."""
+    tick = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.tick.connect(self.refresh)
+
+    def refresh(self):
+        for w in QApplication.allWidgets():
+            if isinstance(w, map_widget.MapWidget):
+                w._zooms = None  # available_zooms() nho ket qua luc dia con trong
+                w.update()
+
+
+def main():
+    # APK khong mang thu muc rong: thieu logs/ thi commands.log, video.log mat im lang.
+    (Path(__file__).resolve().parent / "logs").mkdir(exist_ok=True)
+    qapp = QApplication(sys.argv)  # truoc khi doc assets:/ — Qt dang ky no luc tao app
+    if hasattr(sys, "getandroidapilevel"):  # chi Python cua Android co ham nay
+        files = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        map_widget.TILE_DIR = Path(files) / "tiles"
+        map_widget.TILE_DIR.mkdir(parents=True, exist_ok=True)
+        ref = _MapRefresh()
+        threading.Thread(target=copy_tiles, args=(ASSET_TILES, map_widget.TILE_DIR, ref.tick.emit),
+                         daemon=True).start()
+    return app.main(qapp)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

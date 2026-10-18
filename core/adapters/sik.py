@@ -198,6 +198,10 @@ def stream_table(profile):
     Chua biet chac thi giu bang HEP: doan nham theo huong nhanh la lam nghen mot
     duong radio giua chuyen bay, doan nham theo huong cham thi chi la cham.
     """
+    # Co bridge=True la radio, KE CA khi di qua TCP: tren dien thoai radio SiK cam
+    # OTG den app qua cau Java tcp:127.0.0.1:5760 (android/.../SikBridge.java).
+    if profile.get("bridge") is True:
+        return STREAMS
     if ":" in str(profile.get("conn", "")):   # tcp:/udp: — SITL, khong qua radio
         return STREAMS_FAST
     if profile.get("bridge") is False:        # cong CDC cua chinh FC
@@ -525,6 +529,83 @@ def flatten_status(name, d):
     return out
 
 
+class DualLink:
+    """Hai duong MAVLink toi CUNG mot FC, mo cung luc (profile co `conn2`). Tren dien
+    thoai: radio SiK cam OTG + mang (MAVROS tren Jetson day qua Tailscale/LTE).
+
+    Chi MOT duong dang dung (`cur`): goi tra ve, lenh gui di, .tlog deu cua no. Duong
+    kia van doc — roi bo goi — de biet FC con noi tren do khong. Khong tron goi hai
+    duong: moi cong cua FC co bo dem seq va tan so stream rieng, tron vao thi ti le
+    mat goi thanh rac va HUD nhay giua mau cu/moi. Khong gui lenh ca hai duong:
+    ArduPilot nhan moi lenh hai lan, nap duong bay hai phien cung luc thi no tu choi
+    phien thu hai (MAV_MISSION_DENIED) va app doc ACK do thanh "nap that bai".
+
+    Doi duong khi duong dang dung im > `stale` ma duong kia co FC noi trong 1 s qua —
+    nhung CHI SAU KHI duong dau (SiK) da tung nghe FC: nguoi dung chot 19/10, chua cam
+    radio telemetry va noi duoc SiK thi KHONG cho bay qua LTE/4G. Mang chi la du phong
+    cho mot duong SiK da co, khong phai duong thay the.
+    "FC noi" = goi cua component 1 (heartbeat FC gui tren MOI cong, khong can xin);
+    heartbeat MAVROS (1/191) hay RADIO_STATUS cua radio mat dat khong tinh — chung
+    van den khi drone da ra ngoai tam.
+    ponytail: khong tu quay ve SiK khi no song lai — o ria tam song SiK chap chon,
+    quay ve ngay la nhay qua lai moi vai giay. Can "uu tien SiK" thi them tre o _pick.
+    """
+    NAMES = ("SiK", "mang")
+
+    def __init__(self, links, stale=STALE):
+        self.links, self.stale = links, stale
+        self.cur, self.path = links[0], self.NAMES[0]
+        self.rx = [0.0] * len(links)  # lan cuoi FC noi tren tung duong
+        self.t0 = time.time()
+
+    def __getattr__(self, name):  # mav, target_system, mav_loss... cua duong dang dung
+        return getattr(self.cur, name)
+
+    def close(self):
+        for link in self.links:
+            link.close()
+
+    def _recv(self, i):
+        try:
+            m = self.links[i].recv_match(blocking=False)
+        except Exception:  # mot duong hong khong duoc keo duong kia chet theo
+            return None
+        if (m is not None and m.get_type() != "BAD_DATA"
+                and not m.get_type().startswith("UNKNOWN_")
+                and m.get_srcComponent() == AUTOPILOT):
+            self.rx[i] = time.time()
+        return m
+
+    def _pick(self):
+        now = time.time()
+        i = self.links.index(self.cur)
+        if not self.rx[0] or now - max(self.rx[i], self.t0) <= self.stale:
+            return
+        for j, t in enumerate(self.rx):
+            if j != i and now - t < 1.0:
+                self.cur, self.path = self.links[j], self.NAMES[j]
+                return
+
+    def recv_match(self, blocking=False, timeout=None):
+        end = time.time() + (timeout or 0)
+        while True:
+            # Vet duong cho truoc: no khong duoc dong goi trong bo dem khi duong
+            # dang dung tra goi lien tuc.
+            for i, link in enumerate(self.links):
+                if link is not self.cur:
+                    while self._recv(i) is not None:
+                        pass
+            m = self._recv(self.links.index(self.cur))
+            if m is not None:
+                return m
+            self._pick()
+            if not blocking or time.time() >= end:
+                return None
+            # ponytail: ngu 10 ms thay select() — fd cua mavtcp cu di sau moi lan noi
+            # lai. Tre them toi da 10 ms, nho so voi radio (~50 ms/goi).
+            time.sleep(0.01)
+
+
 class SikAdapter(QThread):
     envelope = Signal(dict)  # {src, topic, data, ts} — noi vao bus o main thread
     failed = Signal(str)
@@ -639,7 +720,7 @@ class SikAdapter(QThread):
             try:
                 self._exec(master, action, args)
             except Exception as e:
-                self._emit("text", {"severity": 3, "text": f"lenh {action} loi: {e}"})
+                self._emit("text", {"severity": 3, "text": f"lenh {action} loi: {e}"}, local=True)
 
     def _exec(self, master, action, args):
         m = master.mav
@@ -1181,9 +1262,14 @@ class SikAdapter(QThread):
             return
         self._wp_up_count(master)
 
-    def _emit(self, topic, data, ts=None):
+    def _emit(self, topic, data, ts=None, local=False):
+        """local=True: goi do CHINH adapter sinh ra (thong ke link, loi lenh, doi duong),
+        khong phai drone noi. Noi do "drone con song" (LinkStatus, man bay) bo qua no —
+        tinh no thi chua cam FC ma vien bao "San sang", roi "MAT TIN HIEU SiK" (19/10)."""
         if self.muted:
             return  # dang mo phong dut telemetry — xem self.muted
+        if local:
+            data = {**data, "local": True}
         self.envelope.emit(
             {"src": self.SRC, "topic": topic, "data": data, "ts": ts or time.time()}
         )
@@ -1216,6 +1302,8 @@ class SikAdapter(QThread):
             # (tools/soak.py) khong di qua duong do.
             kw["baud"] = 115200 if "ttyACM" in p["conn"] else 57600
         master = mavutil.mavlink_connection(p["conn"], **kw)
+        if p.get("conn2"):  # radio + mang cung luc, xem DualLink
+            master = DualLink([master, mavutil.mavlink_connection(p["conn2"], **kw)])
 
         # Ghi .tlog o moi che do, ke ca REAL — sau su co day thuong la thu duy
         # nhat cho biet chuyen gi da xay ra (Phu luc 7.6). Cung la dau vao REPLAY.
@@ -1247,6 +1335,7 @@ class SikAdapter(QThread):
         last_bps_at = time.time()
         last_bytes = 0
         last_loss = last_count = 0  # so goi mat/nhan cua lan phat "link" truoc
+        last_path = getattr(master, "path", None)
         self._stream_rx = time.time()
         prev_log_ts = None
 
@@ -1396,7 +1485,7 @@ class SikAdapter(QThread):
                             streams_sent = True
 
                 elif self.mode == "REPLAY":
-                    self._emit("link", {"bps": 0, "eof": True})
+                    self._emit("link", {"bps": 0, "eof": True}, local=True)
                     break
 
                 now = time.time()
@@ -1441,14 +1530,26 @@ class SikAdapter(QThread):
                     # nhan: MAVLink danh so thu tu tung goi, thung so la mat goi.
                     # Khong bang RSSI o cho bao truoc, nhung hon o cho no do dung
                     # thu can biet — bao nhieu phan tram KHONG toi noi.
+                    path = getattr(master, "path", None)  # DualLink: "SiK"/"mang"
+                    if path != last_path:
+                        # Bo dem byte/goi gio la cua duong moi: lay moc lai, khong
+                        # thi giay nay ra so am. Xin stream ngay tren duong moi —
+                        # cong do cua FC co the chua ai xin, doi _stream_tick la 5 s.
+                        if last_path:
+                            self._emit("text", {"severity": 4,
+                                                "text": f"MAVLink doi sang duong {path}"}, now,
+                                       local=True)
+                            self._stream_rx = 0.0
+                        last_bytes, last_loss, last_count = total, master.mav_loss, master.mav_count
+                        last_path = path
                     lost = 0 if df else master.mav_loss - last_loss
                     good = 0 if df else master.mav_count - last_count
                     self._emit(
                         "link",
                         {"bps": int((total - last_bytes) / (now - last_bps_at)),
                          "loss": round(100.0 * lost / (lost + good), 1) if lost + good else 0.0,
-                         "mode": self.mode},
-                        now,
+                         "mode": self.mode, "path": path},
+                        now, local=True,
                     )
                     last_bytes, last_bps_at = total, now
                     if not df:

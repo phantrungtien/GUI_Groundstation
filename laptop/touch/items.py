@@ -9,7 +9,9 @@ yeu cau ve. Ban do 5 Hz (cung nhip FlightTab.refresh). Camera ve them moi khi co
 khung moi (`_follow`), timer chi con lo o xam.
 """
 
-from PySide6.QtCore import Property, QPoint, QTimer, Signal
+from PySide6.QtCore import Property, QPoint, Qt, QTimer, Signal
+from PySide6.QtGui import QRegion
+from PySide6.QtWidgets import QWidget
 from PySide6.QtQuick import QQuickPaintedItem
 
 # ponytail: mot bang chung cho ca tien trinh = mot man cam ung moi tien trinh (app
@@ -66,4 +68,8 @@ class WidgetItem(QQuickPaintedItem):
         size = self.size().toSize()
         if w.size() != size:
             w.resize(size)
-        w.render(painter, QPoint(0, 0))
+        # Widget khong cha bi coi la cua so -> render() to ca nen o vuong. Dong ho tron
+        # (attitude.py) khai nen trong suot: chi ve chinh no len ban do.
+        flags = QWidget.DrawChildren if w.testAttribute(Qt.WA_TranslucentBackground) \
+            else QWidget.DrawWindowBackground | QWidget.DrawChildren
+        w.render(painter, QPoint(0, 0), QRegion(), flags)
