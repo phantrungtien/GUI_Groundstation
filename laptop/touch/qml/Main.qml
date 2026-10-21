@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtMultimedia
 import Gcs 1.0
 
 // Man bay cam ung kieu DJI. Moi lenh deu phai TRUOT de xac nhan (nguoi dung chot
@@ -135,7 +136,7 @@ Item {
     WidgetItem {
         id: mainView
         anchors.fill: parent
-        name: win.camBig ? "video" : "map"
+        name: win.camBig ? (backend.phone ? "" : "video") : "map"
         fps: win.camBig ? 30 : 5
     }
     MouseArea {  // GIU 2 s de chon diem, keo de di, cham dup de bam theo drone
@@ -526,11 +527,49 @@ Item {
         border.color: theme.BORDER
         border.width: 2
         WidgetItem {
+            id: pipItem
             anchors { fill: parent; margins: 2 }
-            name: win.camBig ? "map" : "video"
+            name: win.camBig ? "map" : (backend.phone ? "" : "video")
             fps: win.camBig ? 5 : 15
         }
         MouseArea { anchors.fill: parent; onClicked: win.camBig = !win.camBig }
+    }
+
+    // ---- video dien thoai: VideoOutput (GPU) thay WidgetItem "video" -------------
+    // MediaCodec giai ma phan cung ra texture, scene graph ve thang — xem
+    // VideoSource.set_output. MOT VideoOutput (player chi co mot sink), doi cha theo
+    // camBig. Mat/dung hinh thi PHU o xam len chu KHONG an no: an thi khong ai lay
+    // khung, bo giai ma dung — va VideoOutput giu khung cuoi, dung cai video.py cam.
+    Item {
+        parent: win.camBig ? mainView : pipItem
+        anchors.fill: parent
+        visible: backend.phone
+        VideoOutput {
+            objectName: "videoOut"
+            anchors.fill: parent
+            fillMode: VideoOutput.PreserveAspectFit
+        }
+        Rectangle {
+            anchors.fill: parent
+            visible: !st.vidLive
+            color: theme.BG
+            Text {
+                anchors { fill: parent; margins: 6 }
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                wrapMode: Text.WordWrap
+                text: st.vidNote || ""
+                color: st.vidWarn ? theme.WARN : theme.MUTED
+                font.pixelSize: 13 * f
+            }
+        }
+        Text {  // nhip khung NGAY tren hinh, nhu VideoView
+            visible: !!st.vidLive
+            x: 6; y: 4
+            text: (st.vidFps || 0).toFixed(1) + " fps"
+            color: st.vidFps < 8 ? theme.WARN : theme.OK
+            font.pixelSize: 12 * f
+        }
     }
 
     // ---- so lieu duoi cung ---------------------------------------------------

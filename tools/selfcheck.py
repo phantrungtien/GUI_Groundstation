@@ -525,16 +525,77 @@ def check_video_h264(app):
         src.start(f"udp://0.0.0.0:{port + 1}")
         assert until(lambda: src.pixmap is not None and src.alive, 10000), \
             f"du phong QMediaPlayer khong ra hinh: {src.note}"
+        # Im qua ~20 s thi player bao "Demuxing failed" va DUNG HAN (Lenovo 21/10) —
+        # nguon con do thi phai tu mo lai, khong cho nguoi bay khoi dong lai app.
+        src._player.stop()
+        t_stop = time.monotonic()
+        assert until(lambda: src._last > t_stop + 0.5, 10000), "player dung han ma khong mo lai"
+        # Im lau ma player van "dang phat" (Jetson khoi dong lai, 19:33 21/10): cung mo lai.
+        s.kill(); s.wait()
+        t_kill = time.monotonic()
+        assert until(lambda: src._replay_t > t_kill, (video_mod.REPLAY_S + 2) * 1000), \
+            "nguon im lau ma khong mo lai player"
+        s = sender(moving, port + 1)
+        t_back = time.monotonic()
+        assert until(lambda: src._last > t_back + 0.5, 12000), "nguon len lai ma khong co hinh"
+    finally:
+        s.kill()
+        s.wait()
+        video_mod.Gst = gst_mod
+
+    # Dien thoai: khung ve thang bang VideoOutput (QML), VideoSource chi dem nhip va
+    # GPU_THUMB_HZ lan/giay so dung hinh — khong giu pixmap. Player rieng: sink co dinh.
+    import tempfile
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQuick import QQuickView
+    qml = Path(tempfile.mkdtemp()) / "v.qml"
+    qml.write_text("import QtQuick\nimport QtMultimedia\nVideoOutput { width: 320; height: 240 }\n")
+    view = QQuickView()
+    view.setSource(QUrl.fromLocalFile(str(qml)))
+    gpu = VideoSource()
+    gpu.set_output(view.rootObject())
+    video_mod.Gst = None
+    s = sender(moving, port + 2)
+    try:
+        gpu.start(f"udp://0.0.0.0:{port + 2}")
+        assert until(lambda: gpu.alive and gpu.fps > 10, 10000), f"VideoOutput khong ra khung: {gpu.note}"
+        assert gpu.on_gpu and gpu.pixmap is None, "duong GPU van giu pixmap"
+        assert not until(lambda: gpu.frozen, 2500), "GPU: hinh dang chay ma bao dung hinh"
+        s.kill(); s.wait()
+        s = sender(frozen, port + 2)
+        # doi nguon cung cong: DTS nhay lui, QMediaPlayer co luc dung ~4,8 s (xem tren)
+        assert until(lambda: gpu.frozen and not gpu.alive, 12000), "GPU: dung hinh ma khong bao"
     finally:
         s.kill()
         s.wait()
         video_mod.Gst = gst_mod
     # Huy ngay tren main thread — xem cuoi check_video().
-    src.stop()
-    src.deleteLater()
+    for v in (src, gpu):
+        v.stop()
+        v.deleteLater()
+    view.deleteLater()
     app.processEvents()
-    print("  ok  video H.264/UDP — giai ma that; dung hinh (anh dong bang qua x264) xoa anh; "
-          "mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh; dem goi TS mat "
+    # Dau gio `run_gui.py --stamp` (pi5/latency_stamp.py): ve dung kieu stamp() roi doc lai.
+    from PySide6.QtGui import QColor as _C, QImage as _I
+    t = time.time()
+    img = _I(1280, 720, _I.Format.Format_RGB32)
+    img.fill(_C(90, 90, 90))
+    v = int(t * 1000) & video_mod.STAMP_MASK
+    x = (v << 8) | (~sum(v.to_bytes(5, "big")) & 0xFF)
+    for i in range(48):
+        r, c = divmod(i, 24)
+        for yy in range(16):
+            for xx in range(16):
+                img.setPixelColor(c * 16 + xx, 720 - 32 + r * 16 + yy,
+                                  _C("white") if (x >> (47 - i)) & 1 else _C("black"))
+    assert abs(video_mod.read_stamp(img) - t) < 0.002, "doc sai dau gio --stamp"
+    img.setPixelColor(3 * 16 + 8, 720 - 32 + 8, _C("white") if not (x >> 44) & 1 else _C("black"))
+    assert video_mod.read_stamp(img) is None, "o hong ma checksum khong bat"
+    plain = _I(1280, 720, _I.Format.Format_RGB32)
+    plain.fill(_C("black"))
+    assert video_mod.read_stamp(plain) is None, "khung khong co dau gio ma doc ra gio"
+    print("  ok  video H.264/UDP — giai ma that; doc dau gio --stamp; dung hinh (anh dong bang qua x264) xoa anh; "
+          "mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh, dung han / im 5 s thi tu mo lai; VideoOutput (dien thoai) dem nhip + bao dung hinh, khong giu pixmap; dem goi TS mat "
           "va bao \"loss=\" ve Jetson moi giay, het goi thi im; khong giu khung (20/20)")
 
 

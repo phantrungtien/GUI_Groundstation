@@ -119,7 +119,10 @@ class MainWindow(QMainWindow):
         self.camera_tab = VideoView(self.video)
         self.camera_page = QWidget()
         mount(self.camera_page, self.camera_tab, scroll=False)
-        self.ui.tabWidget.addTab(self.camera_page, "")
+        # Dien thoai: video ve bang VideoOutput tren man Bay (cham o nho de phong to),
+        # VideoView o tab nay khong con anh de ve — xem VideoSource.set_output.
+        if not connection.ANDROID:
+            self.ui.tabWidget.addTab(self.camera_page, "")
 
         # MOT man bay duy nhat, cam ung het (QML kieu DJI) — nam trong chinh trang
         # "Flight" cua Designer, mo san. Truoc day co hai tab bay song song, moi

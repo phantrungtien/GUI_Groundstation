@@ -269,6 +269,12 @@ class Backend(QObject):
             "battLeft": left, "leftLevel": left_level(left) or "ok",
             "sats": sats, "gpsLevel": gps_level(fix, sats, hdop)[0] or "ok",
             "hasVideo": bool(self.profile and video_url(self.profile)),
+            # Dien thoai ve video bang VideoOutput (QML) — o xam/chu/fps cua VideoView
+            # thi QML ve lai tu may so nay. Mat/dung hinh: PHU kin, khong de khung cuoi.
+            "vidLive": self.video_src.alive,
+            "vidWarn": self.video_src.note[0] == "vid.frozen",  # mau WARN nhu VideoView
+            "vidNote": t(self.video_src.note[0], **self.video_src.note[1]),
+            "vidFps": round(self.video_src.fps, 1),
             # So nguoi: VideoSource hoi `/status` cua Jetson moi 0,5 s (loi/het gio
             # = None = "--"). Camera dung hinh thi model cung dang dem tren mot
             # canh cu -> khong hien.

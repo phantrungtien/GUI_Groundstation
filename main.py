@@ -83,6 +83,9 @@ def main():
     # APK khong mang thu muc rong: thieu logs/ thi commands.log, video.log mat im lang.
     # (Dien thoai: <files>/logs, ngoai files/app — xem connection.logs_dir.)
     LOGS.mkdir(parents=True, exist_ok=True)
+    # Video H.264: giai ma phan cung MediaCodec, ve bang VideoOutput (QML) — xem
+    # VideoSource.set_output. Ep phan mem (QT_FFMPEG_DECODING_HW_DEVICE_TYPES=none,
+    # 19-21/10) chi con la cach lui: 15-25 fps, 193 % CPU tren Lenovo.
     qapp = QApplication(sys.argv)  # truoc khi doc assets:/ — Qt dang ky no luc tao app
     if hasattr(sys, "getandroidapilevel"):  # chi Python cua Android co ham nay
         files = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)

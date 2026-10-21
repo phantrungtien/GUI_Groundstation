@@ -7,7 +7,8 @@ H.264 (11/10/2026): Jetson day MPEG-TS/H.264 960x540 25 fps toi UDP 5600 cua lap
 Giai ma bang GStreamer (appsink sync=false), KHONG bang QMediaPlayer: do cung luong
 Jetson, cung canh quay, so tin hieu do sang voi MJPEG — GStreamer tre hon MJPEG
 ~20 ms, QMediaPlayer tre ~900-990 ms vi tu dem de phat muot. Lai drone nhin hinh
-cham 1 giay la khong duoc. May khong co GStreamer (Windows) moi roi ve QMediaPlayer.
+cham 1 giay la khong duoc. May khong co GStreamer (Windows, DIEN THOAI) moi roi ve
+QMediaPlayer — da chinh xuong ~60 ms, xem `_PLAYER_*`.
 
 MOT nguon, NHIEU cho ve. `VideoSource` giu dung mot ket noi HTTP toi Pi va giai
 ma mot lan; tab Camera va o PiP tren tab Flight cung doc lai ket qua do. Hai
@@ -38,8 +39,8 @@ import urllib.request
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
-from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, qGray
+from PySide6.QtMultimedia import QMediaPlayer, QPlaybackOptions, QVideoSink
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QWidget
 
@@ -53,7 +54,26 @@ try:
     from gi.repository import Gst
     Gst.init(None)
 except (ImportError, ValueError):
-    Gst = None  # ponytail: khong co GStreamer -> QMediaPlayer, tre ~0,9 s (xem dau file)
+    Gst = None  # ponytail: khong co GStreamer -> QMediaPlayer (xem _PLAYER_*)
+
+# QMediaPlayer (FFmpeg cua Qt) giu lai phan du lieu doc luc do luong roi phat theo dong
+# ho that -> tre co dinh khong bao gio xa. Do 19/10/2026 (khung dong dau gio, x264 dung
+# cau hinh Jetson, may mo giua luong): mac dinh 735 ms; LowLatencyStreaming mot minh
+# 774; + probe 32 KB 235-533 ms (ti le nguoc bitrate); + rate 1,5 -> 58 ms o ca
+# 400k/1000k/1500k, 30 fps deu. Probe 2 KB thi 400k co lan KHONG ra hinh -> giu 32 KB.
+# ponytail: rate > 1 chi xa phan dem; het dem thi khung den la ve ngay. Mang giat roi
+# don cuc goi ve thi cung xa nhanh gap ruoi thay vi tre mai.
+#
+# Probe 32 KB (~0,17 s) thi KHONG gap SPS (Jetson 1 keyframe/giay): ffprobe 8/8 lan ra
+# 0x0 -> MediaCodec "Failed to open FFmpeg codec context: Invalid argument", Qt lang
+# le lui ve giai ma phan mem (Lenovo 21/10). 256 KB: 8/8 ra 1280x720. Do tre cung dong
+# ho (dau gio trong khung, x264 cau hinh Jetson, rate 1,5) 21/10: 32 KB khung dau 0,4 s,
+# 512 KB 1,6 s; tu giay 8 ca hai p50 74 / p90 115 ms. 512 KB = du mot GOP ca khi Jetson
+# tang bitrate; FFmpeg dung do ngay khi du thong so, khong doc het.
+_PLAYER_PROBE, _PLAYER_RATE = 524288, 1.5
+# Dien thoai: khung MediaCodec nam tren GPU, ve thang bang VideoOutput cua QML (xem
+# set_output). Chi keo anh ve CPU chung nay lan/giay de do dung hinh (STILL_DIFF).
+GPU_THUMB_HZ = 4
 
 # Cong rieng cho video, khong dung chung 8765 cua duong lenh (nguyen tac 2.1).
 # GCS_VIDEO_PORT chi de CHIA LUONG luc thu nghiem (chay stream thu hai o cong khac
@@ -61,6 +81,7 @@ except (ImportError, ValueError):
 VIDEO_PORT = int(os.environ.get("GCS_VIDEO_PORT", 8080))
 READ_TIMEOUT_S = 4.0  # khong co byte nao trong ngan nay -> coi nhu dut, noi lai
 RETRY_S = 2.0
+REPLAY_S = 5.0  # H.264 qua QMediaPlayer: khong khung nao qua ngan nay -> mo lai player
 STALE_S = 2.0  # khong co khung moi qua ngan nay -> o xam
 # Khung VAN VE DEU ma anh khong doi mot byte qua ngan nay -> camera dung hinh.
 # Do duoc bang cach bam byte JPEG: may anh that luon co nhieu cam bien, hai khung
@@ -117,6 +138,33 @@ def video_url(profile):
     trong tron du Pi dang phat.
     """
     return profile.get("video") or (url_for(profile["remote"]) if profile.get("remote") else None)
+
+
+# Jetson `run_gui.py --stamp` (pi5/latency_stamp.py): dai o 16 px den/trang goc duoi
+# trai = gio chup (ms epoch, cat 40 bit) + 8 bit kiem. Doc duoc thi dong fps ghi them
+# tre chup -> GUI. Hai may lech dong ho bao nhieu thi so lech bay nhieu (NTP).
+STAMP_CELL, STAMP_COLS, STAMP_ROWS = 16, 24, 2
+STAMP_MASK = (1 << 40) - 1
+
+
+def read_stamp(img):
+    """Gio chup (giay epoch) Jetson ve vao khung, None neu khong co / doc hong."""
+    h = img.height()
+    if h < STAMP_ROWS * STAMP_CELL or img.width() < STAMP_COLS * STAMP_CELL:
+        return None
+    y0, mid = h - STAMP_ROWS * STAMP_CELL, STAMP_CELL // 2
+    x = 0
+    for i in range(STAMP_COLS * STAMP_ROWS):
+        r, c = divmod(i, STAMP_COLS)
+        x = (x << 1) | (qGray(img.pixel(c * STAMP_CELL + mid, y0 + r * STAMP_CELL + mid)) > 128)
+    v, s = x >> 8, x & 0xFF
+    if ~sum(v.to_bytes(5, "big")) & 0xFF != s:  # dao bit: khung den tron khong lot
+        return None
+    now_ms = int(time.time() * 1000)  # khoi phuc phan cao bi cat, nhu latency_stamp.read
+    ms = (now_ms & ~STAMP_MASK) | v
+    if ms > now_ms + (STAMP_MASK >> 1):
+        ms -= STAMP_MASK + 1
+    return ms / 1000
 
 
 def count_loss(data, last):
@@ -202,6 +250,9 @@ class VideoSource(QObject):
         self._n = self._bytes = 0  # dem trong chu ky REPORT_S hien tai
         self._rep_t = time.monotonic()
         self._player = None   # du phong khong co GStreamer: tao lan dau, roi giu mai
+        self._out = None      # VideoOutput cua QML (set_output); None = ve bang VideoView
+        self._thumb_t = 0.0
+        self._replay_t = 0.0  # lan cuoi mo lai player — xem _check_stale
         self._pipe = None     # pipeline GStreamer cua nguon H.264 dang chay
         self.status = None    # url /status (key `status` cua profile), hoi moi nhip _watch
         self.persons = None   # `total` cua lan tra loi moi nhat; loi/het gio = None
@@ -209,6 +260,7 @@ class VideoSource(QObject):
         self._seq = self._seen = 0  # tra loi ve lon xon thi bo cai cu hon cai da hien
         self.feedback = None  # (host, port) Jetson nhan "loss=..." (key `feedback`)
         self._loss = None     # ti le mat goi giay vua qua, ghi vao dong log fps
+        self._lat = []        # tre chup -> GUI (ms) trong chu ky REPORT_S, xem read_stamp
 
         self._arrived.connect(self._decode)
         self._image.connect(self._on_image)
@@ -228,7 +280,9 @@ class VideoSource(QObject):
         self.note = ("vid.connecting", {})
         self._hash, self._frozen = None, False
         self._n = self._bytes = 0
+        self._lat = []
         self._rep_t = time.monotonic()
+        self._thumb_t = 0.0
         _log(f"start {url}")
         self._gen += 1
         if url.startswith("http"):
@@ -245,13 +299,43 @@ class VideoSource(QObject):
         # va chia nhau goi tin trong im lang.
         if self._player is None:
             self._player = QMediaPlayer(self)
-            sink = QVideoSink(self._player)
-            self._player.setVideoSink(sink)
+            if self._out is not None:
+                self._player.setVideoOutput(self._out)
+                sink = self._player.videoSink()
+            else:
+                sink = QVideoSink(self._player)
+                self._player.setVideoSink(sink)
             sink.videoFrameChanged.connect(self._on_vframe)
             self._player.errorOccurred.connect(self._on_player_error)
-        self._player.setSource(QUrl())  # mo lai tu dau: do lai luong sau khi Jetson khoi dong lai
-        self._player.setSource(QUrl(url))
+            o = QPlaybackOptions()
+            o.setPlaybackIntent(QPlaybackOptions.PlaybackIntent.LowLatencyStreaming)
+            o.setProbeSize(_PLAYER_PROBE)
+            self._player.setPlaybackOptions(o)
+        self._replay()
+
+    def _replay(self):
+        """Mo player lai tu dau: do lai luong (Jetson khoi dong lai, hay player da dung han)."""
+        self._replay_t = time.monotonic()
+        self._player.setSource(QUrl())
+        self._player.setPlaybackRate(_PLAYER_RATE)
+        self._player.setSource(QUrl(self.url))
         self._player.play()
+
+    def set_output(self, out):
+        """Ve H.264 bang VideoOutput cua QML thay vi VideoView. Goi TRUOC start().
+
+        Android: MediaCodec giai ma phan cung ra texture GPU. QVideoSink tran (khong
+        gan GPU) khong doc duoc texture do -> 0 khung (OPPO 19/10, logcat renderFps=0),
+        nen truoc day phai ep FFmpeg giai ma phan mem roi toImage() + phong anh tren
+        CPU moi khung: Lenovo 21/10 chi 15-25 fps, app an 193 % CPU, hinh giat.
+        VideoOutput nam trong scene graph (co GPU) nen khung di thang len man."""
+        self._out = out
+
+    @property
+    def on_gpu(self):
+        """Khung dang ve bang VideoOutput (QML), khong qua `pixmap`."""
+        return self._out is not None and bool(self.url) and not self.url.startswith("http") \
+            and Gst is None
 
     def stop(self):
         self._gen += 1  # thread dang chay se thay _gen lech va tu thoat
@@ -363,12 +447,30 @@ class VideoSource(QObject):
         """Khung H.264 da giai ma bang QMediaPlayer (du phong khong co GStreamer)."""
         if not self.url or self.url.startswith("http") or not frame.isValid():
             return  # khung con xep hang sau stop(), hoac nguon dang la MJPEG
+        if self._out is not None:
+            # GPU: VideoOutput tu ve. O day chi dem nhip, va GPU_THUMB_HZ lan/giay keo
+            # anh ve so dung hinh — giua hai lan do "khong doi" khong lam lui _moved.
+            now = time.monotonic()
+            if now - self._thumb_t < 1.0 / GPU_THUMB_HZ:
+                self._show(None, False, 0)
+                return
+            img = frame.toImage()
+            if not self._thumb_t:  # lan dau moi start(): ghi lai GPU -> CPU co keo duoc khong
+                _log(f"gpu {frame.width()}x{frame.height()} handle={frame.handleType().name} "
+                     f"thumb={'NULL' if img.isNull() else 'ok'}")
+            self._thumb_t = now
+            if img.isNull():
+                self._show(None, False, 0)
+            else:
+                self._from_image(img, keep=False)
+            return
         img = frame.toImage()
         if not img.isNull():
             self._from_image(img)
 
-    def _from_image(self, img):
-        """Anh H.264 da giai ma -> man hinh. So anh thu nho voi moc, xem STILL_DIFF."""
+    def _from_image(self, img, keep=True):
+        """Anh H.264 da giai ma -> man hinh. So anh thu nho voi moc, xem STILL_DIFF.
+        keep=False: chi so dung hinh, khong giu anh (VideoOutput da ve roi)."""
         g = img.scaled(THUMB_W, THUMB_H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) \
                .convertToFormat(QImage.Format.Format_Grayscale8)
         raw, bpl = bytes(g.constBits()), g.bytesPerLine()  # moi dong co the co byte dem
@@ -376,7 +478,10 @@ class VideoSource(QObject):
         changed = self._hash is None or max(abs(a - b) for a, b in zip(th, self._hash)) > STILL_DIFF
         if changed:
             self._hash = th
-        self._show(QPixmap.fromImage(img), changed, 0)
+        t = read_stamp(img)
+        if t is not None:
+            self._lat.append((time.time() - t) * 1000)
+        self._show(QPixmap.fromImage(img) if keep else None, changed, 0)
 
     def _on_player_error(self, err, msg):
         _log(f"error {err.name}: {msg}")
@@ -467,13 +572,31 @@ class VideoSource(QObject):
                 _log(f"error gstreamer: {err.message}")
                 self.note = ("vid.error", {})
         now = time.monotonic()
+        if self._player and self.url and not self.url.startswith("http") and Gst is None:
+            # Hai kieu player KHONG tu nghe lai (Lenovo 21/10), deu chi chua bang mo lai:
+            # - im qua network timeout cua Qt (~20 s) -> "Demuxing failed", player DUNG HAN
+            #   (Jetson tat stream 18:49, bat lai 19:22: 0 fps suot);
+            # - Jetson khoi dong lai trong vai giay (19:33): khong loi, van "dang phat", ma
+            #   luong moi PTS/DTS lam lai tu dau -> 60 s khong ra khung nao.
+            # Chap chon ngan (0,3-3 s, 19:42) no tu chay tiep, khong toi REPLAY_S.
+            if self._player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
+                if now - self._replay_t >= RETRY_S:
+                    _log("player dung — mo lai")
+                    self._replay()
+            elif now - max(self._last, self._replay_t) >= REPLAY_S:
+                _log(f"player im {REPLAY_S:.0f} s — mo lai")
+                self._replay()
         if self.url and now - self._rep_t >= REPORT_S:
             dt = now - self._rep_t
             kb = f"  {self._bytes / dt / 1000:4.0f} KB/s" if self._bytes else ""  # H.264: khong dem
             if self._loss is not None:
                 kb += f"  mat {self._loss:.1%}"
+            if self._lat:
+                v = sorted(self._lat)
+                kb += f"  tre p50 {v[len(v) // 2]:.0f} p90 {v[int(len(v) * 0.9)]:.0f} ms ({len(v)})"
             _log(f"fps {self._n / dt:5.1f}{kb}")
             self._n = self._bytes = 0
+            self._lat = []
             self._rep_t = now
         if (self.alive or self._frozen) and now - self._last > STALE_S:
             # Het khung moi. Bo khung cu di chu khong giu lai cho dep man hinh.

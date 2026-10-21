@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QObject, QUrl
 from PySide6.QtQml import qmlRegisterType
 from PySide6.QtQuickWidgets import QQuickWidget
 
@@ -30,4 +30,6 @@ def make_view(backend, parent=None):
     view.setSource(QUrl.fromLocalFile(str(QML)))
     if view.status() == QQuickWidget.Error:
         raise RuntimeError("; ".join(e.toString() for e in view.errors()))
+    if backend.phone:  # Main.qml: VideoOutput chi dung tren dien thoai, xem VideoSource.set_output
+        backend.video_src.set_output(view.rootObject().findChild(QObject, "videoOut"))
     return view
