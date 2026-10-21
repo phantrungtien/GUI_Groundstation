@@ -7,6 +7,8 @@ onCreate — them 345 MB tile la ANR, he thong dong app (do 19/10). Lan mo dau m
 thread nen chep tile ra <files>/tiles; nam ngoai files/app vi p4a xoa sach files/app
 moi lan cai ban moi. Co mang thi tile tai them cung vao do.
 """
+import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -19,6 +21,22 @@ from laptop.connection import LOGS
 from laptop.widgets import map_widget
 
 ASSET_TILES = "assets:/tiles"  # tools/build_apk.sh: android.add_assets
+ANDROID_CA = "/system/etc/security/cacerts"
+PEM = re.compile(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.S)
+
+
+def ca_bundle(src, dst):
+    """Gop chung chi CA cua Android thanh mot file PEM, tra ve so chung chi.
+
+    OpenSSL dong trong APK tim CA o /usr/local/ssl (OPENSSLDIR luc build) — dien
+    thoai khong co thu muc do, nen moi HTTPS hong ma TileFetcher nuot loi: co mang,
+    co GPS ca tieng van khong co ban do (21/10). Thu muc CA cua Android dat ten theo
+    subject_hash_old, OpenSSL tra theo hash moi -> khong dung thang lam SSL_CERT_DIR.
+    """
+    certs = [c for f in sorted(Path(src).glob("*")) if f.is_file()
+             for c in PEM.findall(f.read_text(errors="ignore"))]
+    dst.write_text("\n".join(certs) + "\n")
+    return len(certs)
 
 
 def copy_tiles(src, dst, tick=lambda: None):
@@ -68,6 +86,9 @@ def main():
     qapp = QApplication(sys.argv)  # truoc khi doc assets:/ — Qt dang ky no luc tao app
     if hasattr(sys, "getandroidapilevel"):  # chi Python cua Android co ham nay
         files = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        ca = Path(files) / "cacert.pem"
+        if ca_bundle(ANDROID_CA, ca):
+            os.environ["SSL_CERT_FILE"] = str(ca)  # OpenSSL doc moi lan tao context
         map_widget.TILE_DIR = Path(files) / "tiles"
         map_widget.TILE_DIR.mkdir(parents=True, exist_ok=True)
         ref = _MapRefresh()

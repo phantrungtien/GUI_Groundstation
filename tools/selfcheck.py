@@ -1932,6 +1932,18 @@ def check_copy_tiles(app):
         assert copy_tiles(str(empty), dst2) == 0 and not (dst2 / ".copied").exists(), \
             "APK khong ban do da danh dau .copied"
 
+        # Chung chi CA cua Android: PEM kem dong chu `openssl x509 -text` truoc/sau.
+        from main import ca_bundle
+        pem = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----"
+        cas = Path(d) / "cacerts"
+        cas.mkdir()
+        (cas / "00673b5b.0").write_text(f"{pem}\nCertificate:\n    Data: ...\n")
+        (cas / "0a775a30.0").write_text(f"Certificate:\n...\n{pem}\nSHA1 Fingerprint=AB\n")
+        out = Path(d) / "cacert.pem"
+        assert ca_bundle(cas, out) == 2
+        assert out.read_text() == f"{pem}\n{pem}\n", out.read_text()
+        assert ca_bundle(Path(d) / "khong-co", out) == 0  # may la: khong dat SSL_CERT_FILE
+
     # Log chuyen bay tren dien thoai nam NGOAI files/app: p4a xoa sach no moi lan cai lai.
     from laptop.connection import ROOT, logs_dir
     assert logs_dir(False) == ROOT / "logs", "laptop doi cho ghi log"
