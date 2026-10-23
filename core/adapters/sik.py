@@ -21,6 +21,10 @@ from pymavlink import mavutil
 from core.adapters import join
 
 STALE = 2.0  # giay — qua nguong nay coi nhu link chet (Phu luc 7.4)
+# DualLink doi duong PHAI som hon STALE cua man hinh. Bang nhau thi hai ben dua nhau:
+# do 24/10 (app that, FC gia, rut radio) 4/5 lan loa doc "Mat tin hieu" roi 0,5 s
+# sau 4G moi nhan. Radio cho ~61 goi/s (do 26/08) — im 1 s la mat ~60 goi lien tiep.
+SWITCH_S = 1.0
 
 AUTOPILOT = mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1  # = 1
 
@@ -552,7 +556,7 @@ class DualLink:
     """
     NAMES = ("SiK", "mang")
 
-    def __init__(self, links, stale=STALE):
+    def __init__(self, links, stale=SWITCH_S):
         self.links, self.stale = links, stale
         self.cur, self.path = links[0], self.NAMES[0]
         self.rx = [0.0] * len(links)  # lan cuoi FC noi tren tung duong

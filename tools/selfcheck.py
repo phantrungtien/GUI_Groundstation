@@ -2193,15 +2193,18 @@ def check_dual_link(app):
     """
     from PySide6.QtCore import QTimer
     from pymavlink import mavutil
-    from core.adapters.sik import STREAMS, stream_table
+    from core.adapters.sik import STALE, STREAMS, stream_table
     from laptop import connection
 
     sik_port, net_port = PORT + 20, PORT + 21
     lats, texts, paths = [], [], []
+    lat_t, sik_end = [], []  # (luc toi, lat); luc FC ngung noi tren SiK
     adapter = SikAdapter({"name": "dual", "mode": "REAL", "bridge": True,
                           "conn": f"udpin:127.0.0.1:{sik_port}",
                           "conn2": f"udpin:127.0.0.1:{net_port}"})
     adapter.envelope.connect(lambda e: lats.append(e["data"]["lat"])
+                             if e["topic"] == "position" else None)
+    adapter.envelope.connect(lambda e: lat_t.append((time.time(), e["data"]["lat"]))
                              if e["topic"] == "position" else None)
     adapter.envelope.connect(lambda e: texts.append(e["data"]["text"])
                              if e["topic"] == "text" else None)
@@ -2220,6 +2223,8 @@ def check_dual_link(app):
         t0 = time.time()
         while not stop.is_set():
             ports = (sik_port, net_port) if time.time() - t0 < 1.5 else (net_port,)
+            if len(ports) == 1 and not sik_end:
+                sik_end.append(time.time())
             for port in ports:
                 fc[port].mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_QUADROTOR,
                                             mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0)
@@ -2241,6 +2246,10 @@ def check_dual_link(app):
     assert set(lats[k:]) == {2.0}, "tron goi hai duong sau khi doi"
     assert any("mang" in t for t in texts), f"doi duong ma khong bao: {texts}"
     assert paths and paths[-1] == "mang", paths
+    # Doi xong TRUOC khi man hinh coi la mat link (STALE): khong thi moi lan rut
+    # radio, loa doc "Mat tin hieu" roi 4G moi nhan (do 24/10: 4/5 lan).
+    gap = next(ts for ts, la in lat_t if la == 2.0 and ts > sik_end[0]) - sik_end[0]
+    assert gap < STALE - 0.5, f"doi sang mang sau {gap:.2f} s, sat nguong mat link {STALE} s"
 
     # SiK CHUA TUNG nghe FC (chua cam radio) thi khong duoc sang mang, du mang song.
     from core.adapters.sik import DualLink
