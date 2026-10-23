@@ -101,8 +101,18 @@ a["p4a.extra_args"] = re.sub(
 # thi Qt 6.11 bo qua. buildozer khong co khoa cho XML trong <application>, nen di
 # thang qua p4a; buildozer tach extra_args bang shlex -> phai quote.
 provider = ('<provider android:name="org.trungtien.gcs.SikBridge$Init" '
-            'android:authorities="org.trungtien.gcs.sikbridge" android:exported="false"/>')
+            'android:authorities="org.trungtien.gcs.sikbridge" android:exported="false"/>'
+            # Giu song khi o nen (GcsService.java): khong co thi Android giet app sau
+            # ~5 phut o nen vi qua 2 % CPU (do 23/10 22:13).
+            '<service android:name="org.trungtien.gcs.GcsService" android:exported="false" '
+            'android:foregroundServiceType="connectedDevice"/>')
 a["p4a.extra_args"] += " --extra-manifest-application-xml=" + shlex.quote(provider)
+# connectedDevice (Android 14+) can them FOREGROUND_SERVICE_CONNECTED_DEVICE va mot quyen
+# dieu kien — CHANGE_NETWORK_STATE la quyen thuong, cap luc cai. POST_NOTIFICATIONS:
+# chua cap thi service van chay, chi khong hien trong thanh thong bao.
+a["android.permissions"] = ", ".join(filter(None, [a.get("android.permissions")] + [
+    "android.permission." + x for x in ("FOREGROUND_SERVICE", "FOREGROUND_SERVICE_CONNECTED_DEVICE",
+                                        "CHANGE_NETWORK_STATE", "POST_NOTIFICATIONS")]))
 a.update({"android.add_src": os.environ["ROOT"] + "/android/java",
           "android.gradle_dependencies": "com.github.mik3y:usb-serial-for-android:3.8.1",
           "android.add_gradle_repositories": "maven { url 'https://jitpack.io' }",

@@ -51,6 +51,7 @@ public class SikBridge {
         @Override public boolean onCreate() {
             setContext(getContext());
             Immersive.install(getContext());  // cung moc khoi dong, xem Immersive.java
+            GcsService.install(getContext());  // giu song khi o nen, xem GcsService.java
             return true;
         }
         @Override public Cursor query(Uri u, String[] p, String s, String[] a, String o) { return null; }
