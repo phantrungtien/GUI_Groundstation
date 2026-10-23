@@ -287,7 +287,9 @@ class TileFetcher(QObject):
         mang mau phong 16-32 lan va chu nhan phong to 4 lan.
         """
         th, busy = self._thread, self._busy
-        if th is None or (th.is_alive() and (busy is None or time.time() - busy < STUCK_S)):
+        if th is None or not self._running:  # chua start / da stop(): thread thoat la dung
+            return
+        if th.is_alive() and (busy is None or time.time() - busy < STUCK_S):
             return
         _log(f"thread tai tile {'treo' if th.is_alive() else 'chet'} — mo thread moi")
         self.start()

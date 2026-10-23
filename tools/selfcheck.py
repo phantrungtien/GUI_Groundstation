@@ -414,6 +414,37 @@ def check_video_h264(app):
     assert count_loss(ts(256, 9) + ts(256, 11), last) == (2, 0), "goi den tre (lui 1) bi tinh la mat"
     assert count_loss(ts(256, 3), last) == (1, 0), "nhay 8 (ffmpeg khoi dong lai) bi tinh la mat"
 
+    # Nhanh QMediaPlayer (Android, khong GStreamer): Python giu cong, dem mat goi, chuyen
+    # nguyen goi sang cong + RELAY_OFF cho player. Truoc 24/10 nhanh nay khong gui loss=
+    # nao -> Jetson khong ha bitrate theo duong 4G cua may tinh bang.
+    import threading
+    v = VideoSource()
+    fbr = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    fbr.bind(("127.0.0.1", 0))
+    fbr.settimeout(3)
+    v.feedback = fbr.getsockname()
+    rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    rx.bind(("127.0.0.1", 0))
+    out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    out.bind(("127.0.0.1", rx.getsockname()[1] + video_mod.RELAY_OFF))
+    out.settimeout(2)
+    threading.Thread(target=v._relay, args=(rx, v._gen), daemon=True).start()
+    tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def dgram(k):  # 6 goi TS = 1128 B, dung co datagram Jetson gui
+        return b"".join(ts(256, (6 * k + i) & 15) for i in range(6))
+    for k in range(20):
+        if k != 7:  # mat dung mot datagram = 6 goi TS
+            tx.sendto(dgram(k), rx.getsockname())
+    got = [out.recv(2048) for _ in range(19)]
+    assert got[0] == dgram(0) and got[-1] == dgram(19), "relay lam hong goi"
+    rep = fbr.recv(64).decode()
+    assert abs(float(rep.split("=", 1)[1]) - 6 / 120) < 1e-3, f"relay bao mat goi sai: {rep}"
+    v._gen += 1
+    rx.close()
+    for sk in (fbr, out, tx):
+        sk.close()
+
     gst = shutil.which("gst-launch-1.0")
     if not gst or subprocess.run(["gst-inspect-1.0", "x264enc"], capture_output=True).returncode:
         print("  --  bo qua video H.264: may nay khong co gst-launch-1.0 + x264enc")
@@ -1099,6 +1130,12 @@ def check_online_tiles(app):
         h._thread.join()
         h.want(16, 4, 4)
         assert h._thread.is_alive() and "chet — mo thread moi" in log(), log()
+        # stop() roi thi thread thoat la DUNG — khong duoc mo lai moi lan want().
+        last = h._thread
+        h.stop()
+        last.join(2)
+        h.want(16, 5, 5)
+        assert h._thread is last, "da stop() ma want() van mo thread moi"
     finally:
         h.stop()
         mw.MAP_LOG = real_log
@@ -3462,6 +3499,15 @@ def check_touch_flight(app):
         assert (0.0, 0.0) not in b.map.trail, "ARM chuyen moi ma con vet chuyen truoc"
         assert b.map.trail and b.map.trail[-1] == (lat + 0.004, lon), b.map.trail
 
+        # Cham gia (day cap nam tren man hinh 23/10: 420 lan cham dup trong 32 s) chi
+        # duoc ra MOT dong "chua co vi tri", khong lam rac commands.log.
+        pos, b.map.pos = b.map.pos, None
+        n0 = sum("vị trí GPS" in x for x in logs)
+        for _ in range(10):
+            b.mapFollow()
+        assert sum("vị trí GPS" in x for x in logs) - n0 == 1, logs[-3:]
+        b.map.pos = pos
+
         # --- thanh NGUOI canh che do bay: theo khung video dang hien ----------
         persons = win.touch_view.rootObject().findChild(QQuickItem, "persons")
         assert persons is not None
@@ -3666,6 +3712,14 @@ def check_touch_flight(app):
                     pcm, rate = b.voice._piper.pcm(txt, lang)
                     dur = len(pcm) / 2 / rate
                     assert 0.4 < dur < 3.0, (lang, dur)
+                    # Thread pool onnxruntime khong duoc quay cho sau moi cau: do 24/10
+                    # doc mot cau roi ngoi yen = 55,7 % CPU tren laptop 20 loi.
+                    opts = b.voice._piper._voices[lang].session.get_session_options()
+                    try:
+                        spin = opts.get_session_config_entry("session.intra_op.allow_spinning")
+                    except RuntimeError:  # khong dat = mac dinh cua onnxruntime: quay cho
+                        spin = None
+                    assert spin == "0", f"Piper {lang}: onnxruntime van quay cho ({spin!r})"
 
         # --- cham dong loi tren man bay -> tab Thong bao, dung dong do ---------
         bus.emit_envelope({"src": "sik", "topic": "text", "ts": time.time(),

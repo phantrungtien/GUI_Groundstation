@@ -68,6 +68,7 @@ class Backend(QObject):
         self._amps_at = 0.0
         self._state = {}
         self._wp_confirm = 0.0   # lan bam "nap" dau khi dang bay AUTO
+        self._nogps_said = 0.0   # lan cuoi bao "chua co vi tri" khi cham dup — xem mapFollow
         self._stick = (0.0, 0.0, 0.0)  # can ao: (dong, bac, len), tam [-1, 1]
         self._link = {}  # goi "link" moi nhat cua adapter: duong (SiK/mang), % mat goi
 
@@ -462,8 +463,11 @@ class Backend(QObject):
 
     @Slot()
     def mapFollow(self):
-        if not self.map.recenter():
-            self.cmd.say("touch.no_gps_pos", 4)  # cham dup ma khong co gi de ve
+        # Cham dup ma khong co gi de ve. Toi da mot dong moi 3 s: 23/10 20:10 day cap
+        # nam tren man hinh cham gia 420 lan trong 32 s -> 420 dong y het trong commands.log.
+        if not self.map.recenter() and time.time() - self._nogps_said > 3:
+            self._nogps_said = time.time()
+            self.cmd.say("touch.no_gps_pos", 4)
 
     # ---- duong bay: cham-giu de dat diem ----------------------------------
     #

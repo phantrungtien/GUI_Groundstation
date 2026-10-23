@@ -61,7 +61,20 @@ class _Piper:
 
     def __init__(self):
         from piper import PiperVoice, SynthesisConfig  # ImportError -> Voice dung Qt TTS
-        self._load = PiperVoice.load
+        import onnxruntime
+
+        def load(path):
+            # onnxruntime mac dinh: thread pool doc xong van QUAY CHO viec moi. Do
+            # 24/10 tren laptop 20 loi: doc mot cau roi ngoi yen = 33 thread, 55,7 %
+            # CPU; tat quay cho -> 0,0 %, tong hop van 0,02-0,06 s. Piper khong cho
+            # truyen SessionOptions nen nap lai session (+0,34 s, mot lan moi giong).
+            v = PiperVoice.load(path)
+            o = onnxruntime.SessionOptions()
+            o.add_session_config_entry("session.intra_op.allow_spinning", "0")
+            v.session = onnxruntime.InferenceSession(path, sess_options=o,
+                                                     providers=["CPUExecutionProvider"])
+            return v
+        self._load = load
         self._cfg = SynthesisConfig(length_scale=LENGTH_SCALE)
         self._voices = {}
         self._queue = []  # [(pcm bytes, sample rate)]

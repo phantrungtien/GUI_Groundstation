@@ -82,6 +82,7 @@ VIDEO_PORT = int(os.environ.get("GCS_VIDEO_PORT", 8080))
 READ_TIMEOUT_S = 4.0  # khong co byte nao trong ngan nay -> coi nhu dut, noi lai
 RETRY_S = 2.0
 REPLAY_S = 5.0  # H.264 qua QMediaPlayer: khong khung nao qua ngan nay -> mo lai player
+RELAY_OFF = 10  # co relay (_relay): player nghe 127.0.0.1:<cong video + 10>, Python giu cong that
 STALE_S = 2.0  # khong co khung moi qua ngan nay -> o xam
 # Khung VAN VE DEU ma anh khong doi mot byte qua ngan nay -> camera dung hinh.
 # Do duoc bang cach bam byte JPEG: may anh that luon co nhieu cam bien, hai khung
@@ -254,6 +255,8 @@ class VideoSource(QObject):
         self._thumb_t = 0.0
         self._replay_t = 0.0  # lan cuoi mo lai player — xem _check_stale
         self._pipe = None     # pipeline GStreamer cua nguon H.264 dang chay
+        self._src = None      # url player mo — co relay (_relay) thi la cong noi bo
+        self._rx = None       # socket relay giu cong video that
         self.status = None    # url /status (key `status` cua profile), hoi moi nhip _watch
         self.persons = None   # `total` cua lan tra loi moi nhat; loi/het gio = None
         self._net = None
@@ -291,6 +294,19 @@ class VideoSource(QObject):
         if Gst is not None:
             self._gst_start(url, self._gen)
             return
+        self._src = url
+        if self.feedback:
+            u = urlparse(url)
+            rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                rx.bind((u.hostname or "0.0.0.0", u.port))
+            except OSError as e:  # khong giu duoc cong: player tu nghe nhu truoc, chi mat loss=
+                _log(f"error relay {u.port}: {e}")
+                rx.close()
+            else:
+                self._rx = rx
+                self._src = f"udp://127.0.0.1:{u.port + RELAY_OFF}"
+                threading.Thread(target=self._relay, args=(rx, self._gen), daemon=True).start()
         # H.264: QMediaPlayer tu nghe UDP va tu chay tiep khi goi toi lai (do 11/10:
         # ngat 0,3-7 s, noi lai ~0,07 s la chay deu) — khong can vong noi lai.
         # MOT player cho ca doi VideoSource: huy di tao moi thi socket cu chua nha
@@ -319,7 +335,7 @@ class VideoSource(QObject):
         self._replay_t = time.monotonic()
         self._player.setSource(QUrl())
         self._player.setPlaybackRate(_PLAYER_RATE)
-        self._player.setSource(QUrl(self.url))
+        self._player.setSource(QUrl(self._src))
         self._player.play()
 
     def set_output(self, out):
@@ -345,6 +361,9 @@ class VideoSource(QObject):
             self._pipe = None
         if self._player:
             self._player.stop()  # giu player lai cho lan start() sau, xem start()
+        if self._rx:
+            self._rx.close()  # nha cong ngay: start() ngay sau do bind lai duoc
+            self._rx = None
         if self.url:
             _log("stop")
         self.url = self.status = self.persons = None
@@ -394,22 +413,26 @@ class VideoSource(QObject):
         if self.feedback:
             # Bao mat goi ve Jetson moi giay -> run_gui.py --h264-fb-port tu ha/tang
             # bitrate. Chay tren luong GStreamer, ngay khi goi vua toi, truoc demux.
-            st = {"cc": {}, "got": 0, "lost": 0, "t": time.monotonic(), "to": self.feedback,
-                  "sock": socket.socket(socket.AF_INET, socket.SOCK_DGRAM)}
             self._pipe.get_by_name("u").get_static_pad("src").add_probe(
-                Gst.PadProbeType.BUFFER, self._on_udp, st)
+                Gst.PadProbeType.BUFFER, self._on_udp, self._fb_state())
         self._pipe.set_state(Gst.State.PLAYING)
 
     def _on_udp(self, _pad, info, st):
-        """Luong GStreamer: dem goi TS mat (count_loss), moi giay gui "loss=0.0123".
-        Khong co goi nao thi IM — Jetson im 5 s tu coi la mat het va ha bitrate."""
+        """Luong GStreamer: dem mat goi tren tung goi UDP vua toi, xem _count."""
         buf = info.get_buffer()
         ok, m = buf.map(Gst.MapFlags.READ)
         if ok:
             try:
-                g, lost = count_loss(m.data, st["cc"])
+                self._count(m.data, st)
             finally:
                 buf.unmap(m)
+        return Gst.PadProbeReturn.OK
+
+    def _count(self, data, st):
+        """Dem goi TS mat (count_loss), moi giay gui "loss=0.0123" ve Jetson.
+        Khong co goi nao thi IM — Jetson im 5 s tu coi la mat het va ha bitrate."""
+        if data:
+            g, lost = count_loss(data, st["cc"])
             st["got"] += g
             st["lost"] += lost
         now = time.monotonic()
@@ -422,7 +445,35 @@ class VideoSource(QObject):
                     pass  # mang dang rot: lan sau gui tiep, Jetson tu xu ly im lang
             st["got"] = st["lost"] = 0
             st["t"] = now
-        return Gst.PadProbeReturn.OK
+
+    def _fb_state(self):
+        return {"cc": {}, "got": 0, "lost": 0, "t": time.monotonic(), "to": self.feedback,
+                "sock": socket.socket(socket.AF_INET, socket.SOCK_DGRAM)}
+
+    def _relay(self, rx, gen):
+        """Thread: goi tu Jetson -> dem mat goi (_count) -> chuyen nguyen sang player.
+
+        Nhanh QMediaPlayer (Android, khong co GStreamer): FFmpeg cua Qt tu nghe UDP
+        thi Python khong thay goi nao, khong bao duoc mat goi — Jetson khong ha bitrate
+        theo duong 4G cua may tinh bang (24/10: chi nhanh GStreamer cua laptop gui
+        loss=). Nen Python giu cong that, player nghe 127.0.0.1:cong+RELAY_OFF."""
+        st = self._fb_state()
+        to = ("127.0.0.1", rx.getsockname()[1] + RELAY_OFF)
+        rx.settimeout(0.5)
+        try:
+            while gen == self._gen:
+                try:
+                    data = rx.recv(65536)
+                except socket.timeout:
+                    data = None
+                if data:
+                    st["sock"].sendto(data, to)
+                self._count(data, st)
+        except OSError:
+            pass  # stop() dong rx de nha cong ngay
+        finally:
+            rx.close()
+            st["sock"].close()
 
     def _on_sample(self, sink, gen):
         """Luong GStreamer: chep khung ra QImage (QImage dung o thread phu duoc,
