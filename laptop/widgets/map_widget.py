@@ -11,8 +11,10 @@ dung tu doan la mat ban do hay mat vi tri.
 import hashlib
 import math
 import queue
+import ssl
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from laptop import theme
+from laptop.connection import LOGS
 
 # Tran so waypoint la mot con so cua GIAO THUC (bang thong SiK), khong phai cua
 # ban do — lay tu adapter chu khong go lai o day.
@@ -60,6 +63,16 @@ DEFAULT_TILE_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services"
 FETCH_PAUSE = 0.1  # giay giua hai lan tai — lich su voi may chu
 OFFLINE_AFTER = 5  # bay nhieu lan lien tiep thi coi nhu mat mang, nghi mot lat
 OFFLINE_NAP = 30.0
+PARENT_UP = 5  # o thieu tile: lui toi da may muc tim tile cha (5 bac = 8 px phong 32 lan)
+MAP_LOG = LOGS / "map.log"
+
+
+def _log(msg):
+    try:
+        with open(MAP_LOG, "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}\n")
+    except OSError:
+        pass  # khong ghi duoc log thi ban do van phai chay
 
 GRID = QColor("#1e2c38")
 BG = QColor(theme.BG_DEEP)
@@ -231,6 +244,22 @@ class TileFetcher(QObject):
         # Muc sau nhat con anh THAT o nguon nay. Bat dau lac quan roi tu lui khi
         # gap anh rac — moi noi mot khac, thanh pho lon thuong sau hon vung que.
         self.max_ok_z = MAX_ONLINE_Z
+        self.err = None       # loi gan nhat nguoi bay can biet (SSL, HTTP) — MapWidget.note()
+        self._logged = None   # dong cuoi da ghi map.log, khoi ghi trung moi tile
+
+    def _report(self, msg, show):
+        """Loi tai tile -> map.log (moi loi khac nhau mot dong), `show` -> len ban do.
+
+        Truoc day nuot im lang: 21-23/10 app Android CERTIFICATE_VERIFY_FAILED moi
+        tile, co mang co GPS ma 2 ngay khong tai duoc gi, khong mot dong nao noi ra.
+        Mat mang (DNS, het gio) la chuyen thuong ngoai bai bay -> chi ghi log; SSL,
+        HTTP hay may chu tra ve thu khong phai anh la LOI THAT -> hien len.
+        """
+        if msg != self._logged:
+            self._logged = msg
+            _log(msg)
+        if show:
+            self.err = msg
 
     def want(self, z, x, y):
         """Goi tu main thread trong luc ve. Phai re, va khong duoc chan."""
@@ -289,15 +318,23 @@ class TileFetcher(QObject):
         )
         try:
             with urllib.request.urlopen(req, timeout=10) as r:
-                if not r.headers.get("Content-Type", "").startswith("image/"):
+                ctype = r.headers.get("Content-Type", "")
+                if not ctype.startswith("image/"):
                     self._dead.add((z, x, y))
+                    self._report(f"may chu tra {ctype or '?'}, khong phai anh", True)
                     return False
                 data = r.read()
-        except Exception:
+        except Exception as e:
             self._fails += 1
             self._asked.discard((z, x, y))  # cho phep thu lai khi co mang
+            why = e if isinstance(e, urllib.error.HTTPError) else getattr(e, "reason", e)
+            self._report(f"{type(why).__name__}: {why}"[:100],
+                         isinstance(why, (ssl.SSLError, urllib.error.HTTPError)))
             return False
         self._fails = 0
+        self.err = None
+        if self._logged != "tai tile OK":
+            self._report("tai tile OK", False)  # ghi moc hoi phuc vao log
         if not self._keep(data, path, z, x, y):
             return False
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -377,8 +414,10 @@ class MapWidget(QWidget):
 
     def note(self):
         """Canh bao cua ban do (rao, HOME TAM, duong bay, CHUA NAP), "" neu khong co."""
-        return "  ·  ".join(x for x in (self._fence_note(), self._home_note(),
-                                        self._wp_note(), self._draft_note()) if x)
+        err = self.fetcher and self.fetcher.err
+        return "  ·  ".join(x for x in (err and t("map.fetch_err", err=err), self._fence_note(),
+                                        self._home_note(), self._wp_note(),
+                                        self._draft_note()) if x)
 
     def _on_fetched(self):
         """Chay o main thread (qua signal). Tile moi ve -> co the co muc zoom moi."""
@@ -858,10 +897,18 @@ class MapWidget(QWidget):
                 for ty in range(y0, y1 + 1):
                     px = int((tx * scale - cx) * TILE + w / 2)
                     py = int((ty * scale - cy) * TILE + h / 2)
-                    pix = self._tile(tz, tx, ty)
-                    if pix is not None and not pix.isNull():
-                        p.drawPixmap(QRect(px, py, math.ceil(span), math.ceil(span)), pix)
-                        drawn += 1
+                    # tz chon theo TAM man hinh; o xung quanh thieu tile o muc do
+                    # thi lay mot goc cua tile cha (mo hon) — truoc day la o den:
+                    # 21/10 tam co tile z20, xung quanh chi co z17-19, phong to la
+                    # chi thay mot o giua man hinh den.
+                    for d in range(min(PARENT_UP, tz) + 1):
+                        pix = self._tile(tz - d, tx >> d, ty >> d)
+                        if pix is not None and not pix.isNull():
+                            k = TILE >> d
+                            p.drawPixmap(QRect(px, py, math.ceil(span), math.ceil(span)), pix,
+                                         QRect(tx % (1 << d) * k, ty % (1 << d) * k, k, k))
+                            drawn += 1
+                            break
                     else:
                         p.setPen(QPen(GRID, 1))
                         p.drawRect(QRect(px, py, int(span), int(span)))

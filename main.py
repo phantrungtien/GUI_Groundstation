@@ -7,8 +7,9 @@ onCreate — them 345 MB tile la ANR, he thong dong app (do 19/10). Lan mo dau m
 thread nen chep tile ra <files>/tiles; nam ngoai files/app vi p4a xoa sach files/app
 moi lan cai ban moi. Co mang thi tile tai them cung vao do.
 """
-import os
+import functools
 import re
+import ssl
 import sys
 import threading
 from pathlib import Path
@@ -37,6 +38,18 @@ def ca_bundle(src, dst):
              for c in PEM.findall(f.read_text(errors="ignore"))]
     dst.write_text("\n".join(certs) + "\n")
     return len(certs)
+
+
+def trust(ca):
+    """Moi HTTPS mac dinh trong app (urllib — TileFetcher) chi tin file CA nay.
+
+    KHONG dung SSL_CERT_FILE: app Android sinh tu zygote co AT_SECURE=1 (do
+    /proc/<pid>/auxv 23/10), OpenSSL khi do co y bo qua bien moi truong. Ban sua
+    21/10 dat bien do chi dung khi chay tay bang run-as (AT_SECURE=0) — trong app
+    van CERTIFICATE_VERIFY_FAILED, va tu 21/10 toi 23/10 app khong tai duoc tile nao.
+    """
+    ssl._create_default_https_context = functools.partial(ssl.create_default_context,
+                                                          cafile=str(ca))
 
 
 def copy_tiles(src, dst, tick=lambda: None):
@@ -91,7 +104,7 @@ def main():
         files = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         ca = Path(files) / "cacert.pem"
         if ca_bundle(ANDROID_CA, ca):
-            os.environ["SSL_CERT_FILE"] = str(ca)  # OpenSSL doc moi lan tao context
+            trust(ca)
         map_widget.TILE_DIR = Path(files) / "tiles"
         map_widget.TILE_DIR.mkdir(parents=True, exist_ok=True)
         ref = _MapRefresh()

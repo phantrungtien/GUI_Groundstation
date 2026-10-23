@@ -990,6 +990,54 @@ def check_online_tiles(app):
     f.want(20, 5, 5)
     assert f.q.qsize() == 1, "da lui muc thi khong duoc xin lai z20"
 
+    # Loi tai PHAI noi ra: 21-23/10 app Android CERTIFICATE_VERIFY_FAILED moi tile ma
+    # im lang 2 ngay. SSL/HTTP -> len ban do + map.log; mat mang -> chi log; tai lai
+    # duoc -> xoa canh bao.
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    class Resp:
+        headers = {"Content-Type": "image/png"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"anh png"
+
+    def fake(result):
+        def urlopen(*a, **k):
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return urlopen
+
+    real_open, real_dir, old_on = urllib.request.urlopen, mw.TILE_DIR, mw.ONLINE_TILES
+    mw.TILE_DIR, mw.ONLINE_TILES = Path(tempfile.mkdtemp()), False
+    try:
+        g = mw.TileFetcher("https://x.invalid/{z}/{x}/{y}.png")
+        urllib.request.urlopen = fake(urllib.error.URLError(OSError(7, "No address")))
+        assert g._get(21, 0, 0) is False and g.err is None, f"mat mang ma keu len man hinh: {g.err}"
+        urllib.request.urlopen = fake(urllib.error.URLError(ssl.SSLCertVerificationError(
+            1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")))
+        assert g._get(21, 0, 1) is False and "CERTIFICATE_VERIFY_FAILED" in (g.err or ""), g.err
+        assert "CERTIFICATE_VERIFY_FAILED" in mw.MAP_LOG.read_text().splitlines()[-1], \
+            "loi SSL khong ghi vao map.log"
+        m = mw.MapWidget()
+        m.fetcher = g
+        assert "CERTIFICATE_VERIFY_FAILED" in m.note(), f"loi SSL khong hien tren ban do: {m.note()!r}"
+        urllib.request.urlopen = fake(urllib.error.HTTPError("u", 403, "Forbidden", {}, None))
+        assert g._get(21, 0, 2) is False and "403" in (g.err or ""), g.err
+        urllib.request.urlopen = fake(Resp())
+        assert g._get(21, 0, 3) is True and g.err is None, "tai lai duoc ma canh bao van con"
+        assert mw.MAP_LOG.read_text().splitlines()[-1].endswith("tai tile OK")
+    finally:
+        urllib.request.urlopen, mw.TILE_DIR, mw.ONLINE_TILES = real_open, real_dir, old_on
+
     # Tat han duong online: ban do phai chay y nhu truoc khi co tinh nang nay.
     old = mw.ONLINE_TILES
     mw.ONLINE_TILES = False
@@ -1289,6 +1337,36 @@ def check_widgets(app):
     here = m._levels_here()
     assert all((TILE_DIR / str(z)).is_dir() for z in here), here
     assert set(here) <= set(m.available_zooms()), (here, m.available_zooms())
+
+    # O xung quanh thieu tile o muc tz (chon theo TAM) thi ve mot goc tile cha, khong
+    # de o den: 21/10 tam co tile z20, xung quanh chi z17-19 -> phong to la man den.
+    import tempfile
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from laptop.widgets import map_widget as mw
+    old_dir, old_on = mw.TILE_DIR, mw.ONLINE_TILES
+    mw.TILE_DIR, mw.ONLINE_TILES = Path(tempfile.mkdtemp()), False
+    try:
+        cha = QImage(256, 256, QImage.Format_RGB32)
+        qp = QPainter(cha)
+        for (qx, qy), c in {(0, 0): "red", (1, 0): "lime", (0, 1): "blue", (1, 1): "yellow"}.items():
+            qp.fillRect(qx * 128, qy * 128, 128, 128, QColor(c))
+        qp.end()
+        (mw.TILE_DIR / "2" / "1").mkdir(parents=True)
+        cha.save(str(mw.TILE_DIR / "2" / "1" / "1.png"))
+        con = QImage(256, 256, QImage.Format_RGB32)
+        con.fill(QColor("white"))
+        (mw.TILE_DIR / "3" / "2").mkdir(parents=True)
+        con.save(str(mw.TILE_DIR / "3" / "2" / "2.png"))  # chi co MOT tile z3, o tam
+        m2 = mw.MapWidget()
+        m2.resize(1024, 1024)
+        m2.zoom, m2.center = 3, num2deg(2.5, 2.5, 3)
+        img = m2.grab().toImage()
+        got = {k: img.pixelColor(512 + dx, 512 + dy).name() for k, (dx, dy) in
+               {"tam": (0, 0), "phai": (256, 0), "duoi": (0, 256), "cheo": (256, 256)}.items()}
+        assert got == {"tam": "#ffffff", "phai": "#00ff00", "duoi": "#0000ff",
+                       "cheo": "#ffff00"}, f"o thieu tile khong lay goc tile cha: {got}"
+    finally:
+        mw.TILE_DIR, mw.ONLINE_TILES = old_dir, old_on
 
     tiles = list(TILE_DIR.glob("*/*/*.png"))
     if tiles:
@@ -1925,6 +2003,27 @@ def check_dead_socket(app):
     print(f"  ok  socket chet -> bo cuoc sau {took:.1f}s, bao: {fails[0][:40]}")
 
 
+def check_jetson_dot(app):
+    """Cham "Jetson" man dien thoai: xanh khi co BAT KY thu gi tu Jetson.
+
+    Do 23/10: Jetson khong chay ros2_bridge (8765) ma video van 29 fps — cham chi
+    tinh WebSocket nen xam mai.
+    """
+    from core.adapters.sik import STALE
+
+    b = flight()
+    b.profile = dict(b.profile, remote="ws://jetson.invalid:8765")
+    assert b._links()[3] == "none", "chua co gi tu Jetson ma cham khong xam"
+    b.video_src.alive = True
+    assert b._links()[3] == "ok", "video ve ma cham Jetson khong xanh"
+    b.video_src.alive = False
+    b.last_seen["remote"] -= STALE + 1
+    assert b._links()[3] == "crit", "mat het tin Jetson ma cham van xanh"
+    b.video_src.persons = 0  # /status tra loi "0 nguoi" van la Jetson dang tra loi
+    assert b._links()[3] == "ok", "/status tra loi ma cham Jetson khong xanh"
+    print("  ok  cham Jetson: video hoac /status ve la xanh, im qua STALE la do")
+
+
 def check_banner_health(app):
     """Banner phai theo suc khoe link, khong phai theo mode da chon.
 
@@ -2003,7 +2102,27 @@ def check_copy_tiles(app):
         out = Path(d) / "cacert.pem"
         assert ca_bundle(cas, out) == 2
         assert out.read_text() == f"{pem}\n{pem}\n", out.read_text()
-        assert ca_bundle(Path(d) / "khong-co", out) == 0  # may la: khong dat SSL_CERT_FILE
+        assert ca_bundle(Path(d) / "khong-co", out) == 0  # may la: khong goi trust()
+
+        # Va HTTPS phai DUNG file do qua context, khong qua SSL_CERT_FILE: app Android
+        # co AT_SECURE=1, OpenSSL bo qua bien moi truong (21-23/10 khong tai duoc tile).
+        # Nap them CA he thong thi so CA trong context se lon hon 3 nhieu.
+        import ssl
+        from main import trust
+        sys_ca = sorted(Path("/etc/ssl/certs").glob("*.pem"))[:3]
+        if len(sys_ca) == 3:
+            three = Path(d) / "three"
+            three.mkdir()
+            for f in sys_ca:
+                (three / f.name).write_text(f.read_text())
+            assert ca_bundle(three, out) == 3
+            old = ssl._create_default_https_context
+            try:
+                trust(out)
+                n = ssl._create_default_https_context().cert_store_stats()["x509_ca"]
+                assert n == 3, f"context HTTPS mac dinh co {n} CA, phai dung 3 CA cua file"
+            finally:
+                ssl._create_default_https_context = old
 
     # Log chuyen bay tren dien thoai nam NGOAI files/app: p4a xoa sach no moi lan cai lai.
     from laptop.connection import ROOT, logs_dir
@@ -4789,6 +4908,7 @@ if __name__ == "__main__":
     check_tlog_roundtrip(app)
     check_dead_socket(app)
     check_banner_health(app)
+    check_jetson_dot(app)
     check_adapter_live(app)
     check_dual_link(app)
     check_copy_tiles(app)

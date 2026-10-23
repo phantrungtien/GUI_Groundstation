@@ -165,6 +165,11 @@ class Backend(QObject):
         if mav == "ok" and loss is not None and loss >= 10:
             mav = "warn"
         path = "4G" if self._link.get("path") == "mang" else "SiK"
+        # Jetson song = co BAT KY thu gi tu no: WebSocket ros2_bridge, khung video hay
+        # so nguoi (/status). Do 23/10: Jetson chi chay mjpeg-stream (8080, video 5600),
+        # khong mo 8765 -> chi tinh WebSocket thi cham xam mai trong khi video 29 fps.
+        if self.video_src.alive or self.video_src.persons is not None:
+            self.last_seen["remote"] = now
         remote = level("remote") if self.profile and self.profile.get("remote") else None
         return path, loss, mav, remote
 

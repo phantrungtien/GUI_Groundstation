@@ -395,6 +395,8 @@ STR = {
                      "(put tiles in assets/tiles/{{z}}/{{x}}/{{y}}.png)"),
     "map.upscaled": ("ảnh thô z{tz} phóng to {k} lần — chưa tải chi tiết cho vùng này",
                      "coarse z{tz} imagery blown up {k}× — no detail downloaded here"),
+    "map.fetch_err": ("⚠ bản đồ online không tải được: {err}",
+                      "⚠ online map download failing: {err}"),
     "map.fence_err": ("rào: {err}", "fence: {err}"),
     "map.fence_on": ("rào BẬT", "fence ON"),
     "map.fence_notype": ("⚠ rào BẬT nhưng FENCE_TYPE=0 — FC không chặn gì cả",
