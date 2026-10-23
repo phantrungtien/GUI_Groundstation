@@ -63,6 +63,7 @@ DEFAULT_TILE_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services"
 FETCH_PAUSE = 0.1  # giay giua hai lan tai — lich su voi may chu
 OFFLINE_AFTER = 5  # bay nhieu lan lien tiep thi coi nhu mat mang, nghi mot lat
 OFFLINE_NAP = 30.0
+STUCK_S = 45.0  # mot tile lau hon the la thread treo (urlopen het gio 10 s, DNS thi khong)
 PARENT_UP = 5  # o thieu tile: lui toi da may muc tim tile cha (5 bac = 8 px phong 32 lan)
 MAP_LOG = LOGS / "map.log"
 
@@ -234,7 +235,12 @@ class TileFetcher(QObject):
     def __init__(self, url_tpl, parent=None):
         super().__init__(parent)
         self.url_tpl = url_tpl
-        self.q = queue.Queue()
+        # LIFO: khung nhin MOI NHAT tai truoc. FIFO thi drone hien ra o bai bay ma
+        # thread con tai not 48 tile cua cho ban do mo len luc dau (do 23/10: ~20 s).
+        self.q = queue.LifoQueue()
+        self._thread = None
+        self._gen = 0         # start() lai thi thread cu tu thoi khi nhan ra minh da cu
+        self._busy = None     # luc bat dau tile dang tai, None = ranh — _watch() soi treo
         self._asked = set()   # da xep hang, khoi hoi lai
         self._dead = set()    # may chu bao khong co — dung xin mai
         self._running = True
@@ -263,6 +269,7 @@ class TileFetcher(QObject):
 
     def want(self, z, x, y):
         """Goi tu main thread trong luc ve. Phai re, va khong duoc chan."""
+        self._watch()
         key = (z, x, y)
         if z > self.max_ok_z or key in self._asked or key in self._dead:
             return
@@ -271,14 +278,31 @@ class TileFetcher(QObject):
         self._asked.add(key)
         self.q.put(key)
 
+    def _watch(self):
+        """Thread tai chet hay treo -> ghi map.log va mo thread moi.
+
+        23/10 21:39-21:54 o bai co GPS: Wi-Fi da xac thuc, ban do can tile, ma 0
+        tile tai ve va 0 dong trong map.log — thread tai da chet hoac treo tu truoc,
+        Python cua APK khong co stderr nen khong de lai dau vet. 15 phut ban do la
+        mang mau phong 16-32 lan va chu nhan phong to 4 lan.
+        """
+        th, busy = self._thread, self._busy
+        if th is None or (th.is_alive() and (busy is None or time.time() - busy < STUCK_S)):
+            return
+        _log(f"thread tai tile {'treo' if th.is_alive() else 'chet'} — mo thread moi")
+        self.start()
+
     def start(self):
-        threading.Thread(target=self.run, daemon=True).start()
+        self._gen += 1
+        self._busy = None
+        self._thread = threading.Thread(target=self.run, args=(self._gen,), daemon=True)
+        self._thread.start()
 
     def stop(self):
         self._running = False
 
-    def run(self):
-        while self._running:
+    def run(self, gen=0):
+        while self._running and gen == self._gen:
             try:
                 z, x, y = self.q.get(timeout=0.5)
             except queue.Empty:
@@ -290,7 +314,15 @@ class TileFetcher(QObject):
                 time.sleep(OFFLINE_NAP)
                 self._fails = 0
                 continue
-            if self._get(z, x, y):
+            self._busy = time.time()
+            try:
+                got = self._get(z, x, y)
+            except Exception as e:  # loi la nao cung khong duoc giet thread im lang
+                _log(f"loi thread tai tile {type(e).__name__}: {e}"[:200])
+                self._asked.discard((z, x, y))
+                got = False
+            self._busy = None
+            if got:
                 # stop() chi ha co; luc no duoc ha thi thread nay co the dang nam
                 # trong _get() — urlopen cho toi 10 giay. Trong 10 giay do widget
                 # bi huy la `fetched.emit()` ban vao mot QObject da chet: PySide
@@ -355,7 +387,7 @@ class TileFetcher(QObject):
         if h in self._junk:
             # Da biet tam nay la anh trong: lui muc ngay tu lan dau gap o do sau
             # moi, khong doi du JUNK_REPEAT lan nua cho tung muc zoom.
-            self.max_ok_z = min(self.max_ok_z, z - 1)
+            self._lower(z)
             self._dead.add((z, x, y))
             return False
         seen = self._seen.setdefault(h, [])
@@ -363,7 +395,7 @@ class TileFetcher(QObject):
             self._junk.add(h)
             # Het anh that o muc nay -> lui xuong, de lan sau xin muc con anh that
             # thay vi xin mai mot tam trong.
-            self.max_ok_z = min(self.max_ok_z, z - 1)
+            self._lower(z)
             for p, key in self._seen.pop(h, ()):  # don ca nhung cai da lo luu
                 p.unlink(missing_ok=True)
                 self._dead.add(key)
@@ -371,6 +403,12 @@ class TileFetcher(QObject):
             return False
         seen.append((path, (z, x, y)))
         return True
+
+    def _lower(self, z):
+        """Lui muc sau nhat duoc xin — co ghi log: lui roi la ca phien khong xin lai."""
+        if z - 1 < self.max_ok_z:
+            self.max_ok_z = z - 1
+            _log(f"het anh that o z{z} -> chi xin toi z{z - 1}")
 
 
 class MapWidget(QWidget):
@@ -431,11 +469,12 @@ class MapWidget(QWidget):
 
     # --- du lieu ------------------------------------------------------
 
-    def set_position(self, lat, lon):
+    def set_position(self, lat, lon, trail=True):
+        """`trail=False`: chi doi cho drone, khong noi them vao vet bay."""
         if lat is None or lon is None:
             return
         self.pos = (lat, lon)
-        if not self.trail or _far(self.trail[-1], (lat, lon)):
+        if trail and (not self.trail or _far(self.trail[-1], (lat, lon))):
             self.trail.append((lat, lon))
             del self.trail[: max(0, len(self.trail) - self.MAX_TRAIL)]
         if self.follow:
@@ -631,10 +670,14 @@ class MapWidget(QWidget):
         rz = min(self.zoom, self.fetcher.max_ok_z)
         cx, cy = deg2num(*self.center, rz)
         w, h = self.width(), self.height()
-        for tx in range(int(cx - w / (2 * TILE)) - 1, int(cx + w / (2 * TILE)) + 2):
-            for ty in range(int(cy - h / (2 * TILE)) - 1, int(cy + h / (2 * TILE)) + 2):
-                if not (TILE_DIR / str(rz) / str(tx) / f"{ty}.png").exists():
-                    self.fetcher.want(rz, tx, ty)
+        miss = [(tx, ty)
+                for tx in range(int(cx - w / (2 * TILE)) - 1, int(cx + w / (2 * TILE)) + 2)
+                for ty in range(int(cy - h / (2 * TILE)) - 1, int(cy + h / (2 * TILE)) + 2)
+                if not (TILE_DIR / str(rz) / str(tx) / f"{ty}.png").exists()]
+        # Hang doi LIFO: xin o xa truoc, o giua man hinh (cho drone) sau cung -> tai truoc.
+        miss.sort(key=lambda t: -((t[0] + 0.5 - cx) ** 2 + (t[1] + 0.5 - cy) ** 2))
+        for tx, ty in miss:
+            self.fetcher.want(rz, tx, ty)
 
     def _draw_fence(self, p, cx, cy):
         """Rao: vong tron quanh HOME (FENCE_RADIUS) va cac da giac tai tu FC.

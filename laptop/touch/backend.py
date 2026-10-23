@@ -199,6 +199,10 @@ class Backend(QObject):
                 else ("touch.st_flying", {}, "ok")
         if fix is not None and fix < 3:
             return "touch.st_nogps", {}, "warn"
+        r = self._ready(armed)
+        if r is not None and not r["ok"]:
+            # 23/10 21:45: vien xanh "Sẵn sàng" ngay tren dong "CHƯA SẴN SÀNG ARM".
+            return "touch.st_notready", {}, "warn"
         return "touch.st_ready", {}, "ok"
 
     def refresh(self):
@@ -216,9 +220,13 @@ class Backend(QObject):
         # (tab Trang thai, tab Phan tich che do truc tiep cung doc no), mot widget
         # quet sach kho chung theo nhip 5 Hz cua rieng no la tac dung phu di rat xa.
         v = REGISTRY.value if self.profile is not None else lambda *a, **k: None
+        armed = v("heartbeat.armed")
         lat, lon = v("position.lat"), v("position.lon")
         if lat is not None and lon is not None:
-            self.map.set_position(lat, lon)
+            # Vet bay chi khi da ARM, xoa lai moi lan ARM — nhu QGC. Do 23/10 21:40:
+            # vi tri dau tien FC bao (GPS 4 ve tinh, eph 11,8 m) lech 88 m, chua ARM
+            # ma ban do da keo mot duong thang dai tu home ra mep man hinh.
+            self.map.set_position(lat, lon, trail=bool(armed))
             if self.map.home is None:
                 self.map.set_home(lat, lon)  # home TAM — xem README "dau X home co the la GIA"
         hdg = v("attitude.heading")
@@ -229,7 +237,6 @@ class Backend(QObject):
         self.dial.set_heading(hdg)
         self.dial.set_attitude(v("attitude.roll"), v("attitude.pitch"))
 
-        armed = v("heartbeat.armed")
         pct = v("battery.remaining")
         volt = v("battery.voltage")
         if volt is not None and safety.cells(volt) is None:
@@ -240,6 +247,7 @@ class Backend(QObject):
             pct = None
         if armed and self._armed_at is None:
             self._armed_at = time.time()  # suon len cua armed, khong phai luc bam
+            self.map.trail.clear()  # chuyen moi: bo vet chuyen truoc
         elif not armed and armed is not None:
             self._armed_at = None
         left = self._time_left(pct) if self._armed_at is not None else None

@@ -540,6 +540,7 @@ STR = {
     "touch.st_armed": ("Đã ARM — cánh quạt có thể quay", "ARMED — props may spin"),
     "touch.st_ready": ("Sẵn sàng", "Ready"),
     "touch.st_nogps": ("Chưa có GPS", "No GPS"),
+    "touch.st_notready": ("Chưa sẵn sàng", "Not ready"),
     "touch.slide": ("Trượt để {what}", "Slide to {what}"),
     "touch.do_arm": ("ARM", "ARM"),
     "touch.do_disarm": ("DISARM", "DISARM"),

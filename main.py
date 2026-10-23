@@ -101,6 +101,10 @@ def main():
     # 19-21/10) chi con la cach lui: 15-25 fps, 193 % CPU tren Lenovo.
     qapp = QApplication(sys.argv)  # truoc khi doc assets:/ — Qt dang ky no luc tao app
     if hasattr(sys, "getandroidapilevel"):  # chi Python cua Android co ham nay
+        # Python cua APK khong co stderr (logcat 21-23/10: khong mot dong Python nao):
+        # traceback cua thread phu mat sach — 23/10 TileFetcher ngung ma khong biet vi
+        # sao. Ghi ra file.
+        sys.stderr = open(LOGS / "stderr.log", "a", buffering=1, encoding="utf-8")
         files = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         ca = Path(files) / "cacert.pem"
         if ca_bundle(ANDROID_CA, ca):

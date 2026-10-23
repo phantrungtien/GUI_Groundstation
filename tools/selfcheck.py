@@ -1054,8 +1054,54 @@ def check_online_tiles(app):
         m.set_position(10.762, 106.660)
         assert m.fetcher is None, "ONLINE_TILES=False ma van mo thread tai"
         assert not m.grab().isNull(), "offline ma khong ve duoc ban do"
+
+        # Tile giua man hinh (cho drone) tai TRUOC: hang doi LIFO, xin o xa truoc.
+        # FIFO thi drone hien ra o bai bay ma thread con tai not khung nhin cu.
+        real_dir, mw.TILE_DIR = mw.TILE_DIR, Path(tempfile.mkdtemp())
+        try:
+            m.resize(800, 600)
+            m.zoom, m.center = 18, (10.8716, 106.64745)
+            m.fetcher = mw.TileFetcher("https://x.invalid/{z}/{x}/{y}.png")  # khong start
+            m._request_viewport()
+            cx, cy = mw.deg2num(*m.center, 18)
+            first = m.fetcher.q.get_nowait()
+            assert first == (18, int(cx), int(cy)), f"tile dau tien khong phai o giua: {first}"
+        finally:
+            mw.TILE_DIR = real_dir
     finally:
         mw.ONLINE_TILES = old
+
+    # Thread tai chet / treo -> tu mo lai va ghi map.log. 23/10 21:39-21:54 o bai co
+    # GPS: Wi-Fi da xac thuc, 0 tile tai ve, 0 dong log, ban do mang mau 15 phut.
+    import threading
+
+    real_log, mw.MAP_LOG = mw.MAP_LOG, Path(tempfile.mkdtemp()) / "map.log"
+    h = mw.TileFetcher("https://x.invalid/{z}/{x}/{y}.png")
+    try:
+        def boom(*a):
+            raise ValueError("thu loi")
+        h._get = boom
+        h.start()
+        h.want(16, 2, 2)
+        t0 = time.time()
+        while not mw.MAP_LOG.exists() and time.time() - t0 < 3:
+            time.sleep(0.05)
+        log = lambda: mw.MAP_LOG.read_text()  # noqa: E731
+        assert "loi thread tai tile ValueError: thu loi" in log(), "loi trong thread khong ghi map.log"
+        assert h._thread.is_alive(), "mot tile loi ma thread tai chet"
+        old_th = h._thread
+        h._busy = time.time() - mw.STUCK_S - 1  # tile dang tai da qua han
+        h.want(16, 3, 3)
+        assert h._thread is not old_th and h._thread.is_alive(), "treo ma khong mo thread moi"
+        assert "treo — mo thread moi" in log(), log()
+        h._thread = threading.Thread(target=lambda: None)
+        h._thread.start()
+        h._thread.join()
+        h.want(16, 4, 4)
+        assert h._thread.is_alive() and "chet — mo thread moi" in log(), log()
+    finally:
+        h.stop()
+        mw.MAP_LOG = real_log
     print("  ok  tai bu tile online (khong mang: bo qua, ban do van ve)")
 
 
@@ -3370,10 +3416,15 @@ def check_touch_flight(app):
         b.refresh()
         r = b.state["ready"]
         assert r and not r["ok"] and "RC not found" in r["text"], r
+        # Vien tren cung khong duoc xanh "Sẵn sàng" ngay tren dong CHUA SAN SANG ARM
+        # (anh 23/10 21:45).
+        assert (b.state["status"], b.state["statusLevel"]) == ("Chưa sẵn sàng", "warn"), \
+            (b.state["status"], b.state["statusLevel"])
         bus.emit_envelope({"src": "sik", "topic": "status", "ts": time.time(),
                            "data": {"SENSOR.prearm_check": "ok"}})
         b.refresh()
         assert b.state["ready"] == {"ok": True, "text": "SẴN SÀNG ARM"}, b.state["ready"]
+        assert b.state["status"] == "Sẵn sàng", b.state["status"]
         assert not b._prearm_why, "da san sang ma con giu ly do PreArm cu"
         from PySide6.QtQuick import QQuickItem
         app.processEvents()
@@ -3382,6 +3433,25 @@ def check_touch_flight(app):
         state(mode="GUIDED", armed=True, landed=False)
         b.refresh()
         assert b.state["ready"] is None, "da ARM ma van hien san sang ARM"
+
+        # --- vet bay: chi khi ARM, xoa lai moi lan ARM (nhu QGC) --------------
+        # 23/10 21:40: vi tri dau (GPS 4 ve tinh) lech 88 m, chua ARM ma da co mot
+        # duong thang dai tu home ra mep man hinh.
+        def at(dlat):
+            REGISTRY.feed({"src": "sik", "topic": "position", "ts": time.time(),
+                           "data": {"lat": lat + dlat, "lon": lon}})
+            b.refresh()
+        state(mode="GUIDED", armed=False, landed=True)
+        b.refresh()
+        b.map.trail[:] = [(0.0, 0.0)]  # vet chuyen truoc
+        at(0.001)
+        at(0.002)
+        assert b.map.trail == [(0.0, 0.0)], f"chua ARM ma van noi vet: {b.map.trail}"
+        state(mode="GUIDED", armed=True, landed=False)
+        at(0.003)
+        at(0.004)
+        assert (0.0, 0.0) not in b.map.trail, "ARM chuyen moi ma con vet chuyen truoc"
+        assert b.map.trail and b.map.trail[-1] == (lat + 0.004, lon), b.map.trail
 
         # --- thanh NGUOI canh che do bay: theo khung video dang hien ----------
         persons = win.touch_view.rootObject().findChild(QQuickItem, "persons")
