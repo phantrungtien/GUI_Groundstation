@@ -307,6 +307,7 @@ class VideoSource(QObject):
                 self._player.setVideoSink(sink)
             sink.videoFrameChanged.connect(self._on_vframe)
             self._player.errorOccurred.connect(self._on_player_error)
+            self._player.mediaStatusChanged.connect(self._on_media_status)
             o = QPlaybackOptions()
             o.setPlaybackIntent(QPlaybackOptions.PlaybackIntent.LowLatencyStreaming)
             o.setProbeSize(_PLAYER_PROBE)
@@ -483,6 +484,12 @@ class VideoSource(QObject):
             self._lat.append((time.time() - t) * 1000)
         self._show(QPixmap.fromImage(img) if keep else None, changed, 0)
 
+    def _on_media_status(self, st):
+        # Mo xong (da thay SPS) moi dem REPLAY_S: thoi gian nam cho goi o LoadingMedia
+        # khong tinh, khong thi vua Loaded la bi mo lai ngay truoc khung dau.
+        if st == QMediaPlayer.MediaStatus.LoadedMedia:
+            self._replay_t = time.monotonic()
+
     def _on_player_error(self, err, msg):
         _log(f"error {err.name}: {msg}")
         self.note = ("vid.error", {})
@@ -579,7 +586,14 @@ class VideoSource(QObject):
             # - Jetson khoi dong lai trong vai giay (19:33): khong loi, van "dang phat", ma
             #   luong moi PTS/DTS lam lai tu dau -> 60 s khong ra khung nao.
             # Chap chon ngan (0,3-3 s, 19:42) no tu chay tiep, khong toi REPLAY_S.
-            if self._player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
+            #
+            # Dang LoadingMedia = dang cho goi/SPS: DE YEN. Truoc day luc nay playbackState
+            # la Stopped nen cu 0,5-2 s lai huy lan mo dang cho — goi ve roi van bi huy
+            # ("Could not open file" la dau vet cua chinh lan huy do). Do 23/10 tren luong
+            # Jetson that phat lai: dut 7 s -> 4,7 s moi co khung; de yen -> xem selfcheck.
+            if self._player.mediaStatus() == QMediaPlayer.MediaStatus.LoadingMedia:
+                pass
+            elif self._player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
                 if now - self._replay_t >= RETRY_S:
                     _log("player dung — mo lai")
                     self._replay()

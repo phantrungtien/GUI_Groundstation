@@ -535,9 +535,16 @@ def check_video_h264(app):
         t_kill = time.monotonic()
         assert until(lambda: src._replay_t > t_kill, (video_mod.REPLAY_S + 2) * 1000), \
             "nguon im lau ma khong mo lai player"
+        # Mo lai roi thi player nam cho goi (LoadingMedia): DE YEN. Truoc day cu 0,5-2 s
+        # lai huy lan mo dang cho, goi ve roi van bi huy -> do 23/10 tren luong Jetson
+        # that phat lai: 4,7 s moi co hinh; de yen: 1,7 s.
+        t_reopen = src._replay_t
+        until(lambda: False, 3 * video_mod.RETRY_S * 1000)
+        assert src._replay_t == t_reopen, "dang cho goi ma van huy lan mo player"
         s = sender(moving, port + 1)
         t_back = time.monotonic()
-        assert until(lambda: src._last > t_back + 0.5, 12000), "nguon len lai ma khong co hinh"
+        assert until(lambda: src._last > t_back, 5000), "nguon len lai 5 s van chua co hinh"
+        back_s = src._last - t_back
     finally:
         s.kill()
         s.wait()
@@ -595,7 +602,7 @@ def check_video_h264(app):
     plain.fill(_C("black"))
     assert video_mod.read_stamp(plain) is None, "khung khong co dau gio ma doc ra gio"
     print("  ok  video H.264/UDP — giai ma that; doc dau gio --stamp; dung hinh (anh dong bang qua x264) xoa anh; "
-          "mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh, dung han / im 5 s thi tu mo lai; VideoOutput (dien thoai) dem nhip + bao dung hinh, khong giu pixmap; dem goi TS mat "
+          f"mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh, dung han / im 5 s thi tu mo lai, dang cho goi thi de yen (nguon len lai -> hinh {back_s:.1f} s); VideoOutput (dien thoai) dem nhip + bao dung hinh, khong giu pixmap; dem goi TS mat "
           "va bao \"loss=\" ve Jetson moi giay, het goi thi im; khong giu khung (20/20)")
 
 
