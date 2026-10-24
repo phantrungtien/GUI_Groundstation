@@ -57,9 +57,14 @@ public class GcsService extends Service {
             }
         }
 
+        /** Thoat that (vuot tat / nut Back): giet tien trinh NGAY o day. PythonActivity cung
+         *  killProcess nhung SAU super.onDestroy() — ma QtActivity.onDestroy treo luong chinh
+         *  (do 24/10 12:17: futex, 0 context switch) -> khong toi. Truoc day khong sao vi
+         *  Android tu giet "remove task"; co foreground service thi no bo qua, con stopService
+         *  o day chay truoc onTaskRemoved -> tien trinh song, khong giao dien. */
         @Override
         public void onActivityDestroyed(Activity a) {
-            if (a.isFinishing()) a.stopService(new Intent(a, GcsService.class));
+            if (a.isFinishing()) Process.killProcess(Process.myPid());
         }
 
         @Override public void onActivityCreated(Activity a, Bundle b) { }
