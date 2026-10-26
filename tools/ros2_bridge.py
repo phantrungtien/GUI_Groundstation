@@ -82,9 +82,10 @@ def quat_to_euler(x, y, z, w):
 
 
 class Bridge(Node):
-    def __init__(self, spawn=False):
+    def __init__(self, spawn=False, params=None):
         super().__init__("gcs_ws_bridge")
         self.spawn = spawn
+        self.params = params  # --mission-params: YAML tham so cho node nhiem vu (drone that)
         self.ws_clients = set()
         self.lock = threading.Lock()
         self.sent = 0
@@ -242,9 +243,12 @@ class Bridge(Node):
         # trong khi node that van dang lai drone (do that: bridge bao running=''
         # ma hai node van song). Cho ca cum mot nhom rieng roi theo doi/giet ca
         # nhom moi dung.
-        self.mission_proc = subprocess.Popen(
-            ["ros2", "run", MISSIONS_OK[name], name], start_new_session=True
-        )
+        cmd = ["ros2", "run", MISSIONS_OK[name], name]
+        # `ros2 run` tran = tham so MAC DINH cua node = so sim (fire_mission: vong tim 24 m,
+        # bay 20 m, tran 120 m). Drone that phai co file nay, khong thi bay theo so sim.
+        if self.params:
+            cmd += ["--ros-args", "--params-file", self.params]
+        self.mission_proc = subprocess.Popen(cmd, start_new_session=True)
         self.mission_pgid = os.getpgid(self.mission_proc.pid)
         self.mission_name = name
         self.get_logger().info(f"da khoi dong {name} (nhom {self.mission_pgid})")
@@ -305,10 +309,15 @@ def main():
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--spawn", action="store_true",
                     help="cho phep laptop khoi dong node nhiem vu (danh sach trang MISSIONS_OK)")
+    ap.add_argument("--mission-params", default=None, metavar="YAML",
+                    help="file tham so ROS cho node nhiem vu (--ros-args --params-file). "
+                         "Drone that: ~/jetson/fire_mission_real.yaml")
     args = ap.parse_args()
+    if args.mission_params and not os.path.isfile(args.mission_params):
+        ap.error(f"khong thay {args.mission_params}")  # thieu file = bay so sim, dung luon
 
     rclpy.init()
-    node = Bridge(spawn=args.spawn)
+    node = Bridge(spawn=args.spawn, params=args.mission_params)
 
     def on_client(ws):
         node.get_logger().info("laptop noi vao")
