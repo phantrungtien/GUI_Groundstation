@@ -3024,7 +3024,7 @@ def check_touch(app):
         bridge("")
         open_wp()
         assert fire is not None and not fire.isVisible(), "task chua bat ma da co chip diem chay"
-        win.touch.fireAt(10.8, 106.6, 20, 20)
+        win.touch.fireAt(10.8, 106.6, 20, 20, 24)
         assert rsent == [], f"task chua bat ma diem chay van gui: {rsent}"
 
         tap(task_btn)
@@ -3061,20 +3061,27 @@ def check_touch(app):
             f"ban do chay theo drone ma diem chay gui cho khac: {got} != {aimed}")
         assert got["alt"] == 15.0, f"diem chay khong mang dung do cao da chon: {got}"
         assert got["drop"] == 15.0, f"bay 15 m ma tha cach lua {got['drop']} (phai <= do cao bay)"
+        assert got["radius"] == 24.0, f"sim khong gui pham vi tim mac dinh cua node: {got}"
         assert root.property("takeoffAlt") == 5, "chon do cao chua chay de len cat canh tay"
         assert sent == [], f"diem chay lot xuong SiK: {sent}"
         rsent.clear()
 
         # Drone that: bridge gui gioi han cua fire_mission_real.yaml -> nut 2..5 m, mac dinh
         # bay 5 / tha 3 (khong phai so sim 20 m - node tu choi het). Nguoi bay chon ha cach lua.
-        from laptop.touch.backend import fire_chips
+        from laptop.touch.backend import fire_chips, radius_chips
         assert fire_chips(2, 5) == [2, 3, 4, 5] and fire_chips(5, 120) == [5, 10, 20, 50, 100]
         assert fire_chips(2, 3) == [2, 3], "bay 3 m thi chi tha duoc 2-3 m"
-        bridge("fire_mission", alt_min=2.0, alt_max=5.0, alt_search=5.0, alt_drop=3.0)
+        assert radius_chips(10) == [0, 2, 5, 10] and radius_chips(50)[-1] == 50
+        bridge("fire_mission", alt_min=2.0, alt_max=5.0, alt_search=5.0, alt_drop=3.0,
+               radius_def=2.0, radius_max=10.0)
         open_wp()
         tap(fire)
-        assert (root.property("fireAlt"), root.property("fireDrop")) == (5, 3), (
-            "doi sang drone that ma bang van nho 15 m (ngoai 2-5 m)")
+        assert (root.property("fireAlt"), root.property("fireDrop"), root.property("fireRadius")) == (
+            5, 3, 2), "doi sang drone that ma bang van nho so sim (15 m, tim 24 m)"
+        radius_box = root.findChild(QQuickItem, "fireRadiusBox")
+        assert radius_box is not None and radius_box.isVisible(), "bang diem chay khong cho chon pham vi tim"
+        assert radius_box.property("to") == 10, "o pham vi tim khong theo max_search_radius cua drone"
+        root.setProperty("fireRadius", 6)
         drop_box = root.findChild(QQuickItem, "fireDropBox")
         assert drop_box is not None and drop_box.isVisible(), "bang diem chay khong cho chon ha cach lua"
         assert (box.property("from"), box.property("to")) == (2, 5), "o do cao khong theo gioi han drone"
@@ -3084,7 +3091,8 @@ def check_touch(app):
             "thanh truot khong hien ha cach lua da chon")
         drag(1.0)
         got = rsent[-1][1]
-        assert (got["alt"], got["drop"]) == (5.0, 2.0), f"diem chay khong mang do cao da chon: {got}"
+        assert (got["alt"], got["drop"], got["radius"]) == (5.0, 2.0, 6.0), (
+            f"diem chay khong mang do cao / pham vi da chon: {got}")
         rsent.clear()
         bridge("fire_mission")  # tra lai so sim cho phan sau
 
@@ -3121,7 +3129,7 @@ def check_touch(app):
         open_wp()
         assert win.touch._state["taskFire"] is False, "bridge im 3 s ma van coi task dang chay"
         assert not fire.isVisible(), "bridge im 3 s ma chip diem chay van hien"
-        win.touch.fireAt(*aimed, 20, 20)
+        win.touch.fireAt(*aimed, 20, 20, 24)
         assert rsent == [], f"bridge im ma diem chay van gui: {rsent}"
         win.control_tab._mission_timer.timeout.emit()
         assert win.control_tab.mission_now.text() == t("ctl.mission_none"), (

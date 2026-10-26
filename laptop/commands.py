@@ -251,13 +251,16 @@ class Commands(QObject):
         self._soft(what, authority.dispatch(
             {"target": "remote", "action": "mission", "args": {"name": name}}))
 
-    def fire_target(self, lat, lon, alt, drop):
-        """Giao diem chay cho task Chua chay. Node cat canh/bay o `alt` m, tu tim, ha xuong
-        `drop` m tren lua, tha, kiem tra, ve. Node tu choi alt ngoai [min_alt, max_alt] va drop
-        ngoai [min_alt, alt] cua no (bao o tab Thong bao)."""
-        self._soft(t("act.fire_target", lat=lat, lon=lon, alt=alt, drop=drop), authority.dispatch(
+    def fire_target(self, lat, lon, alt, drop, radius):
+        """Giao diem chay cho task Chua chay. Node cat canh/bay o `alt` m, tu tim trong
+        `radius` m quanh diem cham, ha xuong `drop` m tren lua, tha, kiem tra, ve. Node tu choi
+        alt ngoai [min_alt, max_alt], drop ngoai [min_alt, alt], radius ngoai
+        [0, max_search_radius] cua no (bao o tab Thong bao)."""
+        self._soft(t("act.fire_target", lat=lat, lon=lon, alt=alt, drop=drop, radius=radius),
+                   authority.dispatch(
             {"target": "remote", "action": "fire_target",
-             "args": {"lat": lat, "lon": lon, "alt": float(alt), "drop": float(drop)}}))
+             "args": {"lat": lat, "lon": lon, "alt": float(alt), "drop": float(drop),
+                      "radius": float(radius)}}))
 
     # ---- nhich vi tri ----------------------------------------------------
 

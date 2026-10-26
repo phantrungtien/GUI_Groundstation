@@ -41,14 +41,17 @@ Item {
     // drone): openFire() dua ve mac dinh khi so dang nho nam ngoai khoang (doi drone).
     property real fireAlt: 20
     property real fireDrop: 20
+    property real fireRadius: 24    // pham vi tim quanh diem cham, 0 = chi treo roi zoom
     onFireAltChanged: if (fireDrop > fireAlt) fireDrop = fireAlt  // khong leo len de tha
     function openFire() {
         var L = st.fireLim
-        if (fireAlt < L.min || fireAlt > L.max) {  // doi drone: ca hai ve mac dinh cua node
+        if (fireAlt < L.min || fireAlt > L.max) {  // doi drone: tat ca ve mac dinh cua node
             fireAlt = L.search
             fireDrop = Math.min(L.drop, L.search)
+            fireRadius = L.radius
         } else if (fireDrop < L.min || fireDrop > fireAlt)
             fireDrop = Math.min(L.drop, fireAlt)
+        if (fireRadius > L.radiusMax) fireRadius = L.radius
         ask("fire")
     }
     // Cham-giu ban do thay cho menu chuot phai cua tab Bay cu: nho lai diem vua
@@ -95,8 +98,8 @@ Item {
             // drone. Dung chung dong chu voi vet ghi o tab Thong bao.
             "goto": gotoAt ? tr("act.goto", {"lat": gotoAt[0], "lon": gotoAt[1],
                                              "alt": st.wpAlt}) : "",
-            "fire": gotoAt ? tr("act.fire_target", {"lat": gotoAt[0], "lon": gotoAt[1],
-                                                    "alt": fireAlt, "drop": fireDrop}) : "",
+            "fire": gotoAt ? tr("act.fire_target", {"lat": gotoAt[0], "lon": gotoAt[1], "alt": fireAlt,
+                                                    "drop": fireDrop, "radius": fireRadius}) : "",
             "taskStart": tr("touch.task_start_title"),
             "taskStop": tr("touch.task_stop_title")
         }[pending] || ""
@@ -114,7 +117,7 @@ Item {
             "land": tr("touch.do_land"), "rtl": tr("touch.do_rtl"),
             "kill": tr("touch.do_kill"), "mode": tr("touch.do_mode", {"name": pendingArg}),
             "goto": tr("touch.do_goto", {"alt": st.wpAlt}),
-            "fire": tr("touch.do_fire", {"alt": fireAlt, "drop": fireDrop}),
+            "fire": tr("touch.do_fire", {"alt": fireAlt, "drop": fireDrop, "radius": fireRadius}),
             "taskStart": tr("touch.do_task_start"), "taskStop": tr("touch.do_task_stop")
         }[pending] || ""
         return tr("touch.slide", {"what": what})
@@ -961,6 +964,44 @@ Item {
                     onValueModified: dropRow.pick(value)
                 }
             }
+            // Pham vi tim quanh diem cham: 0 toi max_search_radius cua node.
+            Flow {
+                id: radiusRow
+                visible: win.pending === "fire"
+                function pick(v) { win.fireRadius = v; askTimer.restart() }
+                width: parent.width
+                spacing: 8 * s
+                Text {
+                    height: radiusBox.height
+                    verticalAlignment: Text.AlignVCenter
+                    text: tr("touch.fire_radius")
+                    color: theme.MUTED
+                    font.pixelSize: 13 * f
+                }
+                Repeater {
+                    model: radiusRow.visible ? backend.radiusChips(st.fireLim.radiusMax) : []
+                    delegate: Chip {
+                        text: modelData + " m"
+                        selected: win.fireRadius === modelData
+                        onTap: radiusRow.pick(modelData)
+                    }
+                }
+                SpinBox {
+                    id: radiusBox
+                    objectName: "fireRadiusBox"
+                    editable: true
+                    from: 0
+                    to: st.fireLim.radiusMax
+                    stepSize: 1
+                    height: Math.max(38 * s, 34)
+                    font.pixelSize: 14 * f
+                    textFromValue: function (v) { return v + " m" }
+                    // parseInt("0 m") = 0 la falsy: khong dung `||` nhu hai o kia
+                    valueFromText: function (txt) { var n = parseInt(txt); return isNaN(n) ? radiusBox.value : n }
+                    Binding on value { value: win.fireRadius }
+                    onValueModified: radiusRow.pick(value)
+                }
+            }
             Flow {
                 visible: win.pending === "modePick"
                 width: parent.width
@@ -998,7 +1039,8 @@ Item {
                     if (a === "goto")
                         backend.gotoAt(win.gotoAt[0], win.gotoAt[1])
                     else if (a === "fire")
-                        backend.fireAt(win.gotoAt[0], win.gotoAt[1], win.fireAlt, win.fireDrop)
+                        backend.fireAt(win.gotoAt[0], win.gotoAt[1], win.fireAlt, win.fireDrop,
+                                       win.fireRadius)
                     else if (a === "taskStart")
                         backend.task("fire_mission")
                     else if (a === "taskStop")

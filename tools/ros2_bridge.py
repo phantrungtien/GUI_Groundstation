@@ -92,15 +92,16 @@ def hang_step(hang, armed, mode, running, now):
     return (why, t0, now), f"{why}: drone TREO o GUIDED, khong ai lai - doi mode / RC de lay lai"
 
 
-# Tham so do cao cua fire_mission -> ten field GUI doc (topic `mission`, laptop/touch/backend.py).
+# Tham so cua fire_mission -> ten field GUI doc (topic `mission`, laptop/touch/backend.py).
 FIRE_ALT_KEYS = {"alt_min": "min_alt", "alt_max": "max_alt",
-                 "alt_search": "search_alt", "alt_drop": "drop_alt"}
+                 "alt_search": "search_alt", "alt_drop": "drop_alt",
+                 "radius_def": "search_radius", "radius_max": "max_search_radius"}
 
 
 def fire_alt_limits(params_file):
-    """Gioi han do cao task Chua chay doc tu CUNG file --mission-params node dung, de GUI
-    dua nut chon do cao bay / ha cach lua theo drone dang noi (drone that 2-5 m) ma khong
-    chep so sang GUI. Khong co file (sim) = {} -> GUI dung so mac dinh cua node."""
+    """Gioi han do cao / pham vi tim cua task Chua chay doc tu CUNG file --mission-params node
+    dung, de GUI dua nut chon do cao bay / ha cach lua / pham vi tim theo drone dang noi (drone
+    that 2-5 m) ma khong chep so sang GUI. Khong co file (sim) = {} -> GUI dung so mac dinh cua node."""
     if not params_file:
         return {}
     import yaml  # PyYAML di kem ROS; chi can khi co file
@@ -443,10 +444,12 @@ def _selfcheck():
     assert fire_alt_limits(None) == {}, "sim khong co file: GUI dung mac dinh cua node"
     with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
         f.write("fire_mission:\n  ros__parameters:\n    search_alt: 5.0\n    min_alt: 2\n"
-                "    max_alt: 5.0\n    drop_alt: 3.0\n    ring_step: 2.0\n")
+                "    max_alt: 5.0\n    drop_alt: 3.0\n    ring_step: 2.0\n"
+                "    search_radius: 2.0\n    max_search_radius: 10\n")
         f.flush()
         assert fire_alt_limits(f.name) == {"alt_min": 2.0, "alt_max": 5.0,
-                                           "alt_search": 5.0, "alt_drop": 3.0}
+                                           "alt_search": 5.0, "alt_drop": 3.0,
+                                           "radius_def": 2.0, "radius_max": 10.0}
     print("ros2_bridge selfcheck OK")
 
 

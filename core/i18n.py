@@ -272,8 +272,10 @@ STR = {
                  "GUIDED + fly to {lat:.5f}, {lon:.5f} at {alt:.0f} m"),
     "act.task_start": ("Bật task {nice}", "Start task {nice}"),
     "act.task_stop": ("Huỷ task trên companion", "Stop companion task"),
-    "act.fire_target": ("Điểm cháy -> {lat:.5f}, {lon:.5f}, bay {alt:.0f} m, thả cách lửa {drop:.0f} m",
-                        "Fire point -> {lat:.5f}, {lon:.5f}, fly {alt:.0f} m, drop {drop:.0f} m above fire"),
+    "act.fire_target": ("Điểm cháy -> {lat:.5f}, {lon:.5f}, bay {alt:.0f} m, tìm {radius:.0f} m, "
+                        "thả cách lửa {drop:.0f} m",
+                        "Fire point -> {lat:.5f}, {lon:.5f}, fly {alt:.0f} m, search {radius:.0f} m, "
+                        "drop {drop:.0f} m above fire"),
     # nhich vi tri bang ban phim
     "nudge.blocked": ("nhích vị trí: KHÔNG được — {why}", "nudge: NOT allowed — {why}"),
     "nudge.stopped": ("nhích vị trí: dừng — {why}", "nudge: stopped — {why}"),
@@ -554,8 +556,9 @@ STR = {
     "touch.do_mode": ("đổi sang {name}", "switch to {name}"),
     "touch.do_goto": ("bay tới điểm đã chỉ ở {alt:.0f} m",
                       "fly to the marked point at {alt:.0f} m"),
-    "touch.do_fire": ("bay {alt:.0f} m tìm lửa, hạ cách lửa {drop:.0f} m thả bóng, kiểm tra, về",
-                      "fly {alt:.0f} m to search, drop {drop:.0f} m above fire, check, return"),
+    # Ngan: thanh truot cat chu o ~45 ky tu ma so cuoi (ha cach lua) la so phai doc duoc.
+    "touch.do_fire": ("bay {alt:.0f} m, tìm {radius:.0f} m, thả cách lửa {drop:.0f} m",
+                      "fly {alt:.0f} m, search {radius:.0f} m, drop {drop:.0f} m above"),
     "touch.do_task_start": ("bật task Chữa cháy", "start the firefighting task"),
     "touch.do_task_stop": ("huỷ task - drone treo tại chỗ", "stop the task - drone holds position"),
     "touch.btn_task": ("Chữa cháy", "Fire task"),
@@ -620,6 +623,7 @@ STR = {
     "touch.wp_alt": ("Độ cao điểm", "Point altitude"),
     "touch.fire_alt": ("Bay tìm", "Search at"),
     "touch.fire_drop": ("Hạ cách lửa", "Drop above fire"),
+    "touch.fire_radius": ("Phạm vi tìm", "Search radius"),
     "touch.wp_undo": ("Bỏ điểm cuối", "Remove last point"),
     "touch.wp_clear": ("Xoá nháp", "Clear draft"),
     "touch.wp_send": ("NẠP {n} điểm", "UPLOAD {n} point(s)"),

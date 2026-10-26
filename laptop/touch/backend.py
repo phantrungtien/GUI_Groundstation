@@ -50,7 +50,8 @@ FIRE_TASK = "fire_mission"
 # Gioi han do cao task Chua chay: bridge doc tu --mission-params cua drone (Jetson:
 # fire_mission_real.yaml, 2-5 m) va gui kem topic `mission`. Khong gui (sim, bridge cu)
 # = mac dinh cua node fire_mission (so sim) duoi day.
-FIRE_LIM_DEFAULT = {"alt_min": 5.0, "alt_max": 120.0, "alt_search": 20.0, "alt_drop": 20.0}
+FIRE_LIM_DEFAULT = {"alt_min": 5.0, "alt_max": 120.0, "alt_search": 20.0, "alt_drop": 20.0,
+                    "radius_def": 24.0, "radius_max": 50.0}
 
 
 def fire_chips(lo, hi):
@@ -59,6 +60,11 @@ def fire_chips(lo, hi):
     if hi - lo <= 6:
         return list(range(math.ceil(lo), math.floor(hi) + 1))
     return [v for v in (5, 10, 20, 50, 100) if lo <= v <= hi]
+
+
+def radius_chips(hi):
+    """Nut chon nhanh pham vi tim [0, hi]. 0 = chi treo o diem cham roi zoom."""
+    return [v for v in (0, 2, 5, 10, 20, 50) if v <= hi]
 
 
 class Backend(QObject):
@@ -592,20 +598,25 @@ class Backend(QObject):
 
     @staticmethod
     def _fire_lim(v):
-        """{min, max, search, drop} cho bang diem chay. Field nao bridge khong gui thi lay
-        mac dinh cua node - xem FIRE_LIM_DEFAULT."""
+        """{min, max, search, drop, radius, radiusMax} cho bang diem chay. Field nao bridge
+        khong gui thi lay mac dinh cua node - xem FIRE_LIM_DEFAULT."""
         lim = {k: v(f"mission.{k}") for k in FIRE_LIM_DEFAULT}
         lim = {k: d if lim[k] is None else float(lim[k]) for k, d in FIRE_LIM_DEFAULT.items()}
         return {"min": lim["alt_min"], "max": lim["alt_max"],
-                "search": lim["alt_search"], "drop": lim["alt_drop"]}
+                "search": lim["alt_search"], "drop": lim["alt_drop"],
+                "radius": lim["radius_def"], "radiusMax": lim["radius_max"]}
 
     @Slot(float, float, result="QVariantList")
     def fireChips(self, lo, hi):
         return fire_chips(lo, hi)
 
-    @Slot(float, float, float, float)
-    def fireAt(self, lat, lon, alt, drop):
-        """Diem chay da chot (nhu gotoAt) + do cao bay / ha cach lua chon tren bang.
+    @Slot(float, result="QVariantList")
+    def radiusChips(self, hi):
+        return radius_chips(hi)
+
+    @Slot(float, float, float, float, float)
+    def fireAt(self, lat, lon, alt, drop, radius):
+        """Diem chay da chot (nhu gotoAt) + do cao bay / ha cach lua / pham vi tim chon tren bang.
         Chi khi task Chua chay dang chay. KHONG kep vao gioi han cua node: so ngoai khoang
         thi node tu choi va bao ly do - kep o day la bay mot so nguoi bay khong chon."""
         if not self._live():
@@ -615,7 +626,7 @@ class Backend(QObject):
             self.cmd.say("task.not_running", 4)
             return
         sane = lambda a: float(max(WP_ALT_MIN, min(WP_ALT_MAX, a)))  # noqa: E731 - nhu truoc
-        self.cmd.fire_target(lat, lon, sane(alt), sane(drop))
+        self.cmd.fire_target(lat, lon, sane(alt), sane(drop), float(radius))
 
     @Slot(float, float)
     def goto(self, x, y):
