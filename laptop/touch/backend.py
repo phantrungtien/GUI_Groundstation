@@ -13,6 +13,7 @@ GUIDED, DISARM duoi dat thi force, theo doi ACK — tat ca nam o
 ben QML la phan XAC NHAN; goi toi day nghia la nguoi bay da truot het.
 """
 
+import math
 import time
 
 from PySide6.QtCore import Property, QObject, QPoint, QTimer, Signal, Slot
@@ -46,6 +47,18 @@ def _mmss(sec):
 
 # Ten node task Chua chay ben ~/fire_drone_ws (bridge khoi dong qua danh sach trang).
 FIRE_TASK = "fire_mission"
+# Gioi han do cao task Chua chay: bridge doc tu --mission-params cua drone (Jetson:
+# fire_mission_real.yaml, 2-5 m) va gui kem topic `mission`. Khong gui (sim, bridge cu)
+# = mac dinh cua node fire_mission (so sim) duoi day.
+FIRE_LIM_DEFAULT = {"alt_min": 5.0, "alt_max": 120.0, "alt_search": 20.0, "alt_drop": 20.0}
+
+
+def fire_chips(lo, hi):
+    """Nut chon nhanh do cao trong [lo, hi]: khoang hep (drone that 2-5 m) thi tung met,
+    rong (sim 5-120 m) thi vai moc tron. O go so van cho chon so bat ky trong khoang."""
+    if hi - lo <= 6:
+        return list(range(math.ceil(lo), math.floor(hi) + 1))
+    return [v for v in (5, 10, 20, 50, 100) if lo <= v <= hi]
 
 
 class Backend(QObject):
@@ -314,6 +327,7 @@ class Backend(QObject):
             # chip nhap nhay — luc do cho Field mot STALE rieng.
             "task": v("mission.running") or "",
             "taskFire": v("mission.running") == FIRE_TASK,
+            "fireLim": self._fire_lim(v),
             # Kich ban #8: hai nguon lech vi tri qua nguong. Dong rieng chu khong
             # day vao `alerts`: no lap lai 5 Hz, vao do la dem "xN" chay loan.
             "diverge": div if div is not None and div > DIVERGE_M else None,
@@ -576,17 +590,32 @@ class Backend(QObject):
         """Bat ("fire_mission") / huy ("") task. Loi duong truyen do _soft() bao."""
         self.cmd.task(name)
 
-    @Slot(float, float, float)
-    def fireAt(self, lat, lon, alt):
-        """Diem chay da chot (nhu gotoAt) + do cao chon tren thanh truot.
-        Chi khi task Chua chay dang chay."""
+    @staticmethod
+    def _fire_lim(v):
+        """{min, max, search, drop} cho bang diem chay. Field nao bridge khong gui thi lay
+        mac dinh cua node - xem FIRE_LIM_DEFAULT."""
+        lim = {k: v(f"mission.{k}") for k in FIRE_LIM_DEFAULT}
+        lim = {k: d if lim[k] is None else float(lim[k]) for k, d in FIRE_LIM_DEFAULT.items()}
+        return {"min": lim["alt_min"], "max": lim["alt_max"],
+                "search": lim["alt_search"], "drop": lim["alt_drop"]}
+
+    @Slot(float, float, result="QVariantList")
+    def fireChips(self, lo, hi):
+        return fire_chips(lo, hi)
+
+    @Slot(float, float, float, float)
+    def fireAt(self, lat, lon, alt, drop):
+        """Diem chay da chot (nhu gotoAt) + do cao bay / ha cach lua chon tren bang.
+        Chi khi task Chua chay dang chay. KHONG kep vao gioi han cua node: so ngoai khoang
+        thi node tu choi va bao ly do - kep o day la bay mot so nguoi bay khong chon."""
         if not self._live():
             self.cmd.say("touch.locked", 4)
             return
         if REGISTRY.value("mission.running") != FIRE_TASK:
             self.cmd.say("task.not_running", 4)
             return
-        self.cmd.fire_target(lat, lon, float(max(WP_ALT_MIN, min(WP_ALT_MAX, alt))))
+        sane = lambda a: float(max(WP_ALT_MIN, min(WP_ALT_MAX, a)))  # noqa: E731 - nhu truoc
+        self.cmd.fire_target(lat, lon, sane(alt), sane(drop))
 
     @Slot(float, float)
     def goto(self, x, y):

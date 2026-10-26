@@ -69,6 +69,46 @@ SENSOR_QOS = QoSProfile(
 )
 
 
+# Task dung ngang (Huy task / node chet) ma drone con arm + GUIDED: FC giu setpoint cuoi,
+# KHONG AI LAI. User chot 27/10/2026: treo + bao len GUI, bridge KHONG doi mode (bridge chi
+# la nguon telemetry, core/authority.py) - lay lai la viec nguoi bay qua SiK.
+# Man bay chi giu dong do 10 s (laptop/widgets/alerts.py TTL_ERR) -> nhac moi 5 s.
+HANG_EVERY = 5.0
+# ponytail: nhac toi da 30 s - sau Huy task nguoi bay co the dung "bay toi day" (cung GUIDED,
+# lenh di SiK) ma bridge khong phan biet duoc. Muon nhac toi luc lay lai that thi phai nhin
+# thay lenh goto do.
+HANG_FOR = 30.0
+
+
+def hang_step(hang, armed, mode, running, now):
+    """-> (hang moi, chu can day len hoac None). hang = (ly do, luc bat dau, lan nhac cuoi)."""
+    if not hang:
+        return None, None
+    why, t0, last = hang
+    if not armed or mode != "GUIDED" or running or now - t0 > HANG_FOR:
+        return None, None  # da lay lai (doi mode / disarm), co task moi, hoac het han nhac
+    if now - last < HANG_EVERY:
+        return hang, None
+    return (why, t0, now), f"{why}: drone TREO o GUIDED, khong ai lai - doi mode / RC de lay lai"
+
+
+# Tham so do cao cua fire_mission -> ten field GUI doc (topic `mission`, laptop/touch/backend.py).
+FIRE_ALT_KEYS = {"alt_min": "min_alt", "alt_max": "max_alt",
+                 "alt_search": "search_alt", "alt_drop": "drop_alt"}
+
+
+def fire_alt_limits(params_file):
+    """Gioi han do cao task Chua chay doc tu CUNG file --mission-params node dung, de GUI
+    dua nut chon do cao bay / ha cach lua theo drone dang noi (drone that 2-5 m) ma khong
+    chep so sang GUI. Khong co file (sim) = {} -> GUI dung so mac dinh cua node."""
+    if not params_file:
+        return {}
+    import yaml  # PyYAML di kem ROS; chi can khi co file
+    with open(params_file) as f:
+        p = (yaml.safe_load(f) or {}).get("fire_mission", {}).get("ros__parameters", {})
+    return {k: float(p[n]) for k, n in FIRE_ALT_KEYS.items() if n in p}
+
+
 def quat_to_euler(x, y, z, w):
     """Quaternion -> (roll, pitch, yaw) radian, he ENU."""
     sinr = 2 * (w * x + y * z)
@@ -82,10 +122,11 @@ def quat_to_euler(x, y, z, w):
 
 
 class Bridge(Node):
-    def __init__(self, spawn=False, params=None):
+    def __init__(self, spawn=False, params=None, fire_alt=None):
         super().__init__("gcs_ws_bridge")
         self.spawn = spawn
         self.params = params  # --mission-params: YAML tham so cho node nhiem vu (drone that)
+        self.fire_alt = fire_alt or {}  # xem fire_alt_limits
         self.ws_clients = set()
         self.lock = threading.Lock()
         self.sent = 0
@@ -113,6 +154,8 @@ class Bridge(Node):
         self.mission_proc = None
         self.mission_pgid = None
         self.mission_name = ""
+        self.fc = None    # (armed, mode) tu /mavros/state; None = chua noi duoc FC lan nao
+        self.hang = None  # xem hang_step
         self.create_timer(1.0, self._report_mission)
 
         self.create_subscription(NavSatFix, "/mavros/global_position/global",
@@ -195,7 +238,22 @@ class Bridge(Node):
         })
 
     def _on_state(self, m):
+        if m.connected:
+            first, self.fc = self.fc is None, (m.armed, m.mode)
+            if first:
+                # service drone-ros (Jetson) khoi dong lai CA NHOM khi MAVROS/fire_locator/bridge
+                # chet: task dang bay chet theo, bridge moi sinh ra khong biet gi ve no.
+                self._hung("bridge vua khoi dong lai giua luc bay")
         self.push("heartbeat", {"armed": m.armed, "mode": m.mode})
+
+    def _hung(self, why):
+        """Bat dau nhac (hang_step) neu drone dang arm + GUIDED. True = dang treo."""
+        armed, mode = self.fc or (False, "")
+        if not (armed and mode == "GUIDED"):
+            return False
+        self.get_logger().error(f"{why}: drone treo GUIDED")
+        self.hang = (why, time.time(), 0.0)
+        return True
 
     # --- nhan lenh tu laptop ----------------------------------------------
 
@@ -229,7 +287,7 @@ class Bridge(Node):
         Muon doi lien mach thi ba nhiem vu phai nam trong MOT node va doi bang bien
         trang thai; day la duong nhanh, khong phai duong dep.
         """
-        self._stop_mission()
+        self._stop_mission(cancel=not name)
         if not name:
             return
         if name not in MISSIONS_OK:
@@ -263,10 +321,13 @@ class Bridge(Node):
         except (ProcessLookupError, PermissionError):
             return False
 
-    def _stop_mission(self):
+    def _stop_mission(self, cancel=False):
         if self.mission_proc is None:
             return
-        pgid, self.mission_proc, self.mission_name = self.mission_pgid, None, ""
+        proc, pgid, name = self.mission_proc, self.mission_pgid, self.mission_name
+        self.mission_proc, self.mission_name = None, ""
+        if cancel:
+            self._hung(f"Huy task {name}")  # bao NGAY, khong doi nhom chet
         for sig, cho in ((signal.SIGTERM, 5.0), (signal.SIGKILL, 1.0)):
             try:
                 os.killpg(pgid, sig)
@@ -274,6 +335,9 @@ class Bridge(Node):
                 break
             het = time.time() + cho
             while time.time() < het:
+                # Gat xac vo `ros2 run`: zombie van tinh la nhom con song -> lan Huy nao cung
+                # doi het 5 s roi SIGKILL (do 27/10/2026: node thoat ngay, bridge bao sau 6 s).
+                proc.poll()
                 try:
                     os.killpg(pgid, 0)
                 except ProcessLookupError:
@@ -296,11 +360,16 @@ class Bridge(Node):
             # Bao len laptop, dung chi ghi log tren companion. Node thoat som la
             # chuyen thuong gap — vi du no doi khoi dong tu mat dat ma drone dang
             # bay san — va nguoi bay phai doc duoc ly do o tab Thong bao.
-            self.push("text", {"severity": 4,
-                               "text": f"nhiem vu {self.mission_name} da ket thuc (ma {code})"})
+            if not self._hung(f"task {self.mission_name} chet giua chung (ma {code})"):
+                self.push("text", {"severity": 4,
+                                   "text": f"nhiem vu {self.mission_name} da ket thuc (ma {code})"})
             self.mission_proc, self.mission_name = None, ""
+        self.hang, text = hang_step(self.hang, *(self.fc or (False, "")),
+                                    self.mission_name, time.time())
+        if text:
+            self.push("text", {"severity": 2, "text": text})  # CRITICAL: dong do tren man bay
         self.push("mission", {"running": self.mission_name,
-                              "spawn": bool(self.spawn)})
+                              "spawn": bool(self.spawn), **self.fire_alt})
 
 
 def main():
@@ -312,12 +381,19 @@ def main():
     ap.add_argument("--mission-params", default=None, metavar="YAML",
                     help="file tham so ROS cho node nhiem vu (--ros-args --params-file). "
                          "Drone that: ~/jetson/fire_mission_real.yaml")
+    ap.add_argument("--selfcheck", action="store_true", help="kiem hang_step roi thoat")
     args = ap.parse_args()
+    if args.selfcheck:
+        return _selfcheck()
     if args.mission_params and not os.path.isfile(args.mission_params):
         ap.error(f"khong thay {args.mission_params}")  # thieu file = bay so sim, dung luon
+    try:
+        fire_alt = fire_alt_limits(args.mission_params)
+    except Exception as e:  # YAML hong thi `ros2 run --params-file` cung chet: bao ngay o day
+        ap.error(f"doc {args.mission_params} loi: {e}")
 
     rclpy.init()
-    node = Bridge(spawn=args.spawn, params=args.mission_params)
+    node = Bridge(spawn=args.spawn, params=args.mission_params, fire_alt=fire_alt)
 
     def on_client(ws):
         node.get_logger().info("laptop noi vao")
@@ -348,6 +424,30 @@ def main():
         # try_: Ctrl-C thi bo bat tin hieu cua rclpy da tu shutdown context roi —
         # goi `shutdown()` lan nua la RCLError, traceback va ma thoat 1.
         rclpy.try_shutdown()
+
+
+def _selfcheck():
+    h = ("Huy task fire_mission", 100.0, 0.0)
+    h1, txt = hang_step(h, True, "GUIDED", "", 100.5)
+    assert txt and "TREO" in txt and h1[2] == 100.5, "lan dau phai bao ngay"
+    assert hang_step(h1, True, "GUIDED", "", 103.0) == (h1, None), "chua toi 5 s thi chua nhac"
+    assert hang_step(h1, True, "GUIDED", "", 105.6)[1], "5 s sau nhac lai"
+    for armed, mode, running, now in [(True, "LOITER", "", 101.0),  # nguoi bay da doi mode
+                                      (False, "GUIDED", "", 101.0),  # da disarm
+                                      (True, "GUIDED", "fire_mission", 101.0),  # task moi
+                                      (True, "GUIDED", "", 131.0)]:  # het 30 s
+        assert hang_step(h1, armed, mode, running, now) == (None, None), (armed, mode, running, now)
+    assert hang_step(None, True, "GUIDED", "", 0.0) == (None, None)
+
+    import tempfile
+    assert fire_alt_limits(None) == {}, "sim khong co file: GUI dung mac dinh cua node"
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
+        f.write("fire_mission:\n  ros__parameters:\n    search_alt: 5.0\n    min_alt: 2\n"
+                "    max_alt: 5.0\n    drop_alt: 3.0\n    ring_step: 2.0\n")
+        f.flush()
+        assert fire_alt_limits(f.name) == {"alt_min": 2.0, "alt_max": 5.0,
+                                           "alt_search": 5.0, "alt_drop": 3.0}
+    print("ros2_bridge selfcheck OK")
 
 
 if __name__ == "__main__":

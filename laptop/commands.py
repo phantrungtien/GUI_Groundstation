@@ -221,6 +221,8 @@ class Commands(QObject):
         Khong di qua `_report()`: FC tra loi mission item bang MISSION_ACK chu
         khong bang COMMAND_ACK — xem chu thich o `wp_write`.
         """
+        if why := self.task_block():
+            return self.say("fly.goto_blocked", 4, why=why)
         authority.dispatch({"target": "sik", "action": "mode", "args": {"name": "GUIDED"}})
         self._soft(t("act.goto", lat=lat, lon=lon, alt=float(alt)), authority.dispatch(
             {"target": "sik", "action": "goto",
@@ -233,18 +235,29 @@ class Commands(QObject):
     # khong can hoi node: doi mode / nut do di SiK, node thay mat GUIDED la buong;
     # huy task la bridge giet han node.
 
+    @staticmethod
+    def task_block():
+        """Ly do KHONG duoc "bay toi day" / nhich (user chot 27/10/2026), None neu duoc.
+        Task dang chay la node dang (hoac sap) stream setpoint 10 Hz vao GUIDED: lenh tu day
+        bi de len ngay, nguoi bay tuong drone khong nghe. Lay lai lai = doi mode / huy task.
+        ponytail: biet task chay nho bridge bao moi giay; bridge im qua STALE (mat 4G) thi
+        khong biet -> khong chan. Chan ca luc do thi phai nho task lau hon STALE."""
+        name = REGISTRY.value("mission.running")
+        return t("task.drives", name=name) if name else None
+
     def task(self, name):
         """Bat task `name` tren companion (bridge --spawn, danh sach trang). "" = huy."""
         what = t("act.task_start", nice=name) if name else t("act.task_stop")
         self._soft(what, authority.dispatch(
             {"target": "remote", "action": "mission", "args": {"name": name}}))
 
-    def fire_target(self, lat, lon, alt):
-        """Giao diem chay cho task Chua chay. Node cat canh/bay o `alt` m, tu tim, tha,
-        kiem tra, ve. Node tu choi alt ngoai [min_alt, max_alt] cua no (bao o tab Thong bao)."""
-        self._soft(t("act.fire_target", lat=lat, lon=lon, alt=alt), authority.dispatch(
+    def fire_target(self, lat, lon, alt, drop):
+        """Giao diem chay cho task Chua chay. Node cat canh/bay o `alt` m, tu tim, ha xuong
+        `drop` m tren lua, tha, kiem tra, ve. Node tu choi alt ngoai [min_alt, max_alt] va drop
+        ngoai [min_alt, alt] cua no (bao o tab Thong bao)."""
+        self._soft(t("act.fire_target", lat=lat, lon=lon, alt=alt, drop=drop), authority.dispatch(
             {"target": "remote", "action": "fire_target",
-             "args": {"lat": lat, "lon": lon, "alt": float(alt)}}))
+             "args": {"lat": lat, "lon": lon, "alt": float(alt), "drop": float(drop)}}))
 
     # ---- nhich vi tri ----------------------------------------------------
 
@@ -256,6 +269,8 @@ class Commands(QObject):
         """
         if not live:
             return t("nudge.no_mode")
+        if why := self.task_block():
+            return why
         if REGISTRY.value("heartbeat.armed") is not True:
             return t("nudge.not_armed")
         if REGISTRY.value("heartbeat.landed") is True:

@@ -3008,9 +3008,9 @@ def check_touch(app):
                                                      item.height() / 2)).toPoint())
             wait(100)
 
-        def bridge(running, age=0.0):
+        def bridge(running, age=0.0, **lim):
             bus.emit_envelope({"src": "remote", "topic": "mission", "ts": time.time() - age,
-                               "data": {"running": running, "spawn": True}})
+                               "data": {"running": running, "spawn": True, **lim}})
             wait(250)  # refresh() chay moi 200 ms
 
         def open_wp():
@@ -3024,7 +3024,7 @@ def check_touch(app):
         bridge("")
         open_wp()
         assert fire is not None and not fire.isVisible(), "task chua bat ma da co chip diem chay"
-        win.touch.fireAt(10.8, 106.6, 20)
+        win.touch.fireAt(10.8, 106.6, 20, 20)
         assert rsent == [], f"task chua bat ma diem chay van gui: {rsent}"
 
         tap(task_btn)
@@ -3060,9 +3060,51 @@ def check_touch(app):
         assert abs(got["lat"] - aimed[0]) < 1e-6 and abs(got["lon"] - aimed[1]) < 1e-6, (
             f"ban do chay theo drone ma diem chay gui cho khac: {got} != {aimed}")
         assert got["alt"] == 15.0, f"diem chay khong mang dung do cao da chon: {got}"
+        assert got["drop"] == 15.0, f"bay 15 m ma tha cach lua {got['drop']} (phai <= do cao bay)"
         assert root.property("takeoffAlt") == 5, "chon do cao chua chay de len cat canh tay"
         assert sent == [], f"diem chay lot xuong SiK: {sent}"
         rsent.clear()
+
+        # Drone that: bridge gui gioi han cua fire_mission_real.yaml -> nut 2..5 m, mac dinh
+        # bay 5 / tha 3 (khong phai so sim 20 m - node tu choi het). Nguoi bay chon ha cach lua.
+        from laptop.touch.backend import fire_chips
+        assert fire_chips(2, 5) == [2, 3, 4, 5] and fire_chips(5, 120) == [5, 10, 20, 50, 100]
+        assert fire_chips(2, 3) == [2, 3], "bay 3 m thi chi tha duoc 2-3 m"
+        bridge("fire_mission", alt_min=2.0, alt_max=5.0, alt_search=5.0, alt_drop=3.0)
+        open_wp()
+        tap(fire)
+        assert (root.property("fireAlt"), root.property("fireDrop")) == (5, 3), (
+            "doi sang drone that ma bang van nho 15 m (ngoai 2-5 m)")
+        drop_box = root.findChild(QQuickItem, "fireDropBox")
+        assert drop_box is not None and drop_box.isVisible(), "bang diem chay khong cho chon ha cach lua"
+        assert (box.property("from"), box.property("to")) == (2, 5), "o do cao khong theo gioi han drone"
+        root.setProperty("fireDrop", 2)
+        wait(50)
+        assert drop_box.property("value") == 2 and "2 m" in slider.property("text"), (
+            "thanh truot khong hien ha cach lua da chon")
+        drag(1.0)
+        got = rsent[-1][1]
+        assert (got["alt"], got["drop"]) == (5.0, 2.0), f"diem chay khong mang do cao da chon: {got}"
+        rsent.clear()
+        bridge("fire_mission")  # tra lai so sim cho phan sau
+
+        # Task dang lai: "bay toi day" va nhich bi chan - node stream setpoint 10 Hz de len
+        # ngay (user chot 27/10/2026). Lay lai lai = doi mode / huy task, khong phai hai nut nay.
+        goto_chip = root.findChild(QQuickItem, "wpGoto")
+        open_wp()
+        assert not goto_chip.property("enabled"), "task dang chay ma chip 'Bay toi day' van bam duoc"
+        assert win.touch.cmd.nudge_block(True) == t("task.drives", name="fire_mission"), (
+            "task dang chay ma van cho nhich")
+        sent.clear()
+        win.touch.gotoAt(10.8, 106.6)
+        assert sent == [], f"task dang chay ma 'bay toi day' van xuong FC: {sent}"
+        bridge("")
+        assert goto_chip.property("enabled"), "huy task roi ma 'Bay toi day' van tat"
+        win.touch.gotoAt(10.8, 106.6)
+        assert [a for a, _ in sent] == ["mode", "goto"], f"huy task roi ma khong bay toi duoc: {sent}"
+        sent.clear()
+        root.setProperty("wpOpen", False)
+        bridge("fire_mission")
 
         # Dang chay thi cung nut do la Huy task
         tap(task_btn)
@@ -3079,7 +3121,7 @@ def check_touch(app):
         open_wp()
         assert win.touch._state["taskFire"] is False, "bridge im 3 s ma van coi task dang chay"
         assert not fire.isVisible(), "bridge im 3 s ma chip diem chay van hien"
-        win.touch.fireAt(*aimed, 20)
+        win.touch.fireAt(*aimed, 20, 20)
         assert rsent == [], f"bridge im ma diem chay van gui: {rsent}"
         win.control_tab._mission_timer.timeout.emit()
         assert win.control_tab.mission_now.text() == t("ctl.mission_none"), (

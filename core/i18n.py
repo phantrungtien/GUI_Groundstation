@@ -200,6 +200,8 @@ STR = {
     "mission.simple": ("Bay đơn giản", "Simple flight"),
     "mission.fire": ("Chữa cháy", "Firefighting"),
     "task.not_running": ("Chưa bật task Chữa cháy", "Firefighting task is not running"),
+    "task.drives": ("task {name} đang lái — huỷ task hoặc đổi mode để lấy lại",
+                    "task {name} is flying — cancel the task or change mode to take over"),
 
     # ack cua FC
     "ack.0": ("CHẤP NHẬN", "ACCEPTED"),
@@ -261,6 +263,7 @@ STR = {
     "fly.wp_fc_denied": ("FC từ chối (MAV_MISSION_RESULT={code})",
                          "FC rejected it (MAV_MISSION_RESULT={code})"),
     "fly.goto_ok": ("bay tới đây: FC chấp nhận điểm đến", "fly to here: FC accepted the target"),
+    "fly.goto_blocked": ("bay tới đây: KHÔNG được — {why}", "fly to here: NOT allowed — {why}"),
     "fly.goto_fail": ("bay tới đây: {why} — drone KHÔNG đi (điểm ngoài rào? chưa vào GUIDED?)",
                       "fly to here: {why} — the drone will NOT go (target outside the fence? not in GUIDED?)"),
     "act.wp_wipe": ("xoá đường bay trên FC", "wipe mission on FC"),
@@ -269,8 +272,8 @@ STR = {
                  "GUIDED + fly to {lat:.5f}, {lon:.5f} at {alt:.0f} m"),
     "act.task_start": ("Bật task {nice}", "Start task {nice}"),
     "act.task_stop": ("Huỷ task trên companion", "Stop companion task"),
-    "act.fire_target": ("Điểm cháy -> {lat:.5f}, {lon:.5f}, bay {alt:.0f} m",
-                        "Fire point -> {lat:.5f}, {lon:.5f}, fly {alt:.0f} m"),
+    "act.fire_target": ("Điểm cháy -> {lat:.5f}, {lon:.5f}, bay {alt:.0f} m, thả cách lửa {drop:.0f} m",
+                        "Fire point -> {lat:.5f}, {lon:.5f}, fly {alt:.0f} m, drop {drop:.0f} m above fire"),
     # nhich vi tri bang ban phim
     "nudge.blocked": ("nhích vị trí: KHÔNG được — {why}", "nudge: NOT allowed — {why}"),
     "nudge.stopped": ("nhích vị trí: dừng — {why}", "nudge: stopped — {why}"),
@@ -615,6 +618,8 @@ STR = {
     # roi cho drone leo. No chi la do cao cua diem sap dat, va chi co tac dung
     # sau khi NAP + gat AUTO.
     "touch.wp_alt": ("Độ cao điểm", "Point altitude"),
+    "touch.fire_alt": ("Bay tìm", "Search at"),
+    "touch.fire_drop": ("Hạ cách lửa", "Drop above fire"),
     "touch.wp_undo": ("Bỏ điểm cuối", "Remove last point"),
     "touch.wp_clear": ("Xoá nháp", "Clear draft"),
     "touch.wp_send": ("NẠP {n} điểm", "UPLOAD {n} point(s)"),
@@ -623,6 +628,7 @@ STR = {
     # Co {alt} trong nut: lenh nay DOI do cao, khong phai bay ngang toi do. Khong
     # ghi so ra thi nguoi bay o 50 m bam mot cai la xuong 20 m ma khong hieu vi sao.
     "touch.wp_goto": ("Bay tới đây ({alt:.0f} m)", "Fly here ({alt:.0f} m)"),
+    "touch.wp_goto_task": ("Bay tới đây: tắt khi task chạy", "Fly here: off while a task runs"),
     "touch.wp_fire": ("Chữa cháy tại đây", "Fight fire here"),
     "touch.wp_full": ("đã đủ {n} waypoint — không đặt thêm được",
                       "already {n} waypoints — cannot add more"),

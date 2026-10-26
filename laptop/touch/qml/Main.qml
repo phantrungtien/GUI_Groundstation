@@ -36,11 +36,21 @@ Item {
     property string pending: ""      // lenh dang cho truot
     property string pendingArg: ""
     property real takeoffAlt: 5
-    // Do cao task Chua chay: cat canh + bay tim. Rieng voi takeoffAlt — 5 m cat canh
-    // tay la hop, 5 m bay tim lua trong rung thi khong. 20 = search_alt cua node.
+    // Do cao task Chua chay: cat canh + bay tim, va ha cach lua bao nhieu m de tha. Rieng
+    // voi takeoffAlt. Gioi han + mac dinh lay tu node (st.fireLim, bridge doc YAML cua
+    // drone): openFire() dua ve mac dinh khi so dang nho nam ngoai khoang (doi drone).
     property real fireAlt: 20
-    // = drop_alt cua fire_mission: bay cao bao nhieu cung ha ve day moi tha (khong leo len).
-    readonly property real fireDropAlt: 20
+    property real fireDrop: 20
+    onFireAltChanged: if (fireDrop > fireAlt) fireDrop = fireAlt  // khong leo len de tha
+    function openFire() {
+        var L = st.fireLim
+        if (fireAlt < L.min || fireAlt > L.max) {  // doi drone: ca hai ve mac dinh cua node
+            fireAlt = L.search
+            fireDrop = Math.min(L.drop, L.search)
+        } else if (fireDrop < L.min || fireDrop > fireAlt)
+            fireDrop = Math.min(L.drop, fireAlt)
+        ask("fire")
+    }
     // Cham-giu ban do thay cho menu chuot phai cua tab Bay cu: nho lai diem vua
     // cham de "dat waypoint o day" / "bay toi day" con biet la o dau.
     property bool wpOpen: false
@@ -86,7 +96,7 @@ Item {
             "goto": gotoAt ? tr("act.goto", {"lat": gotoAt[0], "lon": gotoAt[1],
                                              "alt": st.wpAlt}) : "",
             "fire": gotoAt ? tr("act.fire_target", {"lat": gotoAt[0], "lon": gotoAt[1],
-                                                    "alt": fireAlt}) : "",
+                                                    "alt": fireAlt, "drop": fireDrop}) : "",
             "taskStart": tr("touch.task_start_title"),
             "taskStop": tr("touch.task_stop_title")
         }[pending] || ""
@@ -104,7 +114,7 @@ Item {
             "land": tr("touch.do_land"), "rtl": tr("touch.do_rtl"),
             "kill": tr("touch.do_kill"), "mode": tr("touch.do_mode", {"name": pendingArg}),
             "goto": tr("touch.do_goto", {"alt": st.wpAlt}),
-            "fire": tr("touch.do_fire", {"alt": fireAlt, "drop": Math.min(fireAlt, fireDropAlt)}),
+            "fire": tr("touch.do_fire", {"alt": fireAlt, "drop": fireDrop}),
             "taskStart": tr("touch.do_task_start"), "taskStop": tr("touch.do_task_stop")
         }[pending] || ""
         return tr("touch.slide", {"what": what})
@@ -754,8 +764,9 @@ Item {
                 }
                 Chip {
                     objectName: "wpGoto"
-                    text: tr("touch.wp_goto", {"alt": st.wpAlt})
-                    enabled: st.live
+                    // Task dang lai thi node de len lenh nay ngay (commands.task_block).
+                    text: st.task ? tr("touch.wp_goto_task") : tr("touch.wp_goto", {"alt": st.wpAlt})
+                    enabled: st.live && !st.task
                     opacity: enabled ? 1 : 0.4
                     onTap: { win.gotoAt = backend.pickGoto(win.wpX, win.wpY); ask("goto") }
                 }
@@ -767,7 +778,7 @@ Item {
                     text: tr("touch.wp_fire")
                     enabled: st.live
                     opacity: enabled ? 1 : 0.4
-                    onTap: { win.gotoAt = backend.pickGoto(win.wpX, win.wpY); ask("fire") }
+                    onTap: { win.gotoAt = backend.pickGoto(win.wpX, win.wpY); openFire() }
                 }
             }
             Flow {
@@ -879,8 +890,17 @@ Item {
                 }
                 width: parent.width
                 spacing: 8 * s
+                Text {
+                    visible: altRow.fire
+                    height: takeoffBox.height
+                    verticalAlignment: Text.AlignVCenter
+                    text: tr("touch.fire_alt")
+                    color: theme.MUTED
+                    font.pixelSize: 13 * f
+                }
                 Repeater {
-                    model: altRow.fire ? [10, 20, 50, 100] : [3, 5, 10, 20, 30]
+                    model: altRow.fire ? backend.fireChips(st.fireLim.min, st.fireLim.max)
+                                       : [3, 5, 10, 20, 30]
                     delegate: Chip {
                         text: modelData + " m"
                         selected: altRow.alt === modelData
@@ -893,8 +913,8 @@ Item {
                     id: takeoffBox
                     objectName: "takeoffAltBox"
                     editable: true
-                    from: backend.wpAltMin
-                    to: backend.wpAltMax
+                    from: altRow.fire ? st.fireLim.min : backend.wpAltMin
+                    to: altRow.fire ? st.fireLim.max : backend.wpAltMax
                     stepSize: 1
                     height: Math.max(38 * s, 34)
                     font.pixelSize: 14 * f
@@ -902,6 +922,43 @@ Item {
                     valueFromText: function (txt) { return parseInt(txt) || takeoffBox.value }
                     Binding on value { value: altRow.alt }
                     onValueModified: altRow.pick(value)
+                }
+            }
+            // Ha cach lua bao nhieu m roi tha: tu min_alt cua node toi do cao bay.
+            Flow {
+                id: dropRow
+                visible: win.pending === "fire"
+                function pick(v) { win.fireDrop = v; askTimer.restart() }
+                width: parent.width
+                spacing: 8 * s
+                Text {
+                    height: dropBox.height
+                    verticalAlignment: Text.AlignVCenter
+                    text: tr("touch.fire_drop")
+                    color: theme.MUTED
+                    font.pixelSize: 13 * f
+                }
+                Repeater {
+                    model: dropRow.visible ? backend.fireChips(st.fireLim.min, win.fireAlt) : []
+                    delegate: Chip {
+                        text: modelData + " m"
+                        selected: win.fireDrop === modelData
+                        onTap: dropRow.pick(modelData)
+                    }
+                }
+                SpinBox {
+                    id: dropBox
+                    objectName: "fireDropBox"
+                    editable: true
+                    from: st.fireLim.min
+                    to: win.fireAlt
+                    stepSize: 1
+                    height: Math.max(38 * s, 34)
+                    font.pixelSize: 14 * f
+                    textFromValue: function (v) { return v + " m" }
+                    valueFromText: function (txt) { return parseInt(txt) || dropBox.value }
+                    Binding on value { value: win.fireDrop }
+                    onValueModified: dropRow.pick(value)
                 }
             }
             Flow {
@@ -941,7 +998,7 @@ Item {
                     if (a === "goto")
                         backend.gotoAt(win.gotoAt[0], win.gotoAt[1])
                     else if (a === "fire")
-                        backend.fireAt(win.gotoAt[0], win.gotoAt[1], win.fireAlt)
+                        backend.fireAt(win.gotoAt[0], win.gotoAt[1], win.fireAlt, win.fireDrop)
                     else if (a === "taskStart")
                         backend.task("fire_mission")
                     else if (a === "taskStop")
