@@ -201,11 +201,12 @@ Bốn kịch bản đầu tập trước bằng nút "Cắt link" ở panel Sim,
 
 Đọc trước khi tin quy trình này ở chỗ nào.
 
-- **Chưa từng có chuyến bay thật qua radio SiK.** Băng thông mới chỉ đo trên USB
-  (`/dev/ttyACM0`): 1895–1986 B/s, gấp ~2,4 lần ước lượng 800 B/s của kế hoạch.
-  Trên radio thật con số sẽ thấp hơn — **chưa biết thấp bao nhiêu**, nên chưa
-  biết tần suất cập nhật màn hình lúc bay xa sẽ ra sao. Đo bằng
-  `tools/measure_bandwidth.py` ngay chuyến đầu.
+- **Mới bay thật qua radio SiK một buổi, ở cự ly gần.** 27/10/2026 (máy tính
+  bảng, hai lần ~1 phút, cao 5–6 m, cách vài mét): ~1,8 kB/s (trên USB
+  `/dev/ttyACM0` là 1895–1986 B/s), nhưng **mất gói theo seq 11%** (5–18% mỗi
+  phút) — cao bất thường cho cự ly đó, chưa rõ vì sao; có lần SiK im 193 s lúc
+  drone dưới đất, FC không khởi động lại. **Bay xa thì chưa biết** băng thông và
+  mất gói ra sao — đo bằng `tools/measure_bandwidth.py`.
 - **Chặng ga-giữa-tầm của nút đỏ chưa có bằng chứng phần cứng.** Cần thấy
   `tools/hitl.py disarm` in `landed = False` mà vẫn gửi FORCE — chứng minh
   rangefinder gánh được khi `landed_state` lật sang IN_AIR. Hai tlog 04/08 đều
