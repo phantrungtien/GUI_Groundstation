@@ -3912,7 +3912,7 @@ def check_telemetry_warn(app):
         feed("heartbeat", {"armed": True, "mode": "GUIDED"})
         assert st("armed") is True, ft.state
 
-        # --- PIN: muc theo phan tram, KHONG theo dien ap ---
+        # --- PIN: muc theo phan tram; theo dien ap CHI so voi BATT_LOW_VOLT cua FC, khong tu doan ---
         # 16,8 V (4S day) va 11,1 V (3S can) cung bao 12% -> ca hai deu phai do.
         for volt in (16.8, 11.1):
             feed("battery", {"voltage": volt, "remaining": 12})
@@ -3930,7 +3930,21 @@ def check_telemetry_warn(app):
         # han field di, dung nhu chua tung nhan.
         REGISTRY.fields.pop("battery.remaining", None)
         feed("battery", {"voltage": 11.1})
-        assert st("battPct") is None and st("battLevel") == "ok", ft.state
+        assert st("battPct") is None and st("battLevel") == "none", "khong % khong BATT_LOW_VOLT: xam, khong doan"
+        # FC CHI do ap (BATT_MONITOR 3: drone that lay nguon tu mach Matek khong cam bien dong, 29/10):
+        # khong % nhung co BATT_LOW_VOLT -> o PIN to theo ap
+        ft._params["BATT_LOW_VOLT"] = 10.5  # 3S, vang tu 10,8 V
+        ft._volt = None
+        assert st("battLevel") == "ok", ft.state
+        ft._volt = None
+        feed("battery", {"voltage": 10.7})
+        assert st("battPct") is None and st("battLevel") == "warn", "chi do ap ma o PIN khong vang"
+        del ft._params["BATT_LOW_VOLT"]
+        from laptop import safety
+        warn = dict(safety.preflight({}, 23.75, None, None))  # 6S 3,96 V/cell = cam pin 27/10
+        assert "safe.not_full_v" in warn and 65 < warn["safe.not_full_v"]["vp"] < 75, warn
+        assert "safe.not_full_v" not in dict(safety.preflight({}, 25.0, None, None)), "4,17 V/cell la day"
+        assert "safe.not_full_v" not in dict(safety.preflight({}, 23.75, 97, 0.5)), "co % thi dung not_full cu"
         # FC cam USB, KHONG pin: do that 10/10/2026 tren logs/20261010-170756-real.tlog
         # — 0,017 V ma FC bao 98% (dem coulomb tu luc khoi dong). Khong duoc hien 98%.
         feed("battery", {"voltage": 0.017, "remaining": 98})

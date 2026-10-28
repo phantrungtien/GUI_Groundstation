@@ -23,6 +23,9 @@ PLUG_GAP_PCT = 25   # FC tuong % cao hon % theo dien ap bay nhieu -> pin khong d
 # LOW 21,6 V): treo ap tut 3,70 -> 3,60 V/cell trong ~45 s -> vang som duoc chung nua phut.
 VOLT_WARN_CELL = 0.1
 PLUG_MAX_A = 1.0    # chi so khi dong nho: co tai thi dien ap sut, % theo dien ap sai
+# FC CHI do ap (khong %, khong dong: drone that lay nguon tu mach Matek khong cam bien dong, user
+# 29/10/2026) -> so thang ap nghi. 27/10 cam pin 3,96 V/cell (~70%), bay 2 x 1 phut la cham failsafe.
+FULL_MIN_PCT = 90
 # Dien ap nghi -> % cua LiPo (moi cell). Bang pho bien cua cac hang pin RC; LiHV
 # (4,35 V) thi lech — do la ly do nguong PLUG_GAP_PCT rong chu khong chat.
 LIPO_CURVE = ((4.20, 100), (4.15, 95), (4.11, 90), (4.08, 85), (4.02, 80), (3.98, 75),
@@ -133,4 +136,8 @@ def preflight(params, volt, pct, amps):
         vp = volt_pct(volt / n)
         if pct - vp >= PLUG_GAP_PCT:
             out.append(("safe.not_full", {"vc": volt / n, "vp": vp, "pct": pct}))
+    elif n and pct is None and amps is None:  # FC chi do ap: khong co % de so, so thang ap nghi
+        vp = volt_pct(volt / n)
+        if vp < FULL_MIN_PCT:
+            out.append(("safe.not_full_v", {"vc": volt / n, "vp": vp}))
     return out

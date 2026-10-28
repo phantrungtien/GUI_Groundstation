@@ -303,7 +303,11 @@ class Backend(QObject):
             "heading": hdg,
             "flightTime": 0 if self._armed_at is None else int(time.time() - self._armed_at),
             "battPct": pct, "volt": v("battery.voltage"),
-            "battLevel": safety.worse(batt_level(pct), vlvl) or "ok",
+            # Xam ("none") khi khong co gi de cham: khong % va (khong pin hoac chua co BATT_LOW_VOLT).
+            # FC chi do ap (BATT_MONITOR 3) thi % = None ma muc theo ap van co — o PIN phai to mau.
+            "battLevel": (safety.worse(batt_level(pct), vlvl) or "ok")
+                         if pct is not None or (safety.cells(volt) and self._params.get("BATT_LOW_VOLT"))
+                         else "none",
             "battLeft": left, "leftLevel": left_level(left) or "ok",
             "sats": sats, "gpsLevel": gps_level(fix, sats, hdop)[0] or "ok",
             "hasVideo": bool(self.profile and video_url(self.profile)),

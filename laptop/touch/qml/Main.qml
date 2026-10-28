@@ -368,7 +368,7 @@ Item {
                 label: "PIN"
                 value: st.battPct === null || st.battPct === undefined ? num(st.volt, 1, "V")
                        : st.battPct + "% " + num(st.volt, 1, "V")
-                lv: st.battPct === null || st.battPct === undefined ? "none" : st.battLevel
+                lv: st.battLevel || "none"   // backend quyet: % hoac ap so voi BATT_LOW_VOLT
             }
         }
     }

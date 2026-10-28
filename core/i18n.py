@@ -583,6 +583,8 @@ STR = {
                             "BATT_LOW_VOLT = {v:.1f} V is {per:.2f} V/cell on a {n}S pack — wrong cell count (expect ~{want:.1f} V)"),
     "safe.not_full": ("Pin có thể KHÔNG đầy lúc cắm: {vc:.2f} V/cell ≈ {vp:.0f}% nhưng FC tưởng {pct}% — ô CÒN sẽ báo dư",
                       "Battery may NOT have been full when plugged: {vc:.2f} V/cell ≈ {vp:.0f}% but FC assumes {pct}% — LEFT will overestimate"),
+    "safe.not_full_v": ("Pin CHƯA đầy: {vc:.2f} V/cell ≈ {vp:.0f}% theo áp nghỉ — bay được ngắn hơn bình thường",
+                        "Battery NOT full: {vc:.2f} V/cell ≈ {vp:.0f}% by resting voltage — shorter flight than usual"),
     "safe.rtl_now": ("VỀ NHÀ NGAY — còn {left}, về mất ~{need}", "RETURN NOW — {left} left, return takes ~{need}"),
     "safe.rtl_soon": ("Sắp phải về — còn {left}, về mất ~{need}", "Return soon — {left} left, return takes ~{need}"),
     "safe.land_now": ("HẠ CÁNH NGAY — còn {left} tới failsafe pin", "LAND NOW — {left} to battery failsafe"),

@@ -207,10 +207,13 @@ Bốn kịch bản đầu tập trước bằng nút "Cắt link" ở panel Sim,
   phút) — cao bất thường cho cự ly đó, chưa rõ vì sao (193 s SiK im hôm đó là
   do rút dây khỏi máy tính bảng, không tính). **Bay xa thì chưa biết** băng thông
   và mất gói ra sao — đo bằng `tools/measure_bandwidth.py`.
-- **% pin của FC sai trên drone hiện tại.** Cảm biến dòng báo 0,4–0,5 A lúc treo
-  (27/10/2026) nên % đứng 97% trong khi áp đã chạm failsafe 21,6 V. Tới khi calib
-  `BATT_AMP_PERVLT`: **đọc điện áp**, đừng đọc % hay ô CÒN; ô PIN vàng/đỏ theo áp
-  (vàng khi còn cách `BATT_LOW_VOLT` dưới 0,1 V/cell).
+- **Drone hiện tại KHÔNG đo được dòng.** Nguồn lấy từ mạch Matek không có cảm
+  biến dòng; chân đo dòng bỏ trống báo nhiễu 0,4–0,6 A, nên % FC đếm được là số
+  bịa (27/10/2026: đứng 97% trong khi áp đã chạm failsafe 21,6 V). Đặt
+  `BATT_MONITOR` = 3 (chỉ điện áp): FC thôi báo % và dòng, ô CÒN thành `--`.
+  **Đọc điện áp**: ô PIN vàng khi còn cách `BATT_LOW_VOLT` dưới 0,1 V/cell, đỏ khi
+  chạm; trước khi ARM app báo nếu áp nghỉ dưới ~90% (`FULL_MIN_PCT`). Ngưỡng % ở
+  mục F không dùng được với drone này.
 - **Chặng ga-giữa-tầm của nút đỏ chưa có bằng chứng phần cứng.** Cần thấy
   `tools/hitl.py disarm` in `landed = False` mà vẫn gửi FORCE — chứng minh
   rangefinder gánh được khi `landed_state` lật sang IN_AIR. Hai tlog 04/08 đều
