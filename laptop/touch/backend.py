@@ -39,6 +39,7 @@ LIVE = ("REAL", "SIM")
 DIVERGE_M = 5.0  # hai nguon vi tri lech hon chung nay thi keu — giong tab Bay cu
 PREARM_KEEP_S = 40.0  # FC nhac ly do PreArm moi ~31 s (do that log 144628)
 AMPS_TAU_S = 5.0  # lam muot dong dien: ga nhay mot phat thi so phut khong nhay theo
+VOLT_TAU_S = 3.0  # lam muot dien ap: mot cu day ga sut ap thi chua bao "pin yeu"
 
 
 def _mmss(sec):
@@ -85,6 +86,9 @@ class Backend(QObject):
         self._params = {}
         self._amps = None      # dong dien da lam muot (A)
         self._amps_at = 0.0
+        self._volt = None      # dien ap da lam muot (V)
+        self._volt_at = 0.0
+        self._volt_lvl = None  # muc pin theo ap te nhat tu luc ARM — xem _volt_level
         self._state = {}
         self._wp_confirm = 0.0   # lan bam "nap" dau khi dang bay AUTO
         self._nogps_said = 0.0   # lan cuoi bao "chua co vi tri" khi cham dup — xem mapFollow
@@ -271,6 +275,7 @@ class Backend(QObject):
         elif not armed and armed is not None:
             self._armed_at = None
         left = self._time_left(pct) if self._armed_at is not None else None
+        vlvl = self._volt_level(volt, armed)
 
         fix, sats, hdop = v("gps.fix_type"), v("gps.sats"), v("gps.hdop")
         div = REGISTRY.position_divergence_m()
@@ -298,7 +303,7 @@ class Backend(QObject):
             "heading": hdg,
             "flightTime": 0 if self._armed_at is None else int(time.time() - self._armed_at),
             "battPct": pct, "volt": v("battery.voltage"),
-            "battLevel": batt_level(pct) or "ok",
+            "battLevel": safety.worse(batt_level(pct), vlvl) or "ok",
             "battLeft": left, "leftLevel": left_level(left) or "ok",
             "sats": sats, "gpsLevel": gps_level(fix, sats, hdop)[0] or "ok",
             "hasVideo": bool(self.profile and video_url(self.profile)),
@@ -338,18 +343,39 @@ class Backend(QObject):
             # day vao `alerts`: no lap lai 5 Hz, vao do la dem "xN" chay loan.
             "diverge": div if div is not None and div > DIVERGE_M else None,
         }
-        self._announce(key, level, pct, armed)
+        self._announce(key, level, pct, armed, vlvl)
         self.stateChanged.emit()
 
-    def _announce(self, status_key, status_level, pct, armed):
+    def _volt_level(self, volt, armed):
+        """safety.volt_level tren ap lam muot VOLT_TAU_S; dang ARM thi GIU muc te nhat tu luc ARM —
+        giam ga thi ap hoi lai (27/10: 3,60 -> 3,71 V/cell luc dap), pin thi khong."""
+        now = time.time()
+        if volt is None or self._volt is None:
+            self._volt = volt
+        else:
+            self._volt += min(1.0, (now - self._volt_at) / VOLT_TAU_S) * (volt - self._volt)
+        self._volt_at = now
+        lvl = safety.volt_level(self._params, self._volt) if self._volt is not None else None
+        if armed:
+            self._volt_lvl = safety.worse(self._volt_lvl, lvl)
+            return self._volt_lvl
+        if armed is False:  # None = telemetry chap chon: KHONG xoa muc dang giu
+            self._volt_lvl = None
+        return lvl
+
+    def _announce(self, status_key, status_level, pct, armed, vlvl=None):
         """Doc thanh tieng khi trang thai DOI — xem laptop/voice.py."""
         v, s = self.voice, self._state
         v.on("lost", status_key == "touch.st_lost", "voice.lost")
         r = s["ready"]
         v.on("ready", bool(r and r["ok"]), "voice.ready")
         v.on("rtl", self._rtl_lvl, self._rtl_say, repeat=self._rtl_lvl == "crit")
-        lvl = batt_level(pct) if armed else None
-        v.on("batt", lvl, "voice.batt_crit" if lvl == "crit" else "voice.batt_low", pct=pct)
+        plvl = batt_level(pct) if armed else None
+        vlvl = vlvl if armed else None
+        if vlvl and safety.worse(vlvl, plvl) == vlvl:  # ap te hon %: noi ap, % co the dung im (27/10)
+            v.on("batt", vlvl, "voice.volt_crit" if vlvl == "crit" else "voice.volt_low")
+        else:
+            v.on("batt", plvl, "voice.batt_crit" if plvl == "crit" else "voice.batt_low", pct=pct)
         v.change("armed", armed, "voice.armed" if armed else "voice.disarmed")
         fc = s["fcMode"] or None
         v.change("mode", fc, "voice.mode", name=fc)

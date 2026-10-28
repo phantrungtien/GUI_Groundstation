@@ -600,6 +600,8 @@ STR = {
     "voice.land_now": ("Hạ cánh ngay", "Land now"),
     "voice.batt_low": ("Pin yếu, còn {pct} phần trăm", "Battery low, {pct} percent"),
     "voice.batt_crit": ("Pin rất yếu, còn {pct} phần trăm", "Battery critical, {pct} percent"),
+    "voice.volt_low": ("Điện áp pin thấp", "Battery voltage low"),
+    "voice.volt_crit": ("Pin cạn, tới ngưỡng failsafe", "Battery at failsafe voltage"),
     "set.voice": ("Đọc cảnh báo thành tiếng", "Speak warnings aloud"),
     "touch.ready_arm": ("SẴN SÀNG ARM", "READY TO ARM"),
     "touch.not_ready_arm": ("CHƯA SẴN SÀNG ARM", "NOT READY TO ARM"),

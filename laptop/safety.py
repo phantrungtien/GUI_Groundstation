@@ -19,6 +19,9 @@ CELL_MAX_V = 4.25   # so cell = tran(V / 4.25): 4S day 16,8 V -> 4; 3S can 10,5 
 # MicoAir743 07/09: BATT_LOW_VOLT = 10,8 V (dung cho 3S) trong khi pin 4S -> 2,7 V/cell.
 LOW_CELL_MIN_V, LOW_CELL_MAX_V = 3.3, 3.9
 PLUG_GAP_PCT = 25   # FC tuong % cao hon % theo dien ap bay nhieu -> pin khong day luc cam
+# Vang khi ap (da lam muot) con cach BATT_LOW_VOLT duoi 0,1 V/cell. Bay that 27/10/2026 (6S,
+# LOW 21,6 V): treo ap tut 3,70 -> 3,60 V/cell trong ~45 s -> vang som duoc chung nua phut.
+VOLT_WARN_CELL = 0.1
 PLUG_MAX_A = 1.0    # chi so khi dong nho: co tai thi dien ap sut, % theo dien ap sai
 # Dien ap nghi -> % cua LiPo (moi cell). Bang pho bien cua cac hang pin RC; LiHV
 # (4,35 V) thi lech — do la ly do nguong PLUG_GAP_PCT rong chu khong chat.
@@ -72,6 +75,27 @@ def rtl_level(left_s, need_s):
 
 def cells(volt):
     return math.ceil(volt / CELL_MAX_V) if volt and volt > 1 else None
+
+
+def volt_level(params, volt):
+    """Muc canh bao pin theo DIEN AP, so voi nguong failsafe ap cua FC. None = thieu so / khong pin.
+
+    FC failsafe theo ap (BATT_LOW_VOLT), con % la FC dem mAh tu dong dien. Bay that 27/10/2026
+    cam bien dong bao 0,4 A luc treo -> % dung o 97% trong khi ap da cham 21,6 V va FC tu RTL:
+    canh bao theo % thi im lang dung luc can noi.
+    """
+    n, low = cells(volt), params.get("BATT_LOW_VOLT")
+    if not n or not low:
+        return None
+    if volt <= low:
+        return "crit"
+    return "warn" if volt <= low + VOLT_WARN_CELL * n else None
+
+
+def worse(a, b):
+    """Muc te hon trong hai muc canh bao (None < 'warn' < 'crit')."""
+    rank = {None: 0, "warn": 1, "crit": 2}
+    return a if rank[a] >= rank[b] else b
 
 
 def volt_pct(v_cell):

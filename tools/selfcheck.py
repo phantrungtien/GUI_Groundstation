@@ -3687,6 +3687,41 @@ def check_touch_flight(app):
         b.refresh()
         assert b.voice.spoken.count("Về nhà ngay") == 2, "VE NHA NGAY phai nhac lai moi 30 s"
 
+        # --- pin theo DIEN AP. So that bay 27/10/2026 (6S, BATT_LOW_VOLT 21,6): cam bien dong
+        # bao 0,4 A luc treo -> FC bao 97% suot, ap cham 21,6 V va FC tu RTL; o PIN van xanh, im.
+        bus.emit_envelope({"src": "sik", "topic": "param", "ts": time.time(),
+                           "data": {"BATT_LOW_VOLT": 21.6}})
+
+        def batt(volt, smooth=False):
+            if not smooth:
+                b._volt = None  # bo lam muot: nhan ngay so moi
+            bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                               "data": {"voltage": volt, "current": 0.45, "remaining": 97}})
+            b.refresh()
+            return b.state["battLevel"]
+
+        b.voice.spoken.clear(); b.voice.reset()
+        state(mode="POSHOLD", armed=True, landed=False)
+        assert batt(22.81) == "ok"                      # 3,80 V/cell: con cach nguong 0,2 V/cell
+        assert batt(22.06) == "warn" and "Điện áp pin thấp" in b.voice.spoken, b.voice.spoken
+        assert batt(21.58) == "crit" and "Pin cạn, tới ngưỡng failsafe" in b.voice.spoken
+        assert batt(22.24) == "crit", "giam ga ap hoi lai, pin thi khong: GIU muc te nhat tu luc ARM"
+        assert not any("phần trăm" in x for x in b.voice.spoken), "% dung im 97% thi khong doc %"
+        state(mode="POSHOLD", armed=False, landed=True)
+        assert batt(22.91) == "ok", "disarm: bo muc da giu, doc ap nghi"
+        state(mode="POSHOLD", armed=True, landed=False)
+        b._volt, b._volt_at = 22.9, time.time() - 0.5
+        assert batt(21.0, smooth=True) == "ok", "cu sut ap 0,5 s (day ga) chua phai pin yeu"
+        # tra lai trang thai cho phan sau: GUIDED + ARM, pin 4S nhu tren
+        bus.emit_envelope({"src": "sik", "topic": "param", "ts": time.time(),
+                           "data": {"BATT_LOW_VOLT": 14.0}})
+        b._volt = None
+        bus.emit_envelope({"src": "sik", "topic": "battery", "ts": time.time(),
+                           "data": {"current": 7.05, "consumed_mah": 202, "remaining": 88,
+                                    "voltage": 16.0}})
+        state(mode="GUIDED", armed=True, landed=False)
+        b.refresh()
+
         # --- giong noi doc dong loi DO: moi dong mot lan, bo PreArm, bo vang ----
         b.voice.spoken.clear()
         for sev, text in ((2, "EKF variance"), (2, "PreArm: Compass not calibrated"),
