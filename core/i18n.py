@@ -272,6 +272,9 @@ STR = {
                  "GUIDED + fly to {lat:.5f}, {lon:.5f} at {alt:.0f} m"),
     "act.task_start": ("Bật task {nice}", "Start task {nice}"),
     "act.task_stop": ("Huỷ task trên companion", "Stop companion task"),
+    "act.fire_confirm": ("Xác nhận THẢ BÓNG (lần hỏi #{id})", "Confirm BALL DROP (ask #{id})"),
+    "act.fire_reject": ("Không phải lửa -> drone về nhà (lần hỏi #{id})",
+                        "Not a fire -> drone returns home (ask #{id})"),
     "act.fire_target": ("Điểm cháy -> {lat:.5f}, {lon:.5f}, bay {alt:.0f} m, tìm {radius:.0f} m, "
                         "thả cách lửa {drop:.0f} m",
                         "Fire point -> {lat:.5f}, {lon:.5f}, fly {alt:.0f} m, search {radius:.0f} m, "
@@ -560,6 +563,10 @@ STR = {
     "touch.do_fire": ("bay {alt:.0f} m, tìm {radius:.0f} m, thả cách lửa {drop:.0f} m",
                       "fly {alt:.0f} m, search {radius:.0f} m, drop {drop:.0f} m above"),
     "touch.do_task_start": ("bật task Chữa cháy", "start the firefighting task"),
+    "touch.ask_title": ("PHÁT HIỆN LỬA — drone đang treo. Nhìn video rồi xác nhận",
+                        "FIRE DETECTED — drone is holding. Check the video, then confirm"),
+    "touch.ask_slide": ("Trượt để THẢ BÓNG", "Slide to DROP THE BALL"),
+    "touch.ask_reject": ("Không phải lửa — về nhà", "Not a fire — return home"),
     "touch.do_task_stop": ("huỷ task - drone treo tại chỗ", "stop the task - drone holds position"),
     "touch.btn_task": ("Chữa cháy", "Fire task"),
     "touch.btn_task_stop": ("Huỷ task", "Stop task"),

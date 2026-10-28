@@ -262,6 +262,13 @@ class Commands(QObject):
              "args": {"lat": lat, "lon": lon, "alt": float(alt), "drop": float(drop),
                       "radius": float(radius)}}))
 
+    def fire_confirm(self, ask_id, ok):
+        """Tra loi node dang TREO hoi "co phai lua khong" (topic `mission`.ask). `ask_id` cua
+        dung lan hoi: node bo cau tra loi tre cho lan hoi khac. ok=False -> node RTL."""
+        self._soft(t("act.fire_confirm" if ok else "act.fire_reject", id=ask_id),
+                   authority.dispatch({"target": "remote", "action": "fire_confirm",
+                                       "args": {"id": int(ask_id), "ok": bool(ok)}}))
+
     # ---- nhich vi tri ----------------------------------------------------
 
     def nudge_block(self, live):

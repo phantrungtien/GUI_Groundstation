@@ -91,6 +91,7 @@ class Backend(QObject):
         self._volt_lvl = None  # muc pin theo ap te nhat tu luc ARM — xem _volt_level
         self._state = {}
         self._wp_confirm = 0.0   # lan bam "nap" dau khi dang bay AUTO
+        self._answered = None    # id cau hoi "co phai lua" da tra loi — xem fireConfirm
         self._nogps_said = 0.0   # lan cuoi bao "chua co vi tri" khi cham dup — xem mapFollow
         self._stick = (0.0, 0.0, 0.0)  # can ao: (dong, bac, len), tam [-1, 1]
         self._link = {}  # goi "link" moi nhat cua adapter: duong (SiK/mang), % mat goi
@@ -343,6 +344,9 @@ class Backend(QObject):
             "task": v("mission.running") or "",
             "taskFire": v("mission.running") == FIRE_TASK,
             "fireLim": self._fire_lim(v),
+            # Node thay lua, dang TREO cho xac nhan: {"id","x","y"} hoac None. Cung STALE nhu
+            # `task`: mat bridge thi an thanh truot, khong cho xac nhan theo tin cu.
+            "fireAsk": self._fire_ask(v),
             # Kich ban #8: hai nguon lech vi tri qua nguong. Dong rieng chu khong
             # day vao `alerts`: no lap lai 5 Hz, vao do la dem "xN" chay loan.
             "diverge": div if div is not None and div > DIVERGE_M else None,
@@ -625,6 +629,21 @@ class Backend(QObject):
     def task(self, name):
         """Bat ("fire_mission") / huy ("") task. Loi duong truyen do _soft() bao."""
         self.cmd.task(name)
+
+    def _fire_ask(self, v):
+        ask = v("mission.ask")
+        if not isinstance(ask, dict) or not isinstance(ask.get("id"), int):
+            return None
+        return None if ask["id"] == self._answered else ask   # da tra loi: an ngay, khong doi bridge
+
+    @Slot(bool)
+    def fireConfirm(self, ok):
+        """Thanh truot "THA BONG" (ok) / nut "Khong phai lua". Gui id cua cau hoi DANG HIEN."""
+        ask = self._fire_ask(REGISTRY.value if self.profile is not None else lambda *a: None)
+        if ask is None:
+            return  # cau hoi vua het / mat bridge: khong gui vao khoang khong
+        self._answered = ask["id"]
+        self.cmd.fire_confirm(ask["id"], ok)
 
     @staticmethod
     def _fire_lim(v):

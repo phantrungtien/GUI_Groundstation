@@ -2881,11 +2881,12 @@ def check_touch(app):
     root = view.rootObject()
     slider = root.findChild(QQuickItem, "slider")
 
-    def drag(frac, hold_ms=0):
-        """Keo num tu dau thanh toi `frac` chieu dai, giu `hold_ms`, roi tha."""
-        h = slider.height()
-        start = slider.mapToScene(QPointF(h / 2, h / 2)).toPoint()
-        end = slider.mapToScene(QPointF(h / 2 + frac * (slider.width() - h), h / 2)).toPoint()
+    def drag(frac, hold_ms=0, bar=None):
+        """Keo num tu dau thanh toi `frac` chieu dai, giu `hold_ms`, roi tha. bar: thanh khac."""
+        bar = bar or slider
+        h = bar.height()
+        start = bar.mapToScene(QPointF(h / 2, h / 2)).toPoint()
+        end = bar.mapToScene(QPointF(h / 2 + frac * (bar.width() - h), h / 2)).toPoint()
         QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, start)
         for i in range(1, 11):
             QTest.mouseMove(view, start + (end - start) * i / 10)
@@ -3120,6 +3121,32 @@ def check_touch(app):
         drag(1.0)
         assert rsent == [("mission", {"name": ""})], rsent
         rsent.clear()
+
+        # Thay lua: node TREO hoi (`mission`.ask {id,x,y}) -> truot THA / nut Khong phai lua.
+        # Tra loi mang id cua lan hoi; tin bridge cu (STALE) thi khong hien, khong gui.
+        ask_box = root.findChild(QQuickItem, "fireAsk")
+        ask_bar = root.findChild(QQuickItem, "askSlider")
+        bridge("fire_mission", ask={})
+        assert ask_box is not None and not ask_box.isVisible(), "chua hoi ma da hien bang tha bong"
+        bridge("fire_mission", age=3, ask={"id": 6, "x": 1.0, "y": 2.0})
+        assert not ask_box.isVisible(), "bridge im 3 s ma van hien bang tha bong"
+        win.touch.fireConfirm(True)
+        assert rsent == [], f"bridge im ma van gui xac nhan tha: {rsent}"
+        bridge("fire_mission", ask={"id": 7, "x": 1.0, "y": 2.0})
+        assert ask_box.isVisible(), "drone treo hoi ma khong hien bang xac nhan tha"
+        drag(0.5, bar=ask_bar)
+        assert rsent == [], f"tha giua chung ma da xac nhan tha: {rsent}"
+        drag(1.0, bar=ask_bar)
+        assert rsent == [("fire_confirm", {"id": 7, "ok": True})], rsent
+        assert sent == [], f"xac nhan tha lot xuong SiK: {sent}"
+        assert not ask_box.isVisible(), "truot xong ma bang van hien (cho bridge xoa)"
+        rsent.clear()
+        bridge("fire_mission", ask={"id": 8, "x": 1.0, "y": 2.0})
+        assert ask_box.isVisible(), "lan hoi moi ma khong hien lai bang"
+        tap(root.findChild(QQuickItem, "askReject"))
+        assert rsent == [("fire_confirm", {"id": 8, "ok": False})], rsent
+        rsent.clear()
+        bridge("fire_mission", ask={})
 
         # Bridge im 3 s (WebSocket chet / bridge treo): chip an, fireAt tu choi,
         # tab Dieu khien ve "chua co tin" thay vi dung o ten task cu.

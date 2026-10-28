@@ -1052,6 +1052,50 @@ Item {
         }
     }
 
+    // ---- task Chua chay thay lua: drone TREO, hoi nguoi van hanh (user 29/10/2026) ----
+    // Do drone khoi xuong (st.fireAsk), khong phai do nguoi bam: khong co nut ✕ - an bang
+    // la drone van treo cho. Tra loi xong / mat bridge (STALE) thi tu an.
+    Rectangle {
+        id: fireAsk
+        objectName: "fireAsk"
+        visible: !!st.fireAsk
+        z: 10   // de len bang xac nhan thuong neu ca hai cung mo
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: tele.top; bottomMargin: 12 * s }
+        width: Math.min(Math.max(540 * s, 360), win.width - 2 * (leftCol.width + 44 * s))
+        height: askCol.implicitHeight + 24 * s
+        radius: 16 * s
+        color: "#f00d1722"
+        border.color: theme.CRIT
+        border.width: 3
+        MouseArea { anchors.fill: parent }  // cham vao bang khong roi xuong ban do
+        Column {
+            id: askCol
+            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12 * s }
+            spacing: 10 * s
+            Text {
+                width: parent.width
+                text: tr("touch.ask_title")
+                wrapMode: Text.Wrap
+                color: theme.CRIT
+                font.pixelSize: 16 * f
+                font.bold: true
+            }
+            SlideConfirm {
+                objectName: "askSlider"
+                width: parent.width
+                height: Math.max(60 * s, 44)
+                text: tr("touch.ask_slide")
+                tint: theme.CRIT
+                onConfirmed: backend.fireConfirm(true)
+            }
+            Btn {
+                objectName: "askReject"
+                text: tr("touch.ask_reject")
+                onTap: backend.fireConfirm(false)
+            }
+        }
+    }
+
     // ---- khoi dung chung -----------------------------------------------------
     component Ind: Row {
         property string label

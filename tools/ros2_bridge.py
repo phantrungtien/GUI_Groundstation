@@ -183,6 +183,14 @@ class Bridge(Node):
         self.create_subscription(BatteryState, "/mavros/battery",
                                  self._on_batt, SENSOR_QOS)
         self.create_subscription(State, "/mavros/state", self._on_state, 10)
+        # fire_mission thay lua -> treo, hoi nguoi van hanh (JSON {"id","x","y"}, "" = het hoi).
+        # Latch nhu ben node: bridge khoi dong lai giua luc hoi van thay cau hoi.
+        self.fire_ask = None
+        self.create_subscription(
+            String, "/fire/ask", self._on_ask,
+            QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
+                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                       history=QoSHistoryPolicy.KEEP_LAST, depth=1))
 
 
     # --- day len laptop ---------------------------------------------------
@@ -237,6 +245,10 @@ class Bridge(Node):
             "remaining": (None if math.isnan(m.percentage) or m.percentage < 0
                           else round(m.percentage * 100)),
         })
+
+    def _on_ask(self, m):
+        self.fire_ask = parse_ask(m.data)
+        self._report_mission()                   # thanh truot hien NGAY, khong doi nhip 1 s
 
     def _on_state(self, m):
         if m.connected:
@@ -326,7 +338,7 @@ class Bridge(Node):
         if self.mission_proc is None:
             return
         proc, pgid, name = self.mission_proc, self.mission_pgid, self.mission_name
-        self.mission_proc, self.mission_name = None, ""
+        self.mission_proc, self.mission_name, self.fire_ask = None, "", None
         if cancel:
             self._hung(f"Huy task {name}")  # bao NGAY, khong doi nhom chet
         for sig, cho in ((signal.SIGTERM, 5.0), (signal.SIGKILL, 1.0)):
@@ -365,12 +377,14 @@ class Bridge(Node):
                 self.push("text", {"severity": 4,
                                    "text": f"nhiem vu {self.mission_name} da ket thuc (ma {code})"})
             self.mission_proc, self.mission_name = None, ""
+            self.fire_ask = None                 # node chet (kill -9) khong kip xoa cau hoi
         self.hang, text = hang_step(self.hang, *(self.fc or (False, "")),
                                     self.mission_name, time.time())
         if text:
             self.push("text", {"severity": 2, "text": text})  # CRITICAL: dong do tren man bay
         self.push("mission", {"running": self.mission_name,
-                              "spawn": bool(self.spawn), **self.fire_alt})
+                              "spawn": bool(self.spawn), **self.fire_alt,
+                              "ask": self.fire_ask or {}})  # {} chu khong None: Registry bo qua None -> GUI giu cau hoi cu
 
 
 def main():
@@ -427,7 +441,21 @@ def main():
         rclpy.try_shutdown()
 
 
+def parse_ask(data):
+    """/fire/ask cua fire_mission -> {"id","x","y"} hoac None ("" = het hoi; rac = None:
+    GUI khong duoc hien thanh truot tha bong cho mot cau hoi khong co id de tra loi)."""
+    try:
+        ask = json.loads(data) if data else None
+    except ValueError:
+        return None
+    ok = isinstance(ask, dict) and isinstance(ask.get("id"), int) and not isinstance(ask["id"], bool)
+    return ask if ok else None
+
+
 def _selfcheck():
+    assert parse_ask('{"id": 3, "x": 1.5, "y": -2.0}') == {"id": 3, "x": 1.5, "y": -2.0}
+    for bad in ["", "rac", "[3]", '{"x": 1}', '{"id": "3"}', '{"id": true}', '{"id": null}']:
+        assert parse_ask(bad) is None, bad
     h = ("Huy task fire_mission", 100.0, 0.0)
     h1, txt = hang_step(h, True, "GUIDED", "", 100.5)
     assert txt and "TREO" in txt and h1[2] == 100.5, "lan dau phai bao ngay"
