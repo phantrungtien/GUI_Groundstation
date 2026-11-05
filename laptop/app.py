@@ -59,6 +59,9 @@ TITLE = "GCS — ArduCopter"
 # TAKEOFF — hai cho xac nhan giong nhau thi nhip tay cung phai giong nhau.
 CLOSE_CONFIRM_S = 3.0
 RECONNECT_MS = 1000  # nhip quet cong USB trong luc cho cam lai
+# SiK im lau hon nay thi lay STATUSTEXT tu ROS2 (_from_remote). Rong hon STALE (2 s): SiK
+# mat ~11 % goi (bay 27/10), heartbeat cach >2 s chua phai mat SiK — chi sinh dong trung.
+SIK_TEXT_S = 5.0
 
 
 def mount(page, widget, scroll=True):
@@ -180,6 +183,7 @@ class MainWindow(QMainWindow):
         bus.on("*", self.link_status.on_envelope)
         # Nua companion (task/video qua LTE) cua profile hai duong: cho SiK nghe FC.
         self._lte_pending = None
+        self._sik_beat = 0.0  # lan cuoi heartbeat FC ve qua SiK — xem _from_remote
         bus.on("heartbeat", self._on_heartbeat)
 
         # Rut day USB giua chung: giu nguon cu, quet cong moi giay, thay dung thiet
@@ -346,6 +350,7 @@ class MainWindow(QMainWindow):
         # _on_heartbeat. Profile khac: mo ngay nhu truoc.
         if profile.get("conn2"):
             self._lte_pending = profile
+            self._start_remote(profile)  # chi cho STATUSTEXT qua — xem _from_remote
         else:
             self._start_companion(profile)
 
@@ -360,13 +365,34 @@ class MainWindow(QMainWindow):
         self.ui.statusbar.showMessage(
             t("conn.opening_msg", target=profile.get("conn") or profile.get("path")), 5000)
 
-    def _start_companion(self, profile):
+    def _start_remote(self, profile):
         # Nua ROS2: chi noi khi profile khai bao. Mat no thi nua SiK van chay.
-        if profile.get("remote"):
+        if profile.get("remote") and self.remote is None:
             self.remote = RemoteAdapter(profile["remote"])
-            self.remote.envelope.connect(bus.emit_envelope)
+            self.remote.envelope.connect(self._from_remote)
             self.remote.failed.connect(self._on_remote_failed)
             self.remote.start()
+
+    def _from_remote(self, env):
+        """Goi tu companion -> bus, qua hai cua loc.
+
+        STATUSTEXT FC (PreArm: ...) qua ROS2 chi lay khi SiK CHUA/KHONG nghe FC: luc do
+        day la duong duy nhat biet FC tu choi ARM vi sao. SiK con nghe thi cau do da ve
+        qua SiK, lay ca hai la moi cau hien hai lan.
+        Profile hai duong chua nghe FC qua SiK (_lte_pending): CHI cho STATUSTEXT qua —
+        nguoi dung chot 19/10, chua co SiK thi khong bay qua LTE, GUI khong duoc trong
+        nhu da noi drone.
+        """
+        if env["topic"] == "text":
+            if time.time() - self._sik_beat <= SIK_TEXT_S:
+                return
+        elif self._lte_pending:
+            return
+        bus.emit_envelope(env)
+
+    def _start_companion(self, profile):
+        self._start_remote(profile)
+        if self.remote:
             authority.register("remote", self.remote)
 
         # Video di duong WiFi rieng — SiK (~470-3200 B/s) khong du cho noi mot
@@ -381,6 +407,8 @@ class MainWindow(QMainWindow):
         Heartbeat src "sik" truoc khi SiK nghe FC la khong the: DualLink chua cho
         doi sang mang luc do (core/adapters/sik.py), nen goi nay di qua radio that.
         """
+        if env["src"] == SikAdapter.SRC:
+            self._sik_beat = time.time()
         if self._lte_pending and env["src"] == SikAdapter.SRC:
             profile, self._lte_pending = self._lte_pending, None
             self._start_companion(profile)
@@ -426,6 +454,7 @@ class MainWindow(QMainWindow):
     def disconnect(self):
         self._reconnect.stop()  # bam Ngat = thoi cho cam lai
         self._lte_pending = None
+        self._sik_beat = 0.0
         for name, attr in (("sik", "adapter"), ("remote", "remote")):
             a = getattr(self, attr, None)
             if a:

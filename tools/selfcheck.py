@@ -731,6 +731,41 @@ def check_field(app):
     print(f"  ok  Field uu tien/het tuoi, lech vi tri {d:.1f} m")
 
 
+def check_remote_text(app):
+    """PreArm qua ROS2 khi chua co SiK (05/11): STATUSTEXT tu companion chi vao bus khi SiK
+    im; profile hai duong chua nghe FC qua SiK thi CHI STATUSTEXT qua, khong heartbeat/vi tri."""
+    import laptop.app as appmod
+
+    win = appmod.MainWindow([])
+    got = []
+    grab = lambda env: got.append((env["src"], env["topic"]))
+    bus.on("*", grab)
+    env = lambda topic, data: {"src": "remote", "topic": topic, "data": data, "ts": time.time()}
+    started = []
+    win._start_companion = lambda p: started.append(p)
+    try:
+        win._lte_pending = {"name": "phone"}
+        win._from_remote(env("text", {"severity": 3, "text": "PreArm: RC not found"}))
+        win._from_remote(env("heartbeat", {"armed": False, "mode": "STABILIZE"}))
+        win._from_remote(env("position", {"lat": 10.0, "lon": 106.0}))
+        assert got == [("remote", "text")], got
+        got.clear()
+        bus.emit("sik", "heartbeat", {"armed": False, "mode": "STABILIZE"})  # SiK nghe FC
+        assert started and win._lte_pending is None, "SiK nghe FC ma khong mo nua LTE"
+        got.clear()
+        win._from_remote(env("text", {"severity": 3, "text": "PreArm: RC not found"}))
+        win._from_remote(env("heartbeat", {"armed": False, "mode": "STABILIZE"}))
+        assert got == [("remote", "heartbeat")], f"SiK dang nghe ma van lay STATUSTEXT ROS2: {got}"
+        got.clear()
+        win._sik_beat -= appmod.SIK_TEXT_S + 0.1  # SiK im
+        win._from_remote(env("text", {"severity": 3, "text": "PreArm: RC not found"}))
+        assert got == [("remote", "text")], got
+    finally:
+        bus.off("*", grab)
+        win.close()
+    print("  ok  PreArm qua ROS2 khi SiK im; chua nghe FC qua SiK thi chi STATUSTEXT qua")
+
+
 def check_authority(app):
     """Laptop cam toan quyen: khong con duong nao nhuong quyen di.
 
@@ -5160,6 +5195,7 @@ if __name__ == "__main__":
     check_disarm_hold(app)
     check_widgets(app)
     check_remote(app)
+    check_remote_text(app)
     check_online_tiles(app)
     check_takeoff_guard(app)
     check_mission_readonly(app)

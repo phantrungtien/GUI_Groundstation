@@ -32,7 +32,7 @@ import time
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from mavros_msgs.msg import HomePosition, State
+from mavros_msgs.msg import HomePosition, State, StatusText
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import BatteryState, NavSatFix
@@ -183,6 +183,10 @@ class Bridge(Node):
         self.create_subscription(BatteryState, "/mavros/battery",
                                  self._on_batt, SENSOR_QOS)
         self.create_subscription(State, "/mavros/state", self._on_state, 10)
+        # STATUSTEXT cua FC (PreArm: ..., Arm: ...). GUI chi hien khi SiK CHUA/KHONG nghe FC
+        # (laptop/app.py _from_remote) - con SiK thi cau do da di qua SiK.
+        self.text_pend = ""
+        self.create_subscription(StatusText, "/mavros/statustext/recv", self._on_text, SENSOR_QOS)
         # fire_mission thay lua -> treo, hoi nguoi van hanh (JSON {"id","x","y"}, "" = het hoi).
         # Latch nhu ben node: bridge khoi dong lai giua luc hoi van thay cau hoi.
         self.fire_ask = None
@@ -245,6 +249,16 @@ class Bridge(Node):
             "remaining": (None if math.isnan(m.percentage) or m.percentage < 0
                           else round(m.percentage * 100)),
         })
+
+    def _on_text(self, m):
+        # MAVROS khong ghep manh: FC cat cau >50 ky tu thanh manh 50, manh cuoi ngan hon
+        # (cung luat join_text ben core/adapters/sik.py).
+        # ponytail: cau dai dung boi so cua 50 thi dinh vao cau sau - hiem, chi lech mot dong chu.
+        self.text_pend += m.text
+        if len(m.text) >= 50:
+            return
+        text, self.text_pend = self.text_pend, ""
+        self.push("text", {"severity": m.severity, "text": text})
 
     def _on_ask(self, m):
         self.fire_ask = parse_ask(m.data)

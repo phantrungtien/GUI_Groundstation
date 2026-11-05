@@ -55,6 +55,11 @@ Truong `src` cua no bi ghi de thanh `"remote"` khi vao app: companion khong duoc
 tu xung la nguon khac, neu khong thi trong tai da nguon va widget Link status
 deu bi danh lua.
 
+`text` cua nua ROS2 (`/mavros/statustext/recv`, vd "PreArm: ...") chi vao bus khi SiK
+im qua 5 s (`laptop/app.py` `_from_remote`), con SiK thi cau do da ve qua SiK. Profile
+hai duong (dien thoai) chua nghe FC qua SiK thi `text` la topic DUY NHAT cua nua ROS2
+duoc vao app.
+
 > ⚠️ `ack` la duong duy nhat biet FC co **tu choi** lenh hay khong. "Da gui"
 > khong co nghia la "da lam".
 
