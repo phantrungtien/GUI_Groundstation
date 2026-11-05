@@ -744,26 +744,35 @@ def check_remote_text(app):
     started = []
     win._start_companion = lambda p: started.append(p)
     try:
+        fc_text = lambda: env("text", {"severity": 3, "text": "PreArm: RC not found", "fc": True})
+        hang = lambda: env("text", {"severity": 2, "text": "task treo GUIDED"})  # bridge tu sinh
         win._lte_pending = {"name": "phone"}
-        win._from_remote(env("text", {"severity": 3, "text": "PreArm: RC not found"}))
+        win._from_remote(fc_text())
+        win.touch.last_seen.pop("remote", None)  # cau tren cung tinh la Jetson song — bo de do `link`
+        win._from_remote(env("link", {"bps": 0}))
+        assert "remote" not in win.touch.last_seen, "WebSocket im (0 B/s) ma cham Jetson xanh"
+        win._from_remote(env("link", {"bps": 900}))
         win._from_remote(env("heartbeat", {"armed": False, "mode": "STABILIZE"}))
         win._from_remote(env("position", {"lat": 10.0, "lon": 106.0}))
-        assert got == [("remote", "text")], got
+        assert got == [("remote", "text"), ("remote", "link"), ("remote", "link")], got
+        assert "remote" in win.touch.last_seen, "chua co SiK, Jetson day byte ma cham Jetson khong xanh"
         got.clear()
         bus.emit("sik", "heartbeat", {"armed": False, "mode": "STABILIZE"})  # SiK nghe FC
         assert started and win._lte_pending is None, "SiK nghe FC ma khong mo nua LTE"
         got.clear()
-        win._from_remote(env("text", {"severity": 3, "text": "PreArm: RC not found"}))
+        win._from_remote(fc_text())
+        win._from_remote(hang())
         win._from_remote(env("heartbeat", {"armed": False, "mode": "STABILIZE"}))
-        assert got == [("remote", "heartbeat")], f"SiK dang nghe ma van lay STATUSTEXT ROS2: {got}"
+        assert got == [("remote", "text"), ("remote", "heartbeat")], \
+            f"SiK dang nghe: phai bo STATUSTEXT FC qua ROS2, GIU cau bridge tu sinh: {got}"
         got.clear()
         win._sik_beat -= appmod.SIK_TEXT_S + 0.1  # SiK im
-        win._from_remote(env("text", {"severity": 3, "text": "PreArm: RC not found"}))
+        win._from_remote(fc_text())
         assert got == [("remote", "text")], got
     finally:
         bus.off("*", grab)
         win.close()
-    print("  ok  PreArm qua ROS2 khi SiK im; chua nghe FC qua SiK thi chi STATUSTEXT qua")
+    print("  ok  PreArm qua ROS2 khi SiK im, cau bridge tu sinh luon qua; chua nghe FC qua SiK thi chi text + link (cham Jetson)")
 
 
 def check_authority(app):

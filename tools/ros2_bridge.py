@@ -258,7 +258,8 @@ class Bridge(Node):
         if len(m.text) >= 50:
             return
         text, self.text_pend = self.text_pend, ""
-        self.push("text", {"severity": m.severity, "text": text})
+        # "fc": cau cua FC (SiK cung co) — khac cau bridge tu sinh (task treo...) chi co o day.
+        self.push("text", {"severity": m.severity, "text": text, "fc": True})
 
     def _on_ask(self, m):
         self.fire_ask = parse_ask(m.data)

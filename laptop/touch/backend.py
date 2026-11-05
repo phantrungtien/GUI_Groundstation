@@ -176,7 +176,7 @@ class Backend(QObject):
     def _links(self):
         """Chi bao duong truyen kieu QGC/DJI: (duong MAVLink, % mat, muc), (muc 4G companion).
 
-        Muc lay tu lan cuoi THAT SU co goi (last_seen, da tru topic `link`), khong tu
+        Muc lay tu lan cuoi THAT SU co goi (last_seen, xem _seen), khong tu
         viec adapter con chay. Companion None = profile khong co `remote` -> an o.
         """
         now = time.time()
@@ -205,6 +205,11 @@ class Backend(QObject):
         local = isinstance(env["data"], dict) and env["data"].get("local")
         if env["topic"] != "link" and not local:  # loi lenh/doi duong: adapter tu sinh
             self.last_seen[env["src"]] = time.time()
+        # ...nhung `link` cua companion co byte that = Jetson con song: bridge day `mission`
+        # moi giay du FC co noi hay khong. Chua co SiK thi app chi cho `text`/`link` cua
+        # Jetson qua (app.py _from_remote) — khong tinh cai nay la cham Jetson do mai.
+        elif env["topic"] == "link" and env["src"] == "remote" and env["data"].get("bps"):
+            self.last_seen["remote"] = time.time()
 
     def _status(self, armed, fix):
         """(key, kwargs, muc) cho vien trang thai tren cung — giong banner app laptop."""

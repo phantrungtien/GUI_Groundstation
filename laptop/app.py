@@ -376,17 +376,19 @@ class MainWindow(QMainWindow):
     def _from_remote(self, env):
         """Goi tu companion -> bus, qua hai cua loc.
 
-        STATUSTEXT FC (PreArm: ...) qua ROS2 chi lay khi SiK CHUA/KHONG nghe FC: luc do
-        day la duong duy nhat biet FC tu choi ARM vi sao. SiK con nghe thi cau do da ve
-        qua SiK, lay ca hai la moi cau hien hai lan.
-        Profile hai duong chua nghe FC qua SiK (_lte_pending): CHI cho STATUSTEXT qua —
-        nguoi dung chot 19/10, chua co SiK thi khong bay qua LTE, GUI khong duoc trong
-        nhu da noi drone.
+        STATUSTEXT FC (`fc`, vd PreArm: ...) qua ROS2 chi lay khi SiK CHUA/KHONG nghe FC:
+        luc do day la duong duy nhat biet FC tu choi ARM vi sao. SiK con nghe thi cau do
+        da ve qua SiK, lay ca hai la moi cau hien hai lan. Cau bridge TU SINH (task treo
+        GUIDED...) khong co `fc` — chi co duong nay, luon cho qua.
+        Profile hai duong chua nghe FC qua SiK (_lte_pending): chi cho `text` va `link`
+        (dem byte WebSocket -> cham Jetson xanh khi Jetson con song) — nguoi dung chot
+        19/10, chua co SiK thi khong bay qua LTE, GUI khong duoc trong nhu da noi drone.
         """
-        if env["topic"] == "text":
+        topic = env["topic"]
+        if topic == "text" and env["data"].get("fc"):
             if time.time() - self._sik_beat <= SIK_TEXT_S:
                 return
-        elif self._lte_pending:
+        elif self._lte_pending and topic not in ("text", "link"):
             return
         bus.emit_envelope(env)
 
