@@ -549,8 +549,8 @@ Item {
     }
 
     // ---- video dien thoai: VideoOutput (GPU) thay WidgetItem "video" -------------
-    // MediaCodec giai ma phan cung ra texture, scene graph ve thang — xem
-    // VideoSource.set_output. MOT VideoOutput (player chi co mot sink), doi cha theo
+    // FFmpeg giai ma phan mem, scene graph tai khung len GPU va ve thang — xem
+    // VideoSource.set_output (MediaCodec tat tu 05/11, xem dau video.py). MOT VideoOutput (player chi co mot sink), doi cha theo
     // camBig. Mat/dung hinh thi PHU o xam len chu KHONG an no: an thi khong ai lay
     // khung, bo giai ma dung — va VideoOutput giu khung cuoi, dung cai video.py cam.
     Item {

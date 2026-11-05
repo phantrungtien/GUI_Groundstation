@@ -71,6 +71,13 @@ except (ImportError, ValueError):
 # 512 KB 1,6 s; tu giay 8 ca hai p50 74 / p90 115 ms. 512 KB = du mot GOP ca khi Jetson
 # tang bitrate; FFmpeg dung do ngay khi du thong so, khong doc het.
 _PLAYER_PROBE, _PLAYER_RATE = 524288, 1.5
+# GIAI MA PHAN MEM (rong = khong dung thiet bi phan cung nao), dat truoc QMediaPlayer dau tien.
+# 05/11/2026 Lenovo: luong mat/sai thu tu goi (WiFi truong, Tailscale nhay direct<->derp) lam
+# MediaCodec MediaTek ket — luong giai ma cua Qt dung mai trong MediaCodec::dequeueOutputBuffer,
+# toi _replay() thi setSource() cho QThread::wait() luong do -> TREO CA GCS, man den (4/4 lan
+# that, 2/2 lan tai hien, backtrace lldb). Phan mem: cung luong xau 120 s khong treo, tu hoi
+# sau mat goi; CPU app 150 % vs 160 % phan cung, tre bang hoac thap hon ~40 ms (720p 1400k).
+os.environ.setdefault("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "")
 # Dien thoai: khung MediaCodec nam tren GPU, ve thang bang VideoOutput cua QML (xem
 # set_output). Chi keo anh ve CPU chung nay lan/giay de do dung hinh (STILL_DIFF).
 GPU_THUMB_HZ = 4
@@ -341,11 +348,10 @@ class VideoSource(QObject):
     def set_output(self, out):
         """Ve H.264 bang VideoOutput cua QML thay vi VideoView. Goi TRUOC start().
 
-        Android: MediaCodec giai ma phan cung ra texture GPU. QVideoSink tran (khong
-        gan GPU) khong doc duoc texture do -> 0 khung (OPPO 19/10, logcat renderFps=0),
-        nen truoc day phai ep FFmpeg giai ma phan mem roi toImage() + phong anh tren
-        CPU moi khung: Lenovo 21/10 chi 15-25 fps, app an 193 % CPU, hinh giat.
-        VideoOutput nam trong scene graph (co GPU) nen khung di thang len man."""
+        Android: VideoOutput nam trong scene graph (co GPU) nen khung di thang len man.
+        Ve bang CPU (toImage() + phong anh moi khung) thi Lenovo 21/10 chi 15-25 fps, app
+        an 193 % CPU, hinh giat. Giai ma la phan mem (xem QT_FFMPEG_DECODING_HW_DEVICE_TYPES
+        o dau file); log "gpu ... handle=NoHandle" la dung, RhiTextureHandle = MediaCodec."""
         self._out = out
 
     @property
