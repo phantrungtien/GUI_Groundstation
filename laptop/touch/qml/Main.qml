@@ -572,7 +572,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 wrapMode: Text.WordWrap
                 text: st.vidNote || ""
-                color: st.vidWarn ? theme.WARN : theme.MUTED
+                color: theme.MUTED
                 font.pixelSize: 13 * f
             }
         }

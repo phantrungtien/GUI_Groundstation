@@ -79,7 +79,7 @@ _PLAYER_PROBE, _PLAYER_RATE = 524288, 1.5
 # sau mat goi; CPU app 150 % vs 160 % phan cung, tre bang hoac thap hon ~40 ms (720p 1400k).
 os.environ.setdefault("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "")
 # Dien thoai: khung MediaCodec nam tren GPU, ve thang bang VideoOutput cua QML (xem
-# set_output). Chi keo anh ve CPU chung nay lan/giay de do dung hinh (STILL_DIFF).
+# set_output). Chi keo anh ve CPU chung nay lan/giay de doc dau gio --stamp (do tre).
 GPU_THUMB_HZ = 4
 
 # Cong rieng cho video, khong dung chung 8765 cua duong lenh (nguyen tac 2.1).
@@ -92,22 +92,6 @@ REPLAY_S = 5.0  # H.264 qua QMediaPlayer: khong khung nao qua ngan nay -> mo lai
 RELAY_OFF = 10  # co relay (_relay): player nghe 127.0.0.1:<cong video + 10>, Python giu cong that
 STALE_S = 2.0  # khong co khung moi qua ngan nay -> o xam
 # Khung VAN VE DEU ma anh khong doi mot byte qua ngan nay -> camera dung hinh.
-# Do duoc bang cach bam byte JPEG: may anh that luon co nhieu cam bien, hai khung
-# lien tiep khong bao gio trung tung byte du canh quay dung yen va drone dau dat.
-# Trung byte nghia la duong hinh dut o dau do TRUOC luc nen — cam bien treo, driver
-# tra lai dung buffer cu — chu khong phai canh quay tinh. Ben Pi cung khong bao gio
-# gui lai khung cu (`mjpeg_server.py`: `seq == last` thi bo qua).
-# Doi camera khac thi do lai: cam bien nao lam min manh qua co the cho ra khung
-# trung that, luc do nang so nay len chu dung bo han phep bam.
-FROZEN_S = 2.0
-# H.264 thi phep bam KHONG dung duoc: do 11/10/2026, mot khung camera that dong
-# bang dua qua x264 (ultrafast, zerolatency) giai ma ra 126/159 anh khac nhau, doan
-# trung dai nhat 0,16 s — bo ma hoa cu tinh chinh mai. Nen so ANH THU NHO 64x36 xam
-# voi anh moc: lech diem lon nhat > STILL_DIFF muc xam moi tinh la "doi".
-# Do cung ngay: camera treo lech toi da 2 muc (147 khung, 0 lan doi); Jetson song
-# trung vi 42, 551/551 khung deu doi. Ton ~2,8 ms/khung.
-THUMB_W, THUMB_H = 64, 36
-STILL_DIFF = 4
 MAX_FRAME_B = 8_000_000  # chan may chu hong bao Content-Length khong lo
 
 # Nhip khung toi GUI ghi ra file suot phien chay, de ghep voi journal cua Pi bang
@@ -238,10 +222,6 @@ class VideoSource(QObject):
     _arrived = Signal(bytes, int)  # (jpeg, gen) thread -> main. KHONG cham QPixmap tu thread phu.
     _image = Signal(QImage, int)   # (anh, gen) luong GStreamer -> main
     updated = Signal()  # main -> cac VideoView
-    # Chi ban luc DOI: bat dau dung hinh (True) va co khung khac byte tro lai
-    # (False). Dut han giua luc dang dung hinh thi KHONG ban False — no khong
-    # chay lai, no chuyen sang mat tin hieu, va man bay khong duoc bao "da on".
-    frozen_changed = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -251,9 +231,6 @@ class VideoSource(QObject):
         self.note = ("vid.not_connected", {})
         self._gen = 0  # doi doi thi thread cu tu biet minh het viec
         self._last = 0.0
-        self._hash = None   # MJPEG: bam khung vua ve; H.264: anh thu nho moc
-        self._moved = 0.0   # lan cuoi ANH THAT SU doi
-        self._frozen = False
         self._stamps = collections.deque(maxlen=30)  # moc thoi gian 30 khung gan nhat
         self._n = self._bytes = 0  # dem trong chu ky REPORT_S hien tai
         self._rep_t = time.monotonic()
@@ -288,7 +265,6 @@ class VideoSource(QObject):
         self.feedback = (host, int(port)) if host else None
         self._loss = None
         self.note = ("vid.connecting", {})
-        self._hash, self._frozen = None, False
         self._n = self._bytes = 0
         self._lat = []
         self._rep_t = time.monotonic()
@@ -375,7 +351,6 @@ class VideoSource(QObject):
         self.url = self.status = self.persons = None
         self.pixmap = None
         self.alive = False
-        self._hash, self._frozen = None, False
         self.note = ("vid.not_connected", {})
         self._stamps.clear()
         self.updated.emit()
@@ -392,9 +367,7 @@ class VideoSource(QObject):
         pm = QPixmap()
         if not pm.loadFromData(jpeg, "JPEG"):
             return
-        changed = hash(jpeg) != self._hash
-        self._hash = hash(jpeg)
-        self._show(pm, changed, len(jpeg))
+        self._show(pm, len(jpeg))
 
     def _gst_start(self, url, gen):
         """udpsrc -> MPEG-TS -> H.264 -> RGBx -> appsink. sync=false + 1 buffer, bo
@@ -507,10 +480,10 @@ class VideoSource(QObject):
             return  # khung con xep hang sau stop(), hoac nguon dang la MJPEG
         if self._out is not None:
             # GPU: VideoOutput tu ve. O day chi dem nhip, va GPU_THUMB_HZ lan/giay keo
-            # anh ve so dung hinh — giua hai lan do "khong doi" khong lam lui _moved.
+            # anh ve doc dau gio --stamp (do tre).
             now = time.monotonic()
             if now - self._thumb_t < 1.0 / GPU_THUMB_HZ:
-                self._show(None, False, 0)
+                self._show(None, 0)
                 return
             img = frame.toImage()
             if not self._thumb_t:  # lan dau moi start(): ghi lai GPU -> CPU co keo duoc khong
@@ -518,7 +491,7 @@ class VideoSource(QObject):
                      f"thumb={'NULL' if img.isNull() else 'ok'}")
             self._thumb_t = now
             if img.isNull():
-                self._show(None, False, 0)
+                self._show(None, 0)
             else:
                 self._from_image(img, keep=False)
             return
@@ -527,19 +500,12 @@ class VideoSource(QObject):
             self._from_image(img)
 
     def _from_image(self, img, keep=True):
-        """Anh H.264 da giai ma -> man hinh. So anh thu nho voi moc, xem STILL_DIFF.
-        keep=False: chi so dung hinh, khong giu anh (VideoOutput da ve roi)."""
-        g = img.scaled(THUMB_W, THUMB_H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) \
-               .convertToFormat(QImage.Format.Format_Grayscale8)
-        raw, bpl = bytes(g.constBits()), g.bytesPerLine()  # moi dong co the co byte dem
-        th = b"".join(raw[r * bpl:r * bpl + THUMB_W] for r in range(THUMB_H))
-        changed = self._hash is None or max(abs(a - b) for a, b in zip(th, self._hash)) > STILL_DIFF
-        if changed:
-            self._hash = th
+        """Anh H.264 da giai ma -> man hinh, kem doc dau gio --stamp.
+        keep=False: chi doc dau gio, khong giu anh (VideoOutput da ve roi)."""
         t = read_stamp(img)
         if t is not None:
             self._lat.append((time.time() - t) * 1000)
-        self._show(QPixmap.fromImage(img) if keep else None, changed, 0)
+        self._show(QPixmap.fromImage(img) if keep else None, 0)
 
     def _on_media_status(self, st):
         # Mo xong (da thay SPS) moi dem REPLAY_S: thoi gian nam cho goi o LoadingMedia
@@ -551,40 +517,18 @@ class VideoSource(QObject):
         _log(f"error {err.name}: {msg}")
         self.note = ("vid.error", {})
 
-    def _show(self, pm, changed, nbytes):
-        """Chung cho hai nguon: nhip khung, dung hinh, ve. changed = anh co doi."""
+    def _show(self, pm, nbytes):
+        """Chung cho hai nguon: nhip khung va ve.
+
+        Khong con bao "dung hinh" (bo 07/11/2026): canh tinh trong nha qua H.264
+        cho ra khung y het nhau, bao nham 6 lan/2 phut luc 29 fps, mat 0 %."""
         self._last = time.monotonic()
         self._stamps.append(self._last)
         self._n += 1
         self._bytes += nbytes
-
-        if changed:
-            self._moved = self._last
-        frozen = self._last - self._moved >= FROZEN_S
-        if frozen:
-            # Duong truyen con song, fps van dep, ma canh quay da chet tu bao gio.
-            # Day chinh la cai "dong bang khung cuoi" ma ca file nay viet ra de
-            # chan — chi khac la lan nay khung cu do CAMERA gui den chu khong phai
-            # do GUI giu lai. Nen xu ly y het mat tin hieu: XOA anh di.
-            self.pixmap = None
-            self.note = ("vid.frozen", {})
-        else:
-            self.pixmap = pm
-        self.alive = not frozen
-        if frozen != self._frozen:
-            self._frozen = frozen
-            if frozen:
-                _log(f"frozen — anh khong doi mot byte qua {FROZEN_S:.0f}s")
-            else:
-                _log("frozen het — anh doi tro lai")
-            self.frozen_changed.emit(frozen)
+        self.pixmap = pm
+        self.alive = True
         self.updated.emit()
-
-    @property
-    def frozen(self):
-        """Khung van ve deu nhung anh dung hinh. Khac `not alive` o cho: mat tin
-        hieu la khong con gi ve, con day la van co ma toan la mot canh cu."""
-        return self._frozen
 
     @property
     def fps(self):
@@ -669,10 +613,9 @@ class VideoSource(QObject):
             self._n = self._bytes = 0
             self._lat = []
             self._rep_t = now
-        if (self.alive or self._frozen) and now - self._last > STALE_S:
+        if self.alive and now - self._last > STALE_S:
             # Het khung moi. Bo khung cu di chu khong giu lai cho dep man hinh.
             self.alive = False
-            self._frozen = False
             self.pixmap = None
             self._stamps.clear()
             self.note = ("vid.lost", {})
@@ -735,10 +678,7 @@ class VideoView(QWidget):
 
         if src is None or not src.alive or src.pixmap is None:
             p.fillRect(0, 0, w, h, QColor(theme.BG))
-            # Xam la mau cua trang thai binh thuong ("chua ket noi", "dang noi").
-            # Dung hinh la SU CO: no phai khac mau, khong thi nguoi lai doc qua.
-            p.setPen(QColor(theme.WARN if src is not None and src.note[0] == "vid.frozen"
-                            else theme.MUTED))
+            p.setPen(QColor(theme.MUTED))
             # `note` la (key, kwargs), dich luc VE chu khong luc dat: khung ve lai
             # deu dan nen doi ngon ngu la dong chu tu doi theo, khoi dang ky hook.
             # Khong in dia chi http len man: nguoi bay khong lam gi duoc voi no, con

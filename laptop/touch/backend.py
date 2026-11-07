@@ -320,13 +320,12 @@ class Backend(QObject):
             # Dien thoai ve video bang VideoOutput (QML) — o xam/chu/fps cua VideoView
             # thi QML ve lai tu may so nay. Mat/dung hinh: PHU kin, khong de khung cuoi.
             "vidLive": self.video_src.alive,
-            "vidWarn": self.video_src.note[0] == "vid.frozen",  # mau WARN nhu VideoView
             "vidNote": t(self.video_src.note[0], **self.video_src.note[1]),
             "vidFps": round(self.video_src.fps, 1),
             # So nguoi: VideoSource hoi `/status` cua Jetson moi 0,5 s (loi/het gio
             # = None = "--"). Camera dung hinh thi model cung dang dem tren mot
             # canh cu -> khong hien.
-            "persons": None if self.video_src.frozen else self.video_src.persons,
+            "persons": self.video_src.persons,
             "alerts": [{"text": s, "crit": sev <= ERR_SEV} for s, sev in self.alerts.shown()],
             "ready": self._ready(armed is True),
             "warns": self._warns(armed, left, dist),

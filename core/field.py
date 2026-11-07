@@ -63,8 +63,14 @@ class Registry:
     def feed(self, env):
         if env["topic"] in SKIP_TOPICS:
             return
-        for k, v in env["data"].items():
-            if v is None:
+        data = env["data"]
+        # Chua co vi tri (chua GPS / chua EKF origin) thi ArduPilot va NavSatFix cua
+        # MAVROS deu bao lat = lon = 0. Do 07/11/2026 trong nha: ban do bam ra diem
+        # 0,0 giua bien, tile toan nuoc giong het nhau -> bo loc tile trong ha tran
+        # zoom z16 -> z11 ca phien (34 lan tu 24/10), home tam cung dat o 0,0.
+        nopos = env["topic"] == "position" and data.get("lat") == 0 and data.get("lon") == 0
+        for k, v in data.items():
+            if v is None or (nopos and k in ("lat", "lon")):
                 continue
             name = f"{env['topic']}.{k}"
             self.fields.setdefault(name, Field(name)).put(env["src"], v, env["ts"])

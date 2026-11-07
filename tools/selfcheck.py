@@ -386,12 +386,10 @@ def check_link_status(app):
 
 
 def check_video_h264(app):
-    """Video H.264 qua UDP (Jetson tu 11/10/2026): giai ma that, va ba kieu hong
-    giong MJPEG — dung hinh, mat goi, co lai — deu phai ra dung o man hinh.
+    """Video H.264 qua UDP (Jetson tu 11/10/2026): giai ma that, mat goi va co lai
+    deu phai ra dung o man hinh.
 
     Nguon gia la GStreamer x264 -> MPEG-TS -> UDP, dung duong Jetson dang day.
-    "Camera treo" = MOT anh phuc tap dong bang (smpte + imagefreeze): x264 van ra
-    khung giai ma khac nhau tung chut, chinh cai lam phep bam byte that bai.
     """
     import shutil
     import subprocess
@@ -459,7 +457,6 @@ def check_video_h264(app):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     moving = "videotestsrc is-live=true pattern=ball"
-    frozen = "videotestsrc pattern=smpte num-buffers=1 ! imagefreeze is-live=true ! videoconvert"
 
     def until(pred, ms):
         t0 = time.monotonic()
@@ -468,7 +465,6 @@ def check_video_h264(app):
             time.sleep(0.01)
         return pred()
 
-    frozen_s, video_mod.FROZEN_S = video_mod.FROZEN_S, 1.0
     src = VideoSource()
     fb = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # dong vai Jetson :5601
     fb.bind(("127.0.0.1", 0))
@@ -487,7 +483,6 @@ def check_video_h264(app):
         src.start(f"udp://0.0.0.0:{port}", feedback=f"127.0.0.1:{fb.getsockname()[1]}")
         assert until(lambda: src.pixmap is not None, 8000), f"H.264 khong ra khung: {src.note}"
         assert src.pixmap.width() == 320 and src.alive
-        assert not until(lambda: src.frozen, 2500), "hinh dang chay ma bao dung hinh"
         # Bao cao dung dinh dang run_gui.py doc: "loss=<ti le>", localhost thi ~0.
         assert until(heard, 3000), "co goi H.264 ma khong bao mat goi ve Jetson"
         loss = float(reports[-1].split("=", 1)[1])
@@ -498,23 +493,15 @@ def check_video_h264(app):
         # lui (do 11/10/2026) — server Jetson khoi dong lai mat hang chuc giay nen
         # it gap; doi het bai nay nho thoi gian cho rong (10 s).
         s.kill(); s.wait()  # mat goi UDP
-        assert until(lambda: not src.alive and not src.frozen, 4000), "het goi ma khong o xam"
+        assert until(lambda: not src.alive, 4000), "het goi ma khong o xam"
         assert src.pixmap is None and src.note[0] == "vid.lost", src.note
         # Het goi thi IM, khong gui "loss=0": Jetson im 5 s moi tu ha bitrate.
         reports.clear()
         assert not until(heard, 1500), f"khong co goi ma van bao cao: {reports}"
 
-        s = sender(frozen)  # camera treo: khung van toi deu, anh dung yen
-        assert until(lambda: src.frozen, 10000), "anh dong bang qua x264 ma khong bao dung hinh"
-        assert src.pixmap is None and src.note[0] == "vid.frozen" and src.fps > 5, \
-            f"dung hinh: pixmap={src.pixmap} note={src.note} fps={src.fps:.1f}"
-
-        s.kill(); s.wait()
-        assert until(lambda: not src.alive and not src.frozen, 4000), "het goi ma khong o xam"
         s = sender(moving)  # goi toi lai: QMediaPlayer phai tu chay tiep
         assert until(lambda: src.alive and src.pixmap is not None, 10000), \
             f"goi UDP toi lai ma hinh khong ve: {src.note}"
-        assert not src.frozen
 
         src.stop()  # nha cong: start lai cung cong phai ra hinh
         assert src.pixmap is None and not src.alive
@@ -525,7 +512,6 @@ def check_video_h264(app):
         s.wait()
         src.stop()
         fb.close()
-        video_mod.FROZEN_S = frozen_s
 
     # Khong giu khung: gui DUNG 20 khung 5 fps roi im — khung nao ket lai trong
     # duong ong (h264parse cho khung SAU de biet khung nay het) la khong bao gio ra.
@@ -582,7 +568,7 @@ def check_video_h264(app):
         video_mod.Gst = gst_mod
 
     # Dien thoai: khung ve thang bang VideoOutput (QML), VideoSource chi dem nhip va
-    # GPU_THUMB_HZ lan/giay so dung hinh — khong giu pixmap. Player rieng: sink co dinh.
+    # GPU_THUMB_HZ lan/giay doc dau gio — khong giu pixmap. Player rieng: sink co dinh.
     import tempfile
     from PySide6.QtCore import QUrl
     from PySide6.QtQuick import QQuickView
@@ -598,11 +584,6 @@ def check_video_h264(app):
         gpu.start(f"udp://0.0.0.0:{port + 2}")
         assert until(lambda: gpu.alive and gpu.fps > 10, 10000), f"VideoOutput khong ra khung: {gpu.note}"
         assert gpu.on_gpu and gpu.pixmap is None, "duong GPU van giu pixmap"
-        assert not until(lambda: gpu.frozen, 2500), "GPU: hinh dang chay ma bao dung hinh"
-        s.kill(); s.wait()
-        s = sender(frozen, port + 2)
-        # doi nguon cung cong: DTS nhay lui, QMediaPlayer co luc dung ~4,8 s (xem tren)
-        assert until(lambda: gpu.frozen and not gpu.alive, 12000), "GPU: dung hinh ma khong bao"
     finally:
         s.kill()
         s.wait()
@@ -632,8 +613,8 @@ def check_video_h264(app):
     plain = _I(1280, 720, _I.Format.Format_RGB32)
     plain.fill(_C("black"))
     assert video_mod.read_stamp(plain) is None, "khung khong co dau gio ma doc ra gio"
-    print("  ok  video H.264/UDP — giai ma that; doc dau gio --stamp; dung hinh (anh dong bang qua x264) xoa anh; "
-          f"mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh, dung han / im 5 s thi tu mo lai, dang cho goi thi de yen (nguon len lai -> hinh {back_s:.1f} s); VideoOutput (dien thoai) dem nhip + bao dung hinh, khong giu pixmap; dem goi TS mat "
+    print("  ok  video H.264/UDP — giai ma that; doc dau gio --stamp; "
+          f"mat goi o xam; goi toi lai tu hien; du phong QMediaPlayer ra hinh, dung han / im 5 s thi tu mo lai, dang cho goi thi de yen (nguon len lai -> hinh {back_s:.1f} s); VideoOutput (dien thoai) dem nhip, khong giu pixmap; dem goi TS mat "
           "va bao \"loss=\" ve Jetson moi giay, het goi thi im; khong giu khung (20/20)")
 
 
@@ -728,7 +709,17 @@ def check_field(app):
 
     r.feed({"src": "sik", "topic": "status", "data": {"X.y": 1}, "ts": now})
     assert "status.X.y" not in r.fields, "firehose khong duoc chui vao trong tai"
-    print(f"  ok  Field uu tien/het tuoi, lech vi tri {d:.1f} m")
+
+    # Chua GPS: FC bao lat = lon = 0 (do 07/11 trong nha). Bo vi tri, giu do cao.
+    r = Registry()
+    r.feed({"src": "sik", "topic": "position",
+            "data": {"lat": 0.0, "lon": 0.0, "alt_rel": 1.5}, "ts": now})
+    assert r.value("position.lat") is None and r.value("position.lon") is None, \
+        "lat/lon = 0,0 (chua co vi tri) ma van vao trong tai"
+    assert r.value("position.alt_rel") == 1.5, "bo 0,0 ma mat luon do cao"
+    r.feed({"src": "sik", "topic": "position", "data": {"lat": 0.0, "lon": 106.66}, "ts": now})
+    assert r.value("position.lat") == 0.0, "chi bo khi CA HAI bang 0 (xich dao van la vi tri that)"
+    print(f"  ok  Field uu tien/het tuoi, lech vi tri {d:.1f} m, bo lat/lon 0,0 (chua co vi tri)")
 
 
 def check_remote_text(app):
@@ -2493,42 +2484,6 @@ def check_video(app):
         def log_message(self, *a):
             pass
 
-    # Anh thu hai, khac mau: dung de chung minh dung hinh xong thi TU HOI LAI.
-    pm2 = QPixmap(32, 24)
-    pm2.fill(QColor("#27ae60"))
-    buf2 = QBuffer()
-    buf2.open(QBuffer.WriteOnly)
-    pm2.save(buf2, "JPEG")
-    jpeg2 = bytes(buf2.data())
-
-    class FrozenHandler(BaseHTTPRequestHandler):
-        """Camera treo: duong truyen khoe, fps dep, ma van MOT canh quay do.
-
-        Khong phai gia dinh — `mjpeg_server.py` nen lai khung driver vua tra ve,
-        nen cam bien treo la ra day nguyen si mot chuoi byte y het nhau.
-        """
-
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-            self.end_headers()
-            t0 = time.monotonic()
-            try:
-                while True:
-                    # Sau `swap_after` giay thi camera song lai -> anh khac di.
-                    img = jpeg if time.monotonic() - t0 < self.server.swap_after else jpeg2
-                    self.wfile.write(
-                        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n"
-                        % len(img)
-                    )
-                    self.wfile.write(img + b"\r\n")
-                    time.sleep(0.03)  # ~30 fps: nhip dep, chi co noi dung la chet
-            except OSError:
-                pass  # GUI dong ket noi truoc — binh thuong, khong phai loi bai kiem
-
-        def log_message(self, *a):
-            pass
-
     srv = ThreadingHTTPServer(("127.0.0.1", VIDEO_PORT), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
@@ -2581,64 +2536,6 @@ def check_video(app):
     srv.shutdown()
     srv.server_close()
 
-    # --- camera dung hinh: khung van ve deu ma anh khong doi ------------------
-    #
-    # Kieu hong nay KHONG lam cho `alive` tat: fps van 30, byte van chay, o video
-    # van sang — chi co dieu canh quay da chet tu bao gio. Doi voi nguoi lai thi
-    # no y het "dong bang khung cuoi", tuc la kieu nguy hiem nhat ma ca file
-    # video.py viet ra de chan.
-    video_mod.FROZEN_S = 0.6  # 2 s that qua lau cho mot bai kiem
-    flips = []
-    src.frozen_changed.connect(flips.append)
-    srv2 = ThreadingHTTPServer(("127.0.0.1", VIDEO_PORT), FrozenHandler)
-    srv2.swap_after = 1.6  # sau ngan nay camera song lai
-    threading.Thread(target=srv2.serve_forever, daemon=True).start()
-    src.start(f"http://127.0.0.1:{VIDEO_PORT}/stream")
-
-    wait(src.updated, lambda: src.pixmap is not None, 6000)
-    assert src.alive and not src.frozen, "moi nhan khung dau da bao dung hinh"
-    wait(src.updated, lambda: src.frozen, 6000)
-    assert src.frozen, "anh y het nhau suot ma khong bao dung hinh"
-    assert src.pixmap is None, "dung hinh ma van ve canh cu — dung cai bay phai chan"
-    assert src.note[0] == "vid.frozen", src.note
-    assert src.fps > 5, f"dung hinh khong duoc lam nhip khung tut: {src.fps:.1f}"
-    # Tin hieu len man bay: chi ban MOT lan cho ca chuoi khung trung, khong phai
-    # moi khung mot lan (30 fps x mot dong noi = man hinh trang xoa).
-    assert flips == [True], f"tin hieu dung hinh ban sai so lan: {flips}"
-    # Chu tren o video phai la mau canh bao chu khong phai xam nhu "chua ket noi":
-    # dem pixel gan mau WARN trong anh vua ve.
-    from laptop import theme as _th
-    warn = QColor(_th.WARN)
-    img = view.grab().toImage()
-    lit = sum(1 for x in range(img.width()) for y in range(img.height())
-              if all(abs(a - b) < 40 for a, b in
-                     zip(img.pixelColor(x, y).getRgb()[:3], warn.getRgb()[:3])))
-    assert lit > 20, f"chu 'dung hinh' khong ve bang mau canh bao: {lit} pixel"
-    c = view.grab().toImage().pixelColor(5, 5)
-    assert all(abs(a - b) < 12 for a, b in zip(c.getRgb()[:3], bg.getRgb()[:3])), \
-        f"dung hinh ma man hinh khong ve o nen: {c.getRgb()}"
-
-    # ...va camera song lai thi TU hien anh tro lai, khong phai noi lai tay.
-    wait(src.updated, lambda: not src.frozen, 6000)
-    assert not src.frozen and src.alive and src.pixmap is not None, \
-        f"camera chay lai ma van ket o o xam: frozen={src.frozen} alive={src.alive}"
-    c = view.grab().toImage().pixelColor(5, 5)
-    assert c.green() > 120 and c.red() < 90, f"khung moi khong len man: {c.getRgb()}"
-
-    assert flips == [True, False], f"camera chay lai ma tin hieu khong ban: {flips}"
-    src.stop()
-    # May chu van phat ~30 fps: luong doc dang nam trong read() luc stop(), doc xong
-    # van emit, khung toi SAU qua hang doi tin hieu. Khong loc theo `gen` thi khung
-    # cuoi hien lai toi STALE_S (do 04/10/2026: 10/10 lan).
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < 0.3:
-        app.processEvents()
-        assert src.pixmap is None and not src.alive, "da stop() ma khung cu hien lai"
-        time.sleep(0.005)
-    srv2.shutdown()
-    srv2.server_close()
-    assert "gui frozen" in log_path.read_text(), "dung hinh ma khong de lai vet o log"
-
     # Du ca vong doi tren log: tools/video_timeline.sh ghep dung cac chu nay.
     log = log_path.read_text()
     for word in ("gui start", "gui connected", "gui fps", "gui lost", "gui stop"):
@@ -2687,9 +2584,7 @@ def check_video(app):
     view.deleteLater()
     src.deleteLater()
     app.processEvents()
-    print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu; camera dung hinh "
-          "(khung ve deu ma anh trung tung byte) cung xoa, chu doi sang mau canh bao, tin hieu ban "
-          "mot lan moi luot, camera chay lai thi tu hien tro lai; so nguoi doc tu /status")
+    print("  ok  video MJPEG — giai ma khung that, mat tin hieu thi xoa khung cu; so nguoi doc tu /status")
 
 
 def check_i18n(app):
@@ -3216,28 +3111,6 @@ def check_touch(app):
         root.setProperty("pending", "")
         wait(50)
 
-        # --- camera dung hinh phai NOI LEN man bay ----------------------------
-        #
-        # O video da doi mau chu, nhung o PiP nam goc duoi trai 240x135: nguoi lai
-        # dang nhin ban do thi khong co gi keo mat ve do. Ban tin hieu that tu
-        # VideoSource de do luon ca duong day (`app.py` co noi khong), khong goi
-        # tay vao ham xu ly.
-        win.video.frozen_changed.emit(True)
-        wait(50)
-        assert any("ĐỨNG HÌNH" in txt for txt, _ in win.touch.alerts.shown()), \
-            f"camera dung hinh ma man bay im: {win.touch.alerts.shown()}"
-        lst = win.messages_tab.list
-        assert any("ĐỨNG HÌNH" in lst.item(r).text() for r in range(lst.count())), \
-            "dung hinh ma tab Thong bao khong co dong nao"
-        win.video.frozen_changed.emit(False)
-        wait(50)
-        # "Chay lai" la tin vui: vao tab Thong bao de doc lai, KHONG noi len man bay.
-        assert not any("chạy lại" in txt for txt, _ in win.touch.alerts.shown()), \
-            f"dong 'camera chay lai' khong duoc chiem cho tren man bay: {win.touch.alerts.shown()}"
-        assert any("chạy lại" in lst.item(r).text() for r in range(lst.count())), \
-            "camera chay lai ma khong ghi lai o tab Thong bao"
-        win.touch.alerts.clear()
-
         # --- o camera: cham de doi cho, ngat ket noi la tra ve ban do ---------
         #
         # Truoc day bai nay do hinh hoc QWidget cua tab Bay cu. Man cam ung lam
@@ -3337,8 +3210,7 @@ def check_touch(app):
           "truot het moi di, cat dong co truot het la di (khong giu), mat SiK la huy; \"bay toi day\" "
           "cung phai truot, toa do chot luc chi chu khong doc lai pixel; task Chua chay: nut ⚑ "
           "bat/huy qua `remote` (khong qua SiK), chip diem chay chi khi task chay, bridge im 3 s "
-          "thi an chip + tu choi + tab Dieu khien 'chua co tin'; camera dung hinh noi len "
-          "man bay + tab Thong bao, dong \"chay lai\" chi vao tab Thong bao; ban do: giu 2 s "
+          "thi an chip + tu choi + tab Dieu khien 'chua co tin'; ban do: giu 2 s "
           "(co vong tron) moi mo bang diem den, cham mot cai/tha som thi khong, keo thi khong mo; cham dup "
           "(ke ca ngon tay rung) ve dung cho drone")
 
@@ -3660,9 +3532,6 @@ def check_touch_flight(app):
         from laptop import theme as _th
         assert persons.property("color").name() == _th.ACCENT.lower(), \
             f"co nguoi ma thanh khong noi mau: {persons.property('color').name()}"
-        b.video_src._frozen = True  # camera dung hinh: model dang dem mot canh cu
-        assert ppl(4) == "--", "dung hinh ma van hien so nguoi"
-        b.video_src._frozen = False
         assert ppl(None) == "--", "/status loi ma van hien so nguoi"
         b.profile = old_prof
         b.refresh()
