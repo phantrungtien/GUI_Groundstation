@@ -224,6 +224,8 @@ STR = {
         "ARM: BLOCKED — lower the throttle to min first (now {pwm:.0f} PWM, needs to be "
         "under {max}). The FC will not block this: arming now spins the motors straight "
         "up to that throttle."),
+    "log.arm_thr_high": ("ARM: ga đang {pwm:.0f} PWM (chưa về min) — vẫn gửi theo xác nhận trượt",
+                         "ARM: throttle at {pwm:.0f} PWM (not at min) — sending on slide confirm"),
     "log.no_ack": ("{action}: KHÔNG CÓ PHẢN HỒI từ FC sau {sec:.0f}s",
                    "{action}: NO REPLY from the FC after {sec:.0f}s"),
     "log.fc_denied": ("{name}: FC TỪ CHỐI — {why}", "{name}: FC DENIED — {why}"),

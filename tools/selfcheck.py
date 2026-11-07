@@ -859,6 +859,12 @@ def check_arm_throttle_guard(app):
         ct.btn_arm.click()
         assert sent == ["arm"], f"ga 993 la o min, phai gui duoc: {logs}"
 
+        # Thanh truot man cam ung: truot het la xac nhan, ga cao van gui (co canh bao)
+        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
+        sent.clear(); logs.clear()
+        ct.cmd.arm(thr_check=False)
+        assert sent == ["arm"] and "1496" in logs[0], (sent, logs)
+
         # Ga cu qua thi khong con la bang chung: gui, nhung phai noi ra
         ct.cmd._thr = (1496, time.time() - 30)
         sent.clear(); logs.clear()

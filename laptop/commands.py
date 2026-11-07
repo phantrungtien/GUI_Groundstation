@@ -112,8 +112,11 @@ class Commands(QObject):
 
     # ---- lenh thuong: di qua kiem tra quyen ------------------------------
 
-    def arm(self):
+    def arm(self, *, thr_check=True):  # keyword-only: clicked(bool) cua Qt khong duoc lot vao day
         """ARM, nhung chan khi can ga chua ve min.
+
+        `thr_check=False`: thanh truot man cam ung — nguoi bay da truot het de xac
+        nhan, nen ga cao chi ghi canh bao roi VAN gui.
 
         FC KHONG chan viec nay: `AP_Arming.cpp:81-115` chi kiem ga co THAP hon
         nguong failsafe khong, khong he kiem ga cao — kiem "ga qua cao" chi ap cho
@@ -127,8 +130,10 @@ class Commands(QObject):
         elif time.time() - thr[1] > STALE:
             self.say("log.arm_rc_old", 4, age=time.time() - thr[1])
         elif thr[0] > THR_ARM_MAX:
-            self.say("log.arm_blocked", 3, pwm=thr[0], max=THR_ARM_MAX)
-            return
+            if thr_check:
+                self.say("log.arm_blocked", 3, pwm=thr[0], max=THR_ARM_MAX)
+                return
+            self.say("log.arm_thr_high", 4, pwm=thr[0])
         self.cmd("arm")
 
     def disarm(self):

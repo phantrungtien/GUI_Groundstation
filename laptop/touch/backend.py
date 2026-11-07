@@ -496,7 +496,7 @@ class Backend(QObject):
             return
         c = self.cmd
         if action == "arm":
-            c.arm()
+            c.arm(thr_check=False)  # truot het = xac nhan, khong doi ga ve min
         elif action == "disarm":
             c.kill()          # duoi dat -> force, tren troi -> lenh thuong (nhu nut do)
         elif action == "kill":
