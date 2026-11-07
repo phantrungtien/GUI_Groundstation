@@ -15,6 +15,7 @@ from PySide6.QtCore import QThread, Signal
 from websockets.sync.client import connect
 
 from core.adapters import join
+from core.i18n import t
 
 RETRY_S = 2.0  # noi lai deu dan: WiFi ngoai bai bay rot len rot xuong la binh thuong
 
@@ -55,7 +56,7 @@ class RemoteAdapter(QThread):
         """Goi tu main thread. websockets.sync co khoa rieng nen ghi duoc tu ngoai."""
         ws = self._ws
         if ws is None:
-            return {"error": "chua noi duoc companion"}
+            return {"error": t("err.no_companion")}
         try:
             ws.send(json.dumps({"action": action, "args": args or {}}))
             return {"ok": action}

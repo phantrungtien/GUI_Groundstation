@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bai "rut radio SiK -> sang 4G" chay tren laptop, khong can phan cung.
+"""Bai chon duong SiK / 4G chay tren laptop, khong can phan cung.
 
 App THAT (MainWindow.connect_to + DualLink + man bay cam ung + VideoSource), chi
 FC la gia, phat tren hai duong y nhu tren may tinh bang:
@@ -9,14 +9,18 @@ FC la gia, phat tren hai duong y nhu tren may tinh bang:
 
     python3 tools/e2e_sik_4g.py
 
-Bon pha:
+Luat user chot 07/11/2026: ngoai task tu hanh di SiK, mat SiK thi sang 4G, SiK co lai
+thi tu ve; task tu hanh chay thi 4G, giu toi khi task xong. Bay pha:
   A chua cam radio  4G co FC  -> KHONG dung 4G, chua mo video, "Dang cho du lieu tu FC"
   B cam radio                 -> di SiK, mo video
   C rut radio                 -> tu sang 4G truoc nguong mat link, KHONG doc "Mat tin hieu"
-  D rut FC (ca hai im)        -> "MAT TIN HIEU SiK", video van chay
-
+  D cam lai radio             -> tu ve SiK (sau BACK_S SiK on dinh)
+  E bat task tu hanh          -> sang 4G du radio van tot
+  F task xong                 -> ve SiK
+  G rut FC (ca hai im)        -> "MAT TIN HIEU SiK", video van chay
 Do 24/10: truoc khi DualLink doi o SWITCH_S = 1 s (bang STALE 2 s cua man hinh),
 4/5 lan pha C loa doc "Mat tin hieu" roi 0,5 s sau 4G moi nhan.
+Task = bus "mission" {running} nhu bridge Jetson day moi giay.
 Con lai phai thu tren may that: SikBridge khi rut radio that, MAVROS Jetson.
 """
 
@@ -37,10 +41,15 @@ from pymavlink.dialects.v20 import ardupilotmega as mav2  # noqa: E402
 
 app = QApplication([])
 import laptop.app as appmod  # noqa: E402
+from core import bus  # noqa: E402
 from core.field import REGISTRY  # noqa: E402
 
 P_SIK, P_4G, P_VID = 47760, 47550, 47600
-PHASES = [("A chua cam radio", 3.0), ("B cam radio", 4.0), ("C rut radio", 5.0), ("D rut FC", 4.0)]
+PHASES = [("A chua cam radio", 3.0), ("B cam radio", 4.0), ("C rut radio", 3.5),
+          ("D cam lai radio", 3.5), ("E bat task", 3.0), ("F task xong", 3.0),
+          ("G rut FC", 4.0)]
+SIK_ON = (1, 3, 4, 5)     # pha co radio
+TASK = {4: "fire_mission", 5: ""}  # pha -> mission.running bridge bao
 phase = [0]
 
 
@@ -71,7 +80,7 @@ def sik_bridge(stop):
             s.recv(65536)  # lenh cua app: Java bo goi khi chua co radio
         except (socket.timeout, BlockingIOError):
             pass
-        if phase[0] == 1:
+        if phase[0] in SIK_ON:
             s.sendall(fc_packets(m, 1.0))
         time.sleep(0.1)
 
@@ -80,7 +89,7 @@ def mavros(stop):
     fc, ros = enc(1), enc(191)
     u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     while not stop.is_set():
-        if phase[0] < 3:
+        if phase[0] < 6:
             u.sendto(fc_packets(fc, 2.0), ("127.0.0.1", P_4G))
         hb = ros.heartbeat_encode(mav2.MAV_TYPE_ONBOARD_CONTROLLER, mav2.MAV_AUTOPILOT_INVALID,
                                   0, 0, 0)
@@ -139,6 +148,8 @@ def main():
         if now >= edges[-1]:
             app.quit()
             return
+        if phase[0] in TASK:
+            bus.emit("remote", "mission", {"running": TASK[phase[0]]})
         win.touch.refresh()
         s = win.touch.state
         rows.append((now, phase[0], s["status"], s["linkPath"], REGISTRY.value("position.lat"),
@@ -159,21 +170,31 @@ def main():
             last = r[1:]
     print("loa doc:", [(round(t, 1), k) for t, k in said])
 
-    A, B, C, D = ([r for r in rows if r[1] == i] for i in range(4))
-    sw = next((r[0] - edges[2] for r in C if r[3] == "4G"), None)
+    A, B, C, D, E, F, G = ([r for r in rows if r[1] == i] for i in range(7))
+
+    def first(rows_, edge, path, lat):
+        return next((r[0] - edges[edge] for r in rows_ if r[3] == path and r[4] == lat), None)
+
+    sw, back = first(C, 2, "4G", 2.0), first(D, 3, "SiK", 1.0)
+    task, done = first(E, 4, "4G", 2.0), first(F, 5, "SiK", 1.0)
+
+    def lbl(text, sec):
+        return f"{text} sau {sec:.1f} s" if sec is not None else text
+
     ok = [
         ("A: khong dung 4G khi SiK chua nghe FC", all(r[3] == "SiK" and r[4] != 2.0 for r in A)),
         ("A: chua mo video", not any(r[5] for r in A)),
         ("B: di SiK, so lieu tu SiK, video mo", (B[-1][3], B[-1][4], B[-1][5]) == ("SiK", 1.0, True)),
-        (f"C: tu sang 4G (chi bao doi sau {sw:.1f} s)" if sw is not None else "C: tu sang 4G",
-         sw is not None),
-        ("C: so lieu tu 4G", C[-1][4] == 2.0),
+        (lbl("C: rut radio -> tu sang 4G", sw), sw is not None and C[-1][3:5] == ("4G", 2.0)),
         ("C: khong bao MAT TIN HIEU", not any("MẤT" in r[2] for r in C)),
         ("C: khong doc 'Mat tin hieu'",
          not any(k == "voice.lost" and edges[2] <= t < edges[3] for t, k in said)),
-        ("C: video van chay, adapter song", all(r[5] and r[6] for r in C)),
-        ("D: rut FC -> MAT TIN HIEU", "MẤT" in D[-1][2]),
-        ("D: video van chay", D[-1][5]),
+        (lbl("D: cam lai radio -> tu ve SiK", back), back is not None and D[-1][3:5] == ("SiK", 1.0)),
+        (lbl("E: bat task -> sang 4G", task), task is not None and E[-1][3:5] == ("4G", 2.0)),
+        (lbl("F: task xong -> ve SiK", done), done is not None and F[-1][3:5] == ("SiK", 1.0)),
+        ("C-F: video van chay, adapter song", all(r[5] and r[6] for r in C + D + E + F)),
+        ("G: rut FC -> MAT TIN HIEU", "MẤT" in G[-1][2]),
+        ("G: video van chay", G[-1][5]),
         ("khong hop thoai loi", not fails),
     ]
     for name, good in ok:

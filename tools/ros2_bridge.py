@@ -89,7 +89,7 @@ def hang_step(hang, armed, mode, running, now):
         return None, None  # da lay lai (doi mode / disarm), co task moi, hoac het han nhac
     if now - last < HANG_EVERY:
         return hang, None
-    return (why, t0, now), f"{why}: drone TREO o GUIDED, khong ai lai - doi mode / RC de lay lai"
+    return (why, t0, now), f"{why}: drone TREO ở GUIDED, không ai lái — đổi mode / RC để lấy lại"
 
 
 # Tham so cua fire_mission -> ten field GUI doc (topic `mission`, laptop/touch/backend.py).
@@ -271,7 +271,7 @@ class Bridge(Node):
             if first:
                 # service drone-ros (Jetson) khoi dong lai CA NHOM khi MAVROS/fire_locator/bridge
                 # chet: task dang bay chet theo, bridge moi sinh ra khong biet gi ve no.
-                self._hung("bridge vua khoi dong lai giua luc bay")
+                self._hung("bridge vừa khởi động lại giữa lúc bay")
         self.push("heartbeat", {"armed": m.armed, "mode": m.mode})
 
     def _hung(self, why):
@@ -355,7 +355,7 @@ class Bridge(Node):
         proc, pgid, name = self.mission_proc, self.mission_pgid, self.mission_name
         self.mission_proc, self.mission_name, self.fire_ask = None, "", None
         if cancel:
-            self._hung(f"Huy task {name}")  # bao NGAY, khong doi nhom chet
+            self._hung(f"Huỷ task {name}")  # bao NGAY, khong doi nhom chet
         for sig, cho in ((signal.SIGTERM, 5.0), (signal.SIGKILL, 1.0)):
             try:
                 os.killpg(pgid, sig)
@@ -388,9 +388,9 @@ class Bridge(Node):
             # Bao len laptop, dung chi ghi log tren companion. Node thoat som la
             # chuyen thuong gap — vi du no doi khoi dong tu mat dat ma drone dang
             # bay san — va nguoi bay phai doc duoc ly do o tab Thong bao.
-            if not self._hung(f"task {self.mission_name} chet giua chung (ma {code})"):
+            if not self._hung(f"task {self.mission_name} chết giữa chừng (mã {code})"):
                 self.push("text", {"severity": 4,
-                                   "text": f"nhiem vu {self.mission_name} da ket thuc (ma {code})"})
+                                   "text": f"nhiệm vụ {self.mission_name} đã kết thúc (mã {code})"})
             self.mission_proc, self.mission_name = None, ""
             self.fire_ask = None                 # node chet (kill -9) khong kip xoa cau hoi
         self.hang, text = hang_step(self.hang, *(self.fc or (False, "")),

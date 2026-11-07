@@ -25,6 +25,8 @@ Hau qua, noi thang ra de khong ai bat ngo:
 Nut do di truoc moi thu khac. Khong co nhanh nao lam no bi chan.
 """
 
+from core.i18n import t
+
 GCS = "gcs"
 
 # Nut do. Ba lenh nay du de dua drone ve nha.
@@ -56,11 +58,11 @@ def dispatch(msg):
     if action in ESCAPE:
         sik = ADAPTERS.get("sik")
         if sik is None:
-            return {"error": "chua co duong SiK"}
+            return {"error": t("err.no_sik")}
         return sik.send(action, msg.get("args", {}))
 
     target = msg.get("target", "sik")
     adapter = ADAPTERS.get(target)
     if adapter is None:
-        return {"error": f"chua co adapter {target}"}
+        return {"error": t("err.no_adapter", target=target)}
     return adapter.send(action, msg.get("args", {}))

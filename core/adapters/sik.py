@@ -19,12 +19,17 @@ from PySide6.QtCore import QThread, Signal
 from pymavlink import mavutil
 
 from core.adapters import join
+from core.i18n import t
 
 STALE = 2.0  # giay — qua nguong nay coi nhu link chet (Phu luc 7.4)
 # DualLink doi duong PHAI som hon STALE cua man hinh. Bang nhau thi hai ben dua nhau:
 # do 24/10 (app that, FC gia, rut radio) 4/5 lan loa doc "Mat tin hieu" roi 0,5 s
 # sau 4G moi nhan. Radio cho ~61 goi/s (do 26/08) — im 1 s la mat ~60 goi lien tiep.
 SWITCH_S = 1.0
+# Quay ve duong uu tien chi khi no da co FC LIEN TUC ngan nay: o ria tam song SiK chap
+# chon, ve ngay khi nghe mot goi la nhay qua lai moi vai giay. 2 s la so doan, chua do o
+# ria tam that — nhay nhieu thi tang, ve cham qua thi giam.
+BACK_S = 2.0
 
 AUTOPILOT = mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1  # = 1
 
@@ -544,22 +549,22 @@ class DualLink:
     ArduPilot nhan moi lenh hai lan, nap duong bay hai phien cung luc thi no tu choi
     phien thu hai (MAV_MISSION_DENIED) va app doc ACK do thanh "nap that bai".
 
-    Doi duong khi duong dang dung im > `stale` ma duong kia co FC noi trong 1 s qua —
-    nhung CHI SAU KHI duong dau (SiK) da tung nghe FC: nguoi dung chot 19/10, chua cam
-    radio telemetry va noi duoc SiK thi KHONG cho bay qua LTE/4G. Mang chi la du phong
-    cho mot duong SiK da co, khong phai duong thay the.
+    Chon duong — user chot 07/11/2026, xem `_pick`: ngoai task tu hanh la SiK, mat SiK
+    thi sang mang (du phong), SiK co lai thi tu ve; task tu hanh chay thi mang, giu toi
+    khi task xong. Mang chi dung SAU KHI SiK da tung nghe FC (user chot 19/10: chua noi
+    duoc SiK thi khong bay qua LTE/4G).
     "FC noi" = goi cua component 1 (heartbeat FC gui tren MOI cong, khong can xin);
     heartbeat MAVROS (1/191) hay RADIO_STATUS cua radio mat dat khong tinh — chung
     van den khi drone da ra ngoai tam.
-    ponytail: khong tu quay ve SiK khi no song lai — o ria tam song SiK chap chon,
-    quay ve ngay la nhay qua lai moi vai giay. Can "uu tien SiK" thi them tre o _pick.
     """
     NAMES = ("SiK", "mang")
 
-    def __init__(self, links, stale=SWITCH_S):
-        self.links, self.stale = links, stale
+    def __init__(self, links, stale=SWITCH_S, want_net=lambda: False):
+        self.links, self.stale, self.want_net = links, stale, want_net
         self.cur, self.path = links[0], self.NAMES[0]
+        self.planned = True  # lan doi gan nhat theo ke hoach (True) hay chay vi duong im
         self.rx = [0.0] * len(links)  # lan cuoi FC noi tren tung duong
+        self.up = [0.0] * len(links)  # FC noi LIEN TUC (khong ho > 1 s) tren duong do tu luc nay
         self.t0 = time.time()
 
     def __getattr__(self, name):  # mav, target_system, mav_loss... cua duong dang dung
@@ -577,18 +582,35 @@ class DualLink:
         if (m is not None and m.get_type() != "BAD_DATA"
                 and not m.get_type().startswith("UNKNOWN_")
                 and m.get_srcComponent() == AUTOPILOT):
-            self.rx[i] = time.time()
+            now = time.time()
+            if now - self.rx[i] > 1.0:
+                self.up[i] = now
+            self.rx[i] = now
         return m
 
     def _pick(self):
+        """Duong uu tien: mang khi task tu hanh chay (`want_net`), con lai SiK.
+
+        - Dang o duong uu tien ma no im > `stale`, duong kia co FC: sang duong kia (du
+          phong — mat SiK luc bay tay, hay mat 4G giua task).
+        - Dang o duong kia: ve duong uu tien khi no co FC lien tuc >= BACK_S (bat/xong task
+          thi duong do thuong da song tu lau -> doi ngay; cam lai radio -> doi sau BACK_S).
+        """
+        if not self.rx[0]:
+            return
         now = time.time()
         i = self.links.index(self.cur)
-        if not self.rx[0] or now - max(self.rx[i], self.t0) <= self.stale:
-            return
-        for j, t in enumerate(self.rx):
-            if j != i and now - t < 1.0:
-                self.cur, self.path = self.links[j], self.NAMES[j]
+        want = 1 if self.want_net() else 0
+        alive = [now - t < 1.0 for t in self.rx]
+        if i != want:
+            if not (alive[want] and now - self.up[want] >= BACK_S):
                 return
+            j, self.planned = want, True
+        elif now - max(self.rx[i], self.t0) > self.stale and alive[1 - i]:
+            j, self.planned = 1 - i, False
+        else:
+            return
+        self.cur, self.path = self.links[j], self.NAMES[j]
 
     def recv_match(self, blocking=False, timeout=None):
         end = time.time() + (timeout or 0)
@@ -599,10 +621,12 @@ class DualLink:
                 if link is not self.cur:
                     while self._recv(i) is not None:
                         pass
+            # Truoc khi doc: duong dang dung tra goi lien tuc thi van phai doi duoc
+            # (bat task -> sang mang du SiK dang khoe).
+            self._pick()
             m = self._recv(self.links.index(self.cur))
             if m is not None:
                 return m
-            self._pick()
             if not blocking or time.time() >= end:
                 return None
             # ponytail: ngu 10 ms thay select() — fd cua mavtcp cu di sau moi lan noi
@@ -636,6 +660,9 @@ class SikAdapter(QThread):
         # Mo phong dut telemetry ma khong phai rut day: bo goi ca hai chieu, y nhu
         # radio ra ngoai tam song. Socket van mo, nen bo len la co du lieu ngay.
         self.muted = False
+        # Task tu hanh dang chay (main thread dat, xem MainWindow._on_mission): DualLink
+        # di duong mang toi khi task xong.
+        self.autonomous = False
 
         # Geofence + home: FC khong tu gui, phai hoi. Xem _fence_ask().
         self._fence = {}        # ten tham so FENCE_* -> gia tri da nhan
@@ -682,9 +709,9 @@ class SikAdapter(QThread):
         lenh toi noi la COMMAND_ACK.
         """
         if self.mode == "REPLAY":
-            return {"error": "che do REPLAY khong gui duoc lenh"}
+            return {"error": t("err.replay_no_cmd")}
         if not self.isRunning():
-            return {"error": "duong SiK chua ket noi"}
+            return {"error": t("err.sik_not_connected")}
         self._cmds.put((action, args or {}))
         silent = time.time() - self.last_rx if self.last_rx else None
         if silent is None or silent > STALE:
@@ -724,7 +751,7 @@ class SikAdapter(QThread):
             try:
                 self._exec(master, action, args)
             except Exception as e:
-                self._emit("text", {"severity": 3, "text": f"lenh {action} loi: {e}"}, local=True)
+                self._emit("text", {"severity": 3, "text": t("err.cmd_failed", action=action, e=e)}, local=True)
 
     def _exec(self, master, action, args):
         m = master.mav
@@ -771,7 +798,7 @@ class SikAdapter(QThread):
         elif action == "log_get":
             self._log_start(master, int(args["id"]), int(args["size"]))
         elif action == "log_cancel":
-            self._log_end(master, err="nguoi dung huy")
+            self._log_end(master, err=t("err.user_cancel"))
         elif action == "wp_write":
             self._wp_upload(master, args.get("items") or [])
         elif action == "wp_clear":
@@ -812,7 +839,7 @@ class SikAdapter(QThread):
             )
             self._goto_at = time.time()  # FC tra loi bang MISSION_ACK — xem _wp_rx
         else:
-            raise ValueError(f"khong biet lenh {action!r}")
+            raise ValueError(t("err.unknown_cmd", action=action))
         self._emit("cmd", {"action": action, "args": args})
 
     # ---- tai log dataflash tu the SD cua FC -------------------------------
@@ -831,9 +858,9 @@ class SikAdapter(QThread):
         trinh va nut huy, khong phai viec tu dong lam luc ket noi.
         """
         if self._log:
-            raise RuntimeError("dang tai mot log khac roi")
+            raise RuntimeError(t("err.log_busy"))
         if not self.logdir:
-            raise RuntimeError("khong co thu muc log de ghi")
+            raise RuntimeError(t("err.no_logdir"))
         d = Path(self.logdir)
         d.mkdir(parents=True, exist_ok=True)
         path = d / f"{time.strftime('%Y%m%d-%H%M%S')}-fc{log_id}.bin"
@@ -986,7 +1013,7 @@ class SikAdapter(QThread):
             # ep MAVLink1 (SERIALn_PROTOCOL=1). Vong tron + tran do cao van ve
             # duoc tu tham so; rieng da giac thi chiu — va phai noi ra.
             self._fence_n = 0
-            self._emit("fence", {"items": [], "err": "FC dang o MAVLink1 — khong doc duoc da giac"})
+            self._emit("fence", {"items": [], "err": t("err.fence_mav1")})
 
     def _fence_ask_items(self, master):
         """Xin cac dinh CON THIEU. Tach rieng de goi duoc ngay khi biet so luong:
@@ -1261,7 +1288,7 @@ class SikAdapter(QThread):
             self._up = None
             self._emit("wp", {"write": {
                 "ok": False, "result": None, "n": self._up_n,
-                "err": f"FC khong tra loi sau {WP_UP_TRIES} lan gui MISSION_COUNT",
+                "err": t("err.wp_no_reply", n=WP_UP_TRIES),
             }})
             return
         self._wp_up_count(master)
@@ -1307,7 +1334,8 @@ class SikAdapter(QThread):
             kw["baud"] = 115200 if "ttyACM" in p["conn"] else 57600
         master = mavutil.mavlink_connection(p["conn"], **kw)
         if p.get("conn2"):  # radio + mang cung luc, xem DualLink
-            master = DualLink([master, mavutil.mavlink_connection(p["conn2"], **kw)])
+            master = DualLink([master, mavutil.mavlink_connection(p["conn2"], **kw)],
+                              want_net=lambda: self.autonomous)
 
         # Ghi .tlog o moi che do, ke ca REAL — sau su co day thuong la thu duy
         # nhat cho biet chuyen gi da xay ra (Phu luc 7.6). Cung la dau vao REPLAY.
@@ -1540,8 +1568,11 @@ class SikAdapter(QThread):
                         # thi giay nay ra so am. Xin stream ngay tren duong moi —
                         # cong do cua FC co the chua ai xin, doi _stream_tick la 5 s.
                         if last_path:
-                            self._emit("text", {"severity": 4,
-                                                "text": f"MAVLink doi sang duong {path}"}, now,
+                            # Theo ke hoach (bat/xong task, cam lai radio) la INFO; chay vi
+                            # duong mang im giua task la WARNING.
+                            self._emit("text", {"severity": 6 if master.planned else 4,
+                                                "text": t("link.switched_to", path="SiK" if path == "SiK"
+                                                          else t("link.path_mang"))}, now,
                                        local=True)
                             self._stream_rx = 0.0
                         last_bytes, last_loss, last_count = total, master.mav_loss, master.mav_count
@@ -1579,7 +1610,7 @@ class SikAdapter(QThread):
             if self._log:
                 # Ngat giua chung: file dang tai phai duoc DONG, khong bo cho GC
                 # nhat — phan cuoi con trong buffer la phan vua tai xong.
-                self._log_end(master, err="ngat ket noi giua luc tai")
+                self._log_end(master, err=t("err.log_disconnected"))
             if self._tlog_f:
                 # Mo nguon xong ma khong nhan duoc goi nao (cong sai, radio chua
                 # bat) thi de lai mot file 0 byte: no khong phai chuyen bay, chi

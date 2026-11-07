@@ -873,6 +873,48 @@ def check_arm_throttle_guard(app):
     print(f"  ok  chan ARM khi ga > {THR_ARM_MAX} PWM (FC khong tu chan viec nay)")
 
 
+def check_goto_no_gps(app):
+    """"Bay toi day" khi FC dang noi ma chua co vi tri GPS: chan tai app, noi dung ly do.
+
+    Do 07/11 trong nha (GPS fix 1, 0 ve tinh, GLOBAL_POSITION_INT 0,0): FC tra
+    MISSION_ERROR 4/4 lan vi chua co goc EKF, app doan "ngoai rao? chua GUIDED?".
+    """
+    from core import authority
+    from core.field import REGISTRY
+    from laptop.commands import Commands
+
+    sent, logs = [], []
+
+    class FakeAdapter:
+        def send(self, action, args=None):
+            sent.append(action)
+            return {"ok": action}
+
+    def feed(topic, data):
+        REGISTRY.feed({"src": "sik", "topic": topic, "data": data, "ts": time.time()})
+
+    authority.register("sik", FakeAdapter())
+    c = Commands()
+    c.log.connect(lambda text, _sev: logs.append(text))
+    saved = {k: REGISTRY.fields.pop(k, None) for k in ("position.lat", "position.lon")}
+    try:
+        feed("heartbeat", {"mode": "ALT_HOLD"})
+        feed("gps", {"fix_type": 1, "sats": 0})
+        feed("position", {"lat": 0.0, "lon": 0.0, "alt_rel": 0.2})
+        c.goto(10.82, 106.68, 20)
+        assert sent == [], f"chua co GPS ma van gui: {sent}"
+        assert "GPS" in logs[-1] and "fix 1" in logs[-1] and "0 vệ tinh" in logs[-1], logs
+        feed("position", {"lat": 10.8221, "lon": 106.6868})
+        c.goto(10.82, 106.68, 20)
+        assert sent == ["mode", "goto"], f"co vi tri roi ma khong gui: {sent}"
+    finally:
+        authority.unregister("sik")
+        for k, f in saved.items():
+            if f is not None:
+                REGISTRY.fields[k] = f
+    print("  ok  bay toi day: FC chua co vi tri GPS thi chan tai app, noi fix/so ve tinh")
+
+
 def check_disarm_hold(app):
     """DISARM hai bac: bam mot lan = lenh thuong, bam lai trong 3s = force 21196.
 
@@ -1820,7 +1862,7 @@ def check_wp_write(app):
         ad._wp_up_tick(master, time.time())
     assert len(master.mav.counts) == WP_UP_TRIES, master.mav.counts
     assert ad._up is None and got[-1]["data"]["write"]["ok"] is False, got[-1]
-    assert "khong tra loi" in got[-1]["data"]["write"]["err"], got[-1]
+    assert "không trả lời" in got[-1]["data"]["write"]["err"], got[-1]
 
     # Tran: dat 60 diem thi chi 50 cai len duong, khong phai 60. Cong 3 muc tu
     # chen (home + TAKEOFF + LAND) = 53, va do phai bang WP_ITEMS_MAX — khong
@@ -2262,47 +2304,55 @@ def check_copy_tiles(app):
 
 
 def check_dual_link(app):
-    """Profile hai duong (dien thoai: SiK OTG + mang): SiK im thi tu sang mang.
+    """Profile hai duong (dien thoai: SiK OTG + mang) — luat chon duong user chot 07/11/2026.
 
     SikAdapter that, hai nguon UDP gia cung la "FC" — lat 1 qua duong SiK, lat 2 qua
-    duong mang, de biet goi nao di duong nao. 1,5 s dau ca hai noi; sau do SiK chi
-    con heartbeat cua MAVROS (1/191) — no van den khi drone ra ngoai tam, khong
-    duoc tinh la FC con song.
+    duong mang, de biet goi nao di duong nao. Luc SiK "im" thi tren cong SiK chi con
+    heartbeat cua MAVROS (1/191) — no van den khi drone ra ngoai tam, khong duoc tinh
+    la FC con song. BACK_S ha xuong 1 s cho bai chay nhanh. Kich ban (giay):
+      0-1.5   ca hai, khong task   -> SiK
+      1.5-3   chi mang, khong task -> mang (du phong), truoc nguong mat link
+      3-5     ca hai, khong task   -> giu mang toi khi SiK song lien tuc BACK_S, roi ve SiK
+      5-6.5   ca hai, task chay    -> mang
+      6.5-8   ca hai, task xong    -> SiK
+    Cac nhanh con lai (mat 4G giua task, cam lai radio giua task...) do bang _pick o duoi.
     """
     from PySide6.QtCore import QTimer
     from pymavlink import mavutil
-    from core.adapters.sik import STALE, STREAMS, stream_table
+    import core.adapters.sik as sik_mod
+    from core.adapters.sik import STALE, STREAMS, DualLink, stream_table
     from laptop import connection
 
     sik_port, net_port = PORT + 20, PORT + 21
-    lats, texts, paths = [], [], []
-    lat_t, sik_end = [], []  # (luc toi, lat); luc FC ngung noi tren SiK
+    texts, lat_t = [], []  # (luc toi, lat)
+    marks = {}             # ten moc -> luc sender bat dau pha do
+    back_s, sik_mod.BACK_S = sik_mod.BACK_S, 1.0
     adapter = SikAdapter({"name": "dual", "mode": "REAL", "bridge": True,
                           "conn": f"udpin:127.0.0.1:{sik_port}",
                           "conn2": f"udpin:127.0.0.1:{net_port}"})
-    adapter.envelope.connect(lambda e: lats.append(e["data"]["lat"])
-                             if e["topic"] == "position" else None)
     adapter.envelope.connect(lambda e: lat_t.append((time.time(), e["data"]["lat"]))
                              if e["topic"] == "position" else None)
-    adapter.envelope.connect(lambda e: texts.append(e["data"]["text"])
+    adapter.envelope.connect(lambda e: texts.append((e["data"]["severity"], e["data"]["text"]))
                              if e["topic"] == "text" else None)
-    adapter.envelope.connect(lambda e: paths.append(e["data"].get("path"))
-                             if e["topic"] == "link" else None)
     adapter.start()
     stop = threading.Event()
+    both = (sik_port, net_port)
+    # (moc bat dau, ten, cong FC dang noi, task chay)
+    plan = [(0.0, "a", both, False), (1.5, "b", (net_port,), False), (3.0, "c", both, False),
+            (5.0, "d", both, True), (6.5, "e", both, False)]
 
     def sender():
         time.sleep(0.4)  # cho adapter bind cong
         fc = {port: mavutil.mavlink_connection(f"udpout:127.0.0.1:{port}", source_system=1,
                                                source_component=1)
-              for port in (sik_port, net_port)}
+              for port in both}
         mavros = mavutil.mavlink_connection(f"udpout:127.0.0.1:{sik_port}", source_system=1,
                                             source_component=191)
         t0 = time.time()
         while not stop.is_set():
-            ports = (sik_port, net_port) if time.time() - t0 < 1.5 else (net_port,)
-            if len(ports) == 1 and not sik_end:
-                sik_end.append(time.time())
+            _, name, ports, auto = [p for p in plan if time.time() - t0 >= p[0]][-1]
+            marks.setdefault(name, time.time())
+            adapter.autonomous = auto  # app that: MainWindow._on_mission, main thread
             for port in ports:
                 fc[port].mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_QUADROTOR,
                                             mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0)
@@ -2313,37 +2363,81 @@ def check_dual_link(app):
             time.sleep(0.1)
 
     threading.Thread(target=sender, daemon=True).start()
-    QTimer.singleShot(6000, app.quit)
-    app.exec()
-    stop.set()
-    adapter.stop()
+    QTimer.singleShot(8800, app.quit)
+    try:
+        app.exec()
+    finally:
+        stop.set()
+        adapter.stop()
+        sik_mod.BACK_S = back_s
 
-    assert lats and lats[0] == 1.0, f"luc dau phai di duong SiK: {lats[:5]}"
-    k = lats.index(2.0) if 2.0 in lats else None
-    assert k is not None, f"SiK im ma khong sang duong mang: {sorted(set(lats))}"
-    assert set(lats[k:]) == {2.0}, "tron goi hai duong sau khi doi"
-    assert any("mang" in t for t in texts), f"doi duong ma khong bao: {texts}"
-    assert paths and paths[-1] == "mang", paths
-    # Doi xong TRUOC khi man hinh coi la mat link (STALE): khong thi moi lan rut
-    # radio, loa doc "Mat tin hieu" roi 4G moi nhan (do 24/10: 4/5 lan).
-    gap = next(ts for ts, la in lat_t if la == 2.0 and ts > sik_end[0]) - sik_end[0]
-    assert gap < STALE - 0.5, f"doi sang mang sau {gap:.2f} s, sat nguong mat link {STALE} s"
+    def lats(t1, t2):
+        return [la for ts, la in lat_t if t1 <= ts < t2]
 
-    # SiK CHUA TUNG nghe FC (chua cam radio) thi khong duoc sang mang, du mang song.
-    from core.adapters.sik import DualLink
+    m = marks
+    assert set(lats(m["a"], m["b"])) == {1.0}, f"luc dau phai di SiK: {set(lats(m['a'], m['b']))}"
+    sw = next((ts for ts, la in lat_t if la == 2.0 and ts > m["b"]), None)
+    assert sw is not None and sw < m["c"], "mat SiK (khong task) ma khong sang mang du phong"
+    # Doi TRUOC khi man hinh coi la mat link (STALE) — do 24/10: cung nguong thi loa doc
+    # "Mat tin hieu" roi duong kia moi nhan (4/5 lan).
+    assert sw - m["b"] < STALE - 0.5, f"sang mang sau {sw - m['b']:.2f} s, sat nguong {STALE} s"
+    assert set(lats(m["c"] + 0.1, m["c"] + 0.7)) == {2.0}, \
+        "SiK vua co lai da quay ve ngay — o ria tam song se nhay qua lai"
+    back = lats(m["c"] + 1.6, m["d"])
+    assert back and set(back) == {1.0}, f"SiK co lai on dinh ma khong ve: {set(lats(m['c'], m['d']))}"
+    late = lats(m["d"] + 0.5, m["e"])
+    assert late and set(late) == {2.0}, f"bat task ma khong sang mang: {set(lats(m['d'], m['e']))}"
+    done = lats(m["e"] + 0.5, m["e"] + 1.5)
+    assert done and set(done) == {1.0}, f"task xong ma khong ve SiK: {set(lats(m['e'], m['e'] + 1.5))}"
+    names = [txt for _, txt in texts]
+    assert any("Mạng" in x for x in names) and any("SiK" in x for x in names), names
+    assert (4, t("link.switched_to", path=t("link.path_mang"))) in texts, \
+        f"sang mang vi mat SiK phai la WARNING: {texts}"
+    assert (6, t("link.switched_to", path="SiK")) in texts, f"ve SiK theo ke hoach phai INFO: {texts}"
 
+    # Luat _pick tung truong hop, khong phu thuoc nhip mang.
     class Quiet:
         def recv_match(self, blocking=False):
             return None
 
-    d = DualLink([Quiet(), Quiet()], stale=0.0)
+    want = [False]
+    d = DualLink([Quiet(), Quiet()], stale=1.0, want_net=lambda: want[0])
     d.t0 = 0.0
-    d.rx = [0.0, time.time()]
+    now = time.time()
+    old = now - 10   # song lien tuc tu lau
+    fresh = now - 0.5  # vua song lai, chua du BACK_S
+    want[0] = True
+    d.rx, d.up = [0.0, now], [0.0, old]
     d._pick()
-    assert d.path == "SiK", "chua noi duoc SiK ma da cho bay qua LTE"
-    d.rx = [time.time() - 5, time.time()]
+    assert d.path == "SiK", "chua noi duoc SiK ma da cho bay qua LTE (user chot 19/10)"
+    want[0] = False
+    d.rx = [now - 5, now]
     d._pick()
-    assert d.path == "mang", "SiK da tung noi roi im ma khong sang mang"
+    assert d.path == "mang" and not d.planned, "khong task, mat SiK ma khong sang mang du phong"
+    d.rx, d.up = [now, now], [fresh, old]
+    d._pick()
+    assert d.path == "mang", "SiK vua co lai < BACK_S da ve"
+    d.up = [old, old]
+    d._pick()
+    assert d.path == "SiK" and d.planned, "SiK co lai on dinh ma khong ve"
+    want[0] = True
+    d._pick()
+    assert d.path == "mang" and d.planned, "task chay, mang song ma khong sang"
+    d._pick()
+    assert d.path == "mang", "SiK con khoe giua task ma lai bo mang"
+    d.rx = [now, now - 5]
+    d._pick()
+    assert d.path == "SiK" and not d.planned, "mang im giua task, SiK con ma khong tam ve"
+    d.rx, d.up = [now, now], [old, fresh]
+    d._pick()
+    assert d.path == "SiK", "mang vua co lai < BACK_S da sang"
+    d.up = [old, old]
+    d._pick()
+    assert d.path == "mang", "mang co lai on dinh giua task ma khong sang lai"
+    want[0] = False
+    d.rx = [now - 5, now]
+    d._pick()
+    assert d.path == "mang", "task xong ma SiK chua co: phai o mang cho, khong bo trong"
 
     # Dien thoai thay DUNG mot profile ket noi, va no la profile hai duong.
     saved = connection.ANDROID
@@ -5076,6 +5170,7 @@ if __name__ == "__main__":
     check_field(app)
     check_authority(app)
     check_arm_throttle_guard(app)
+    check_goto_no_gps(app)
     check_disarm_hold(app)
     check_widgets(app)
     check_remote(app)

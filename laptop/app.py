@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
         self._lte_pending = None
         self._sik_beat = 0.0  # lan cuoi heartbeat FC ve qua SiK — xem _from_remote
         bus.on("heartbeat", self._on_heartbeat)
+        bus.on("mission", self._on_mission)
 
         # Rut day USB giua chung: giu nguon cu, quet cong moi giay, thay dung thiet
         # bi do cam lai thi tu noi. Chi cho cong serial — tcp/udp da co
@@ -381,6 +382,16 @@ class MainWindow(QMainWindow):
         url = video_url(profile)
         if url:
             self.video.start(url, profile.get("status"), profile.get("feedback"))
+
+    def _on_mission(self, env):
+        """Task tu hanh -> DualLink di 4G toi khi bridge bao XONG (`running` rong).
+
+        Doc thang tu bus, KHONG qua REGISTRY: bridge im qua STALE (4G chap chon) khong phai
+        "task xong" — tha luc do la quay ve SiK trong khi drone co the dang ngoai tam radio.
+        Adapter moi (noi lai) bat dau False, bridge bao lai moi giay nen <= 1 s la dung lai.
+        """
+        if self.adapter is not None and "running" in env["data"]:
+            self.adapter.autonomous = bool(env["data"]["running"])
 
     def _on_heartbeat(self, env):
         """Heartbeat dau tien cua FC qua SiK -> moi mo nua LTE (task, video).

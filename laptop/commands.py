@@ -228,6 +228,15 @@ class Commands(QObject):
         """
         if why := self.task_block():
             return self.say("fly.goto_blocked", 4, why=why)
+        # FC dang noi ma khong co vi tri (GLOBAL_POSITION_INT 0,0 -> Registry bo): chua co
+        # goc EKF thi ArduCopter khong doi duoc lat/lon ra met (AC_WPNav::get_vector_NEU)
+        # va tra MISSION_ERROR. Do 07/11 trong nha (GPS fix 1, 0 ve tinh): 4/4 lan bi
+        # tu choi, app doan "ngoai rao? chua GUIDED?" — sai ca hai. Mat telemetry (mode
+        # None) thi khong biet, van gui nhu cu.
+        if REGISTRY.value("heartbeat.mode") and REGISTRY.value("position.lat") is None:
+            return self.say("fly.goto_blocked", 4, why=t(
+                "fly.no_gps", fix=REGISTRY.value("gps.fix_type", "?"),
+                sats=REGISTRY.value("gps.sats", "?")))
         authority.dispatch({"target": "sik", "action": "mode", "args": {"name": "GUIDED"}})
         self._soft(t("act.goto", lat=lat, lon=lon, alt=float(alt)), authority.dispatch(
             {"target": "sik", "action": "goto",
