@@ -39,7 +39,7 @@ from core.i18n import t
 from laptop import theme
 
 from laptop.commands import (  # noqa: F401 — selfcheck import tu day
-    ACK_CMD, ACK_TIMEOUT, CLIMB_CHECK_S, MODES, RNG_GROUND_CM, THR_ARM_MAX, Commands)
+    ACK_CMD, ACK_TIMEOUT, CLIMB_CHECK_S, MODES, RNG_GROUND_CM, THR_ZERO_MAX, Commands)
 
 # Ten node nhiem vu ben repo ROS2 -> ten doc duoc. Chi con dung de dich mot chuoi
 # trang thai companion bao len; laptop khong khoi dong nhiem vu nao nua.

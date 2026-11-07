@@ -29,6 +29,8 @@ BAUD = int(os.environ.get("HITL_BAUD", "57600"))
 # that (connection.py dat bridge=False cho cong CDC cua FC). Do that 18/10 15:53:
 # ga doc 988 luc 0,70 s, ARM gui 1,17 s, that ra ga da 1470 -> FC tu choi.
 BRIDGE = "ttyUSB" in PORT
+# Ga FC coi la 0 (RC3_MIN + RC3_DZ) — cung so voi app.
+from laptop.commands import THR_ZERO_MAX  # noqa: E402
 
 
 def ready(rc, hold=[None, 0.0]):
@@ -40,7 +42,7 @@ def ready(rc, hold=[None, 0.0]):
         hold[0] = None
     hold[1] = now
     g, y = rc.get("RC_CHANNELS.chan3_raw"), rc.get("RC_CHANNELS.chan4_raw")
-    if g is None or y is None or g >= 1150 or abs(y - 1500) > 30:
+    if g is None or y is None or g > THR_ZERO_MAX or abs(y - 1500) > 30:
         hold[0] = None
         return False
     hold[0] = hold[0] or now
@@ -169,14 +171,13 @@ def kb7(do_arm):
     before = (m.flightmode, armed_of(hb))
     print(f"  truoc  : mode={before[0]}  armed={before[1]}")
     if do_arm:
-        # Doi ga ve min truoc khi ARM. KHONG phai vi FC bat buoc — do roi: FC arm
-        # tuot voi ga 1496. Ma vi chinh app chan (THR_ARM_MAX), va vi arm o ga
-        # giua tam la dong co quay len that.
+        # Doi ga ve min truoc khi ARM: arm o ga giua tam la dong co quay len that, va
+        # mode ga tay (STABILIZE) thi FC tu choi khi ga > THR_ZERO_MAX.
         print("  >>> HA GA VE MIN VA GIU (~20s) — dang cho...", flush=True)
         t0 = time.time()
         while time.time() - t0 < 90:
             rc = m.recv_match(type="RC_CHANNELS", blocking=True, timeout=3)
-            if rc and rc.chan3_raw < 1150:
+            if rc and rc.chan3_raw <= THR_ZERO_MAX:
                 print(f"  ga = {rc.chan3_raw} — bat dau", flush=True)
                 break
         else:
@@ -503,20 +504,19 @@ def _armcycle_body(ct, hb, status, ga, spin, press, cycles):
         print(f"  KHONG tu disarm sau 25s — dong ho bi reset lien tuc")
         press(ct.btn_disarm, "DISARM don dep")
 
-    print("\n--- C. ARM khi ga cao: app phai chan, FC thi khong ---")
-    # Truoc khi co chot chan nay, chay chang C la dong co quay that: do luc 22:35,
-    # ga 1496 -> ack=0 -> motor 1654/1506/1347/1080, vi ArduCopter chi kiem ga THAP
-    # hon nguong failsafe (AP_Arming.cpp:81-115). Gio app chan tu tren nen chang
-    # nay khong con byte nao di xuong FC — an toan de chay moi lan.
-    print("  >>> DAY GA LEN GIUA TAM — dang cho...", flush=True)
-    if spin(90, lambda: (ga() or 0) > 1400):
+    print("\n--- C. ARM khi ga CAO: app gui, FC phai tu choi ---")
+    # Tu 07/11/2026 app khong chan theo ga (Commands.arm) — FC kiem: tren mep vung chet
+    # giua (~1609 tren FC that) la "Throttle too high" o MOI mode. Duoi muc do o ALT_HOLD/
+    # LOITER thi FC ARM that (RC_OPTIONS = 0), nen chang nay doi ga > 1700. THAO CANH.
+    print("  >>> DAY GA LEN CAO (> 1700) — dang cho...", flush=True)
+    if spin(90, lambda: (ga() or 0) > 1700):
         print(f"  ga = {ga()}")
         res = press(ct.btn_arm, "ARM (ga cao)")
-        assert res is None, f"co ack tuc la lenh DA di xuong FC: {res}"
-        assert not hb["armed"], "FC armed — chot chan khong giu"
-        print("  -> khong co ack: lenh dung lai o app, khong xuong FC")
+        assert res not in (None, 0), f"FC phai tra loi TU CHOI (ack != 0), nhan {res}"
+        assert not hb["armed"], "FC ARM o ga cao — kiem RC (ARMING_CHECK) dang tat tren FC?"
+        print(f"  -> FC tu choi (ack={res}), drone khong ARM")
     else:
-        print("  bo qua chang C: ga khong len")
+        print("  bo qua chang C: ga khong len toi 1700")
 
     print("\n--- D. lenh thua ---")
     print("  >>> HA GA VE MIN VA GIU — dang cho...", flush=True)

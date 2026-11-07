@@ -805,16 +805,15 @@ def check_authority(app):
 
 
 def check_arm_throttle_guard(app):
-    """ARM bi chan khi can ga chua ve min.
+    """ARM KHONG bi app chan theo ga — FC tu kiem; app chi ghi vi tri ga.
 
-    Chot nay o phia app vi FC khong co: `AP_Arming.cpp:81-115` chi kiem ga THAP
-    hon nguong failsafe. Do that tren MicoAir743 luc 22:35: ga 1496 -> ack=0 ->
-    dong co ra 1654/1506/1347/1080. Khong biet vi tri ga thi VAN gui — mat
-    RC_CHANNELS ma khoa luon nut ARM la doi mot kieu hong lay mot kieu hong khac.
+    Tu 07/11/2026 (Commands.arm): FC that tu choi "Throttle too high" tren ~1609 va o
+    STABILIZE khi ga > 1013; ga lo xo o giua o ALT_HOLD thi ARM duoc — dung y nguoi bay.
+    Nut laptop va thanh truot man cam ung di chung mot duong.
     """
     from core import authority
 
-    from laptop.tabs.control import THR_ARM_MAX, ControlTab
+    from laptop.tabs.control import THR_ZERO_MAX, ControlTab
 
     sent = []
 
@@ -829,32 +828,23 @@ def check_arm_throttle_guard(app):
     logs = []
     ct.log.connect(lambda text, _sev: logs.append(text))
     try:
-        # Chua thay RC bao gio: van phai gui duoc
+        # Chua thay RC bao gio: van gui, va noi ra
         ct.btn_arm.click()
         assert sent == ["arm"], sent
         assert "chưa thấy RC_CHANNELS" in logs[0], logs
 
+        # Ga lo xo o giua: van gui, ghi vi tri ga (de doc lai sau su co)
         bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
         sent.clear(); logs.clear()
         ct.btn_arm.click()
-        assert not sent, "ga 1496 ma van gui ARM"
-        assert "CHẶN" in logs[0] and "1496" in logs[0], logs
+        assert sent == ["arm"], f"ga 1496 ma app chan ARM — FC moi la noi kiem: {sent}"
+        assert "1496" in logs[0] and "FC tự kiểm ga" in logs[0], logs
 
-        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": THR_ARM_MAX + 1})
-        sent.clear()
-        ct.btn_arm.click()
-        assert not sent, f"ga {THR_ARM_MAX + 1} (tren nguong 1 don vi) ma van gui"
-
-        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 993})
+        # O dung muc FC coi la 0: gui, khong ghi gi them
+        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": THR_ZERO_MAX})
         sent.clear(); logs.clear()
         ct.btn_arm.click()
-        assert sent == ["arm"], f"ga 993 la o min, phai gui duoc: {logs}"
-
-        # Thanh truot man cam ung: truot het la xac nhan, ga cao van gui (co canh bao)
-        bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
-        sent.clear(); logs.clear()
-        ct.cmd.arm(thr_check=False)
-        assert sent == ["arm"] and "1496" in logs[0], (sent, logs)
+        assert sent == ["arm"] and not any("chưa về min" in x for x in logs), (sent, logs)
 
         # Ga cu qua thi khong con la bang chung: gui, nhung phai noi ra
         ct.cmd._thr = (1496, time.time() - 30)
@@ -862,7 +852,7 @@ def check_arm_throttle_guard(app):
         ct.btn_arm.click()
         assert sent == ["arm"] and "quá cũ" in logs[0], (sent, logs)
 
-        # DISARM khong bao gio bi chot nay dung toi
+        # DISARM khong bao gio bi ga dung toi
         bus.emit("sik", "status", {"RC_CHANNELS.chan3_raw": 1496})
         sent.clear()
         ct.btn_disarm.click()
@@ -870,7 +860,7 @@ def check_arm_throttle_guard(app):
     finally:
         authority.unregister("sik")
         ct.close()
-    print(f"  ok  chan ARM khi ga > {THR_ARM_MAX} PWM (FC khong tu chan viec nay)")
+    print(f"  ok  ARM khong bi app chan theo ga (FC tu kiem), ghi vi tri ga khi > {THR_ZERO_MAX} PWM")
 
 
 def check_goto_no_gps(app):

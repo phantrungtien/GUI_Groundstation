@@ -214,14 +214,8 @@ STR = {
                       "ARM: no RC_CHANNELS yet, throttle position unknown — sending anyway"),
     "log.arm_rc_old": ("ARM: vị trí ga quá cũ ({age:.0f}s) — vẫn gửi",
                        "ARM: throttle reading is {age:.0f}s old — sending anyway"),
-    "log.arm_blocked": (
-        "ARM: CHẶN — hạ ga về min trước (đang {pwm:.0f} PWM, cần dưới {max}). "
-        "FC không tự chặn: bấm ARM lúc này là động cơ quay ngay lên đúng mức ga đó.",
-        "ARM: BLOCKED — lower the throttle to min first (now {pwm:.0f} PWM, needs to be "
-        "under {max}). The FC will not block this: arming now spins the motors straight "
-        "up to that throttle."),
-    "log.arm_thr_high": ("ARM: ga đang {pwm:.0f} PWM (chưa về min) — vẫn gửi theo xác nhận trượt",
-                         "ARM: throttle at {pwm:.0f} PWM (not at min) — sending on slide confirm"),
+    "log.arm_thr_high": ("ARM: ga đang {pwm:.0f} PWM (chưa về min) — vẫn gửi, FC tự kiểm ga",
+                         "ARM: throttle at {pwm:.0f} PWM (not at min) — sending, the FC checks it"),
     # --- loi adapter / duong truyen tra ve (hien o "TU CHOI — {why}", tab Thong bao) ---
     "err.replay_no_cmd": ("chế độ REPLAY không gửi được lệnh", "REPLAY mode cannot send commands"),
     "err.sik_not_connected": ("đường SiK chưa kết nối", "the SiK link is not connected"),

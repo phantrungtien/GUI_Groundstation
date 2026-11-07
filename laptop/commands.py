@@ -28,10 +28,10 @@ ACK_CMD = {400: "ARM/DISARM", 22: "TAKEOFF", 20: "RTL", 21: "LAND", 176: "cmd.mo
            16: "goto"}
 ACK_TIMEOUT = 3.0  # giay cho FC tra loi truoc khi coi la khong co phan hoi
 
-# Nguong ga (PWM) coi la "o min" khi cho phep ARM. Khung dang bay: RC3_MIN = 989,
-# THR_DZ = 100 -> het vung chet o 1089; 1150 la con so do cong them mot chut du.
-# Doi radio hay doi khung thi doc lai hai tham so do va sua o day.
-THR_ARM_MAX = 1150
+# Ga (PWM) FC coi la 0: RC3_MIN + RC3_DZ. FC that doc 07/11/2026: 983 + 30 = 1013.
+# Tren muc nay app chi GHI vi tri ga khi ARM (khong chan — xem Commands.arm). Doi radio
+# hay hieu chinh lai RC thi doc lai hai tham so do va sua o day.
+THR_ZERO_MAX = 1013
 
 # FC nhac ly do PreArm moi ~31 s (do that log 144628): giu 40 s de dong ly do khong
 # nhap nhay giua hai lan nhac.
@@ -171,27 +171,23 @@ class Commands(QObject):
 
     # ---- lenh thuong: di qua kiem tra quyen ------------------------------
 
-    def arm(self, *, thr_check=True):  # keyword-only: clicked(bool) cua Qt khong duoc lot vao day
-        """ARM, nhung chan khi can ga chua ve min.
+    def arm(self):
+        """ARM. App KHONG chan theo ga — FC tu kiem; app chi ghi vi tri ga de doc lai.
 
-        `thr_check=False`: thanh truot man cam ung — nguoi bay da truot het de xac
-        nhan, nen ga cao chi ghi canh bao roi VAN gui.
-
-        FC KHONG chan viec nay: `AP_Arming.cpp:81-115` chi kiem ga co THAP hon
-        nguong failsafe khong, khong he kiem ga cao — kiem "ga qua cao" chi ap cho
-        arm bang can lai. Do that luc 22:35 tren MicoAir743: ga 1496 -> `ack=0` ->
-        dong co vot thang len 1654/1506/1347/1080. Thao canh thi do la tieng on;
-        lap canh thi khong.
+        FC that (Pixhawk 6C, kiem RC bat) do 07/11/2026: ga tren mep vung chet giua
+        (~1609) -> "Arm: Throttle too high" o moi mode; STABILIZE (ga tay) ma ga > 1013
+        cung tu choi; ALT_HOLD/LOITER/GUIDED voi ga lo xo o giua (1497) -> ARM, dong co
+        1083-1134 (khong vot). RC_OPTIONS = 0 (bo "ga phai ve 0") de can lo xo ARM duoc.
+        Truoc 07/11 app chan ga > 1150 — sau lan 22:35 tren MicoAir743 FC ARM o ga 1496
+        roi dong co vot 1654; chot do lam can lo xo khong bao gio ARM duoc. FC nao TAT
+        kiem RC (ARMING_CHECK) thi lai la chuyen 22:35: bat lai kiem RC tren FC.
         """
         thr = self._thr
         if thr is None:
             self.say("log.arm_no_rc", 4)
         elif time.time() - thr[1] > STALE:
             self.say("log.arm_rc_old", 4, age=time.time() - thr[1])
-        elif thr[0] > THR_ARM_MAX:
-            if thr_check:
-                self.say("log.arm_blocked", 3, pwm=thr[0], max=THR_ARM_MAX)
-                return
+        elif thr[0] > THR_ZERO_MAX:
             self.say("log.arm_thr_high", 4, pwm=thr[0])
         self.cmd("arm")
 
