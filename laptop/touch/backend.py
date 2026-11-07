@@ -37,7 +37,6 @@ from laptop.voice import Voice
 
 LIVE = ("REAL", "SIM")
 DIVERGE_M = 5.0  # hai nguon vi tri lech hon chung nay thi keu — giong tab Bay cu
-PREARM_KEEP_S = 40.0  # FC nhac ly do PreArm moi ~31 s (do that log 144628)
 AMPS_TAU_S = 5.0  # lam muot dong dien: ga nhay mot phat thi so phut khong nhay theo
 VOLT_TAU_S = 3.0  # lam muot dien ap: mot cu day ga sut ap thi chua bao "pin yeu"
 
@@ -122,13 +121,7 @@ class Backend(QObject):
         bus.on("param", lambda e: self._params.update(e["data"]))
         bus.on("text", self._on_text)
         bus.on("link", lambda e: self._link.update(e["data"]) if e["src"] == SikAdapter.SRC else None)
-        # San sang ARM: bit PREARM_CHECK trong SYS_STATUS — cung nguon Mission
-        # Planner/QGC dung. Do that 19/09 tren MicoAir743: log 144628 co loi
-        # PreArm -> bit False ca phien; log 155159 khong loi -> True tu giay dau.
-        # Doc tu topic `status` qua bus: REGISTRY bo qua topic nay (SKIP_TOPICS).
-        self._prearm = None     # ("ok"/"fail"/..., ts)
-        self._prearm_why = {}   # ly do PreArm FC vua noi -> ts
-        bus.on("status", self._on_status)
+        # San sang ARM: Commands theo doi (fc_ready) — chung voi chot giao task.
         i18n.signals.changed.connect(lambda _l: self.langChanged.emit())
 
         self._timer = QTimer(self)
@@ -417,29 +410,17 @@ class Backend(QObject):
         if isinstance(text, bytes):
             text = text.decode("utf-8", "replace")
         self.alerts.push(text, env["data"].get("severity", 6))
-        if text.startswith("PreArm:"):
-            self._prearm_why[text[len("PreArm:"):].strip()] = time.time()
-
-    def _on_status(self, env):
-        s = env["data"].get("SENSOR.prearm_check")
-        if s is not None:
-            self._prearm = (s, time.time())
 
     def _ready(self, armed):
         """(key, ly do) cho dong "san sang ARM". None = khong hien.
 
-        Chi hien khi dang ket noi, CHUA ARM va bit con tuoi. Ly do lay tu cac dong
-        "PreArm: ..." FC nhac lai moi ~31 s; giu 40 s de khong nhap nhay giua hai
-        lan nhac, va bo sach khi FC bao da san sang.
+        Chi hien khi dang ket noi, CHUA ARM va bit con tuoi (xem Commands.fc_ready).
         """
-        if not self.profile or armed or self._prearm is None \
-                or time.time() - self._prearm[1] > STALE:
+        ok, why = self.cmd.fc_ready()
+        if not self.profile or armed or ok is None:
             return None
-        if self._prearm[0].startswith("ok"):
-            self._prearm_why.clear()
+        if ok:
             return {"ok": True, "text": t("touch.ready_arm")}
-        now = time.time()
-        why = [w for w, ts in self._prearm_why.items() if now - ts < PREARM_KEEP_S]
         return {"ok": False, "text": t("touch.not_ready_arm") + (": " + "; ".join(why) if why else "")}
 
     def _warns(self, armed, left, dist):
@@ -752,7 +733,7 @@ class Backend(QObject):
             self.profile = self.mode = self.adapter = None
             self.last_seen.clear()
             self._link.clear()
-            self._prearm, self._prearm_why = None, {}
+            self.cmd.fc_forget()
             # Xoa luon so lieu cu. `map.reset()` co xoa home, nhung `refresh()` chay
             # 5 Hz va no doc thang REGISTRY: con vi tri cu trong do la 200 ms sau no
             # DUNG LAI mot home moi ngay tai cho drone vua dung — X tren ban do nam

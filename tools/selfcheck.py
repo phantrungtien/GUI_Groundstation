@@ -915,6 +915,74 @@ def check_goto_no_gps(app):
     print("  ok  bay toi day: FC chua co vi tri GPS thi chan tai app, noi fix/so ve tinh")
 
 
+def check_auto_block(app):
+    """Bat task / giao diem chay chi khi FC san sang; huy task thi luon di.
+
+    Do 07/11/2026 15:18: FC bao "PreArm: GPS 1: Bad fix" + "Radio failsafe on" ma app van
+    bat task va giao diem chay — chi con FC tu choi ARM chan lai.
+    """
+    from core import authority
+    from core.field import REGISTRY
+    from laptop.commands import Commands
+
+    rsent, logs = [], []
+
+    class FakeRemote:
+        def send(self, action, args=None):
+            rsent.append(action)
+            return {"ok": action}
+
+    def feed(topic, data):
+        REGISTRY.feed({"src": "sik", "topic": topic, "data": data, "ts": time.time()})
+
+    def prearm(state, why=None):
+        bus.emit("sik", "status", {"SENSOR.prearm_check": state})
+        if why:
+            bus.emit("sik", "text", {"severity": 2, "text": f"PreArm: {why}"})
+
+    keys = ("heartbeat.mode", "heartbeat.armed", "position.lat", "position.lon")
+    saved = {k: REGISTRY.fields.pop(k, None) for k in keys}
+    authority.register("remote", FakeRemote())
+    c = Commands()
+    c.log.connect(lambda text, _sev: logs.append(text))
+
+    def try_all():
+        rsent.clear()
+        c.task("fire_mission")
+        c.fire_target(10.82, 106.68, 5.0, 3.0, 2.0)
+        return list(rsent)
+
+    try:
+        assert try_all() == [] and "telemetry" in logs[-1], ("khong co FC ma van giao", logs[-1:])
+        c.task("")
+        assert rsent == ["mission"], f"huy task phai LUON di: {rsent}"
+
+        feed("heartbeat", {"mode": "POSHOLD", "armed": False})
+        feed("gps", {"fix_type": 1, "sats": 0})
+        assert try_all() == [] and "GPS" in logs[-1], ("chua GPS ma van giao", logs[-1:])
+
+        feed("position", {"lat": 10.8221, "lon": 106.6868})
+        prearm("fail", "Radio failsafe on")
+        assert try_all() == [], "PREARM loi ma van giao"
+        assert "chưa sẵn sàng" in logs[-1] and "Radio failsafe on" in logs[-1], logs[-1:]
+
+        prearm("ok")
+        assert try_all() == ["mission", "fire_target"], f"FC san sang ma khong giao: {rsent}"
+
+        # Dang bay giua task (da ARM): bit PREARM khong con la cau hoi, chi can vi tri.
+        feed("heartbeat", {"mode": "GUIDED", "armed": True})
+        prearm("fail")
+        assert try_all() == ["mission", "fire_target"], f"dang bay ma chan diem chay moi: {rsent}"
+    finally:
+        authority.unregister("remote")
+        for k, f in saved.items():
+            REGISTRY.fields.pop(k, None)
+            if f is not None:
+                REGISTRY.fields[k] = f
+    print("  ok  bat task / diem chay: chan khi khong telemetry, chua GPS, PREARM loi (kem ly do); "
+          "huy task luon di; dang bay chi can vi tri")
+
+
 def check_disarm_hold(app):
     """DISARM hai bac: bam mot lan = lenh thuong, bam lai trong 3s = force 21196.
 
@@ -3058,6 +3126,23 @@ def check_touch(app):
             wait(100)
 
         authority.register("remote", FakeRemote())
+        # FC san sang (chot auto_block 07/11: telemetry + vi tri + PREARM ok) suot doan task.
+        # Vi tri = cho drone dang dung tren ban do, de cac bai theo pixel khong xe dich.
+        here = m.pos
+
+        def fc_ok():
+            now = time.time()
+            REGISTRY.feed({"src": "sik", "topic": "heartbeat", "ts": now,
+                           "data": {"mode": "LOITER", "armed": False}})
+            REGISTRY.feed({"src": "sik", "topic": "position", "ts": now,
+                           "data": {"lat": here[0], "lon": here[1]}})
+            bus.emit_envelope({"src": "sik", "topic": "status", "ts": now,
+                               "data": {"SENSOR.prearm_check": "ok"}})
+
+        fc_tick = QTimer()
+        fc_tick.timeout.connect(fc_ok)
+        fc_tick.start(300)
+        fc_ok()
         task_btn = root.findChild(QQuickItem, "taskBtn")
         fire = root.findChild(QQuickItem, "wpFire")
         assert task_btn is not None and task_btn.isVisible(), "khong thay nut ⚑ Chua chay"
@@ -3201,6 +3286,7 @@ def check_touch(app):
         assert win.control_tab.mission_now.text() == t("ctl.mission_none"), (
             f"bridge im ma tab Dieu khien van bao: {win.control_tab.mission_now.text()}")
         authority.unregister("remote")
+        fc_tick.stop()
         root.setProperty("wpOpen", False)
         root.setProperty("pending", "")
         wait(50)
@@ -3564,7 +3650,7 @@ def check_touch_flight(app):
         b.refresh()
         assert b.state["ready"] == {"ok": True, "text": "SẴN SÀNG ARM"}, b.state["ready"]
         assert b.state["status"] == "Sẵn sàng", b.state["status"]
-        assert not b._prearm_why, "da san sang ma con giu ly do PreArm cu"
+        assert not b.cmd._prearm_why, "da san sang ma con giu ly do PreArm cu"
         from PySide6.QtQuick import QQuickItem
         app.processEvents()
         bar = win.touch_view.rootObject().findChild(QQuickItem, "readyBar")
@@ -5171,6 +5257,7 @@ if __name__ == "__main__":
     check_authority(app)
     check_arm_throttle_guard(app)
     check_goto_no_gps(app)
+    check_auto_block(app)
     check_disarm_hold(app)
     check_widgets(app)
     check_remote(app)

@@ -33,6 +33,10 @@ ACK_TIMEOUT = 3.0  # giay cho FC tra loi truoc khi coi la khong co phan hoi
 # Doi radio hay doi khung thi doc lai hai tham so do va sua o day.
 THR_ARM_MAX = 1150
 
+# FC nhac ly do PreArm moi ~31 s (do that log 144628): giu 40 s de dong ly do khong
+# nhap nhay giua hai lan nhac.
+PREARM_KEEP_S = 40.0
+
 CLIMB_CHECK_S = 6.0  # giay sau TAKEOFF moi doi chieu do cao that
 # Cam bien khoang cach duoi muc nay (cm) thi coi la con o duoi dat. Khung dang
 # dung: RNGFND1_TYPE = 24, dai 5-400 cm. Doi cam bien thi xem lai con so nay.
@@ -94,7 +98,13 @@ class Commands(QObject):
         # `status` nam trong SKIP_TOPICS cua REGISTRY nen khong hoi qua do duoc.
         self._thr = None  # (pwm, ts)
         self._rng = None  # (cm, min_cm, max_cm, ts)
+        # San sang ARM: bit PREARM_CHECK trong SYS_STATUS — cung nguon Mission
+        # Planner/QGC dung. Do that 19/09 tren MicoAir743: log 144628 co loi
+        # PreArm -> bit False ca phien; log 155159 khong loi -> True tu giay dau.
+        self._prearm = None     # ("ok"/"fail"/..., ts)
+        self._prearm_why = {}   # ly do PreArm FC vua noi -> ts
         bus.on("status", self._on_status)
+        bus.on("text", self._on_text)
         bus.on("ack", self._on_ack)
 
     def say(self, key, sev=5, **kw):
@@ -109,6 +119,55 @@ class Commands(QObject):
             lo = env["data"].get("DISTANCE_SENSOR.min_distance", 0)
             hi = env["data"].get("DISTANCE_SENSOR.max_distance", 10_000)
             self._rng = (cm, lo, hi, env["ts"])
+        s = env["data"].get("SENSOR.prearm_check")
+        if s is not None:
+            self._prearm = (s, time.time())
+
+    def _on_text(self, env):
+        text = env["data"].get("text") or ""
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", "replace")
+        if text.startswith("PreArm:"):
+            self._prearm_why[text[len("PreArm:"):].strip()] = time.time()
+
+    def fc_ready(self):
+        """(ok, [ly do]) theo bit PREARM_CHECK cua FC. ok None = chua biet / bit het tuoi.
+        Ly do lay tu cac dong "PreArm: ..." trong PREARM_KEEP_S; bo sach khi FC bao san sang."""
+        if self._prearm is None or time.time() - self._prearm[1] > STALE:
+            return None, []
+        if self._prearm[0].startswith("ok"):
+            self._prearm_why.clear()
+            return True, []
+        now = time.time()
+        return False, [w for w, ts in self._prearm_why.items() if now - ts < PREARM_KEEP_S]
+
+    def fc_forget(self):
+        """Ngat ket noi: bo trang thai san sang cua chuyen cu."""
+        self._prearm, self._prearm_why = None, {}
+
+    def auto_block(self):
+        """Ly do KHONG duoc giao viec tu bay (bat task / diem chay), None neu duoc.
+
+        Do 07/11/2026 15:18: FC bao "PreArm: GPS 1: Bad fix" + "Radio failsafe on", app
+        van bat task va giao diem chay — node GUIDED + ARM, chi con FC tu choi ARM chan
+        lai. Task do node lai: giao luc FC chua san sang thi drone co the tu ARM CAT CANH
+        ngay khi loi vua het (vd bat lai tay cam), luc khong ai ngo.
+        - Khong co telemetry FC (ca SiK lan bridge): khong biet gi -> chan.
+        - Chua co vi tri GPS: task bay theo toa do, khong lam duoc.
+        - Chua ARM ma bit PREARM bao loi: chan, kem ly do FC noi. Bit chua co (chua thay
+          SYS_STATUS) thi khong chan o day — FC van tu chan ARM.
+        Da ARM (dang bay giua task, giao diem chay moi) thi chi can vi tri.
+        """
+        v = REGISTRY.value
+        if v("heartbeat.mode") is None:
+            return t("auto.no_fc")
+        if v("position.lat") is None:
+            return t("fly.no_gps", fix=v("gps.fix_type", "?"), sats=v("gps.sats", "?"))
+        if v("heartbeat.armed") is not True:
+            ok, why = self.fc_ready()
+            if ok is False:
+                return t("auto.not_ready", why="; ".join(why) or t("auto.why_unknown"))
+        return None
 
     # ---- lenh thuong: di qua kiem tra quyen ------------------------------
 
@@ -260,7 +319,10 @@ class Commands(QObject):
         return t("task.drives", name=name) if name else None
 
     def task(self, name):
-        """Bat task `name` tren companion (bridge --spawn, danh sach trang). "" = huy."""
+        """Bat task `name` tren companion (bridge --spawn, danh sach trang). "" = huy.
+        Bat thi qua auto_block; huy thi LUON di."""
+        if name and (why := self.auto_block()):
+            return self.say("auto.blocked", 4, what=t("act.task_start", nice=name), why=why)
         what = t("act.task_start", nice=name) if name else t("act.task_stop")
         self._soft(what, authority.dispatch(
             {"target": "remote", "action": "mission", "args": {"name": name}}))
@@ -270,6 +332,9 @@ class Commands(QObject):
         `radius` m quanh diem cham, ha xuong `drop` m tren lua, tha, kiem tra, ve. Node tu choi
         alt ngoai [min_alt, max_alt], drop ngoai [min_alt, alt], radius ngoai
         [0, max_search_radius] cua no (bao o tab Thong bao)."""
+        if why := self.auto_block():
+            return self.say("auto.blocked", 4, what=t("act.fire_target", lat=lat, lon=lon, alt=alt,
+                                                       drop=drop, radius=radius), why=why)
         self._soft(t("act.fire_target", lat=lat, lon=lon, alt=alt, drop=drop, radius=radius),
                    authority.dispatch(
             {"target": "remote", "action": "fire_target",
