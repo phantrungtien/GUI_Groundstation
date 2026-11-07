@@ -44,10 +44,6 @@ from laptop.commands import (  # noqa: F401 — selfcheck import tu day
 # Ten node nhiem vu ben repo ROS2 -> ten doc duoc. Chi con dung de dich mot chuoi
 # trang thai companion bao len; laptop khong khoi dong nhiem vu nao nua.
 MISSIONS = [
-    ("mission.circle", "mission_circle"),
-    ("mission.gates", "mission_gates"),
-    ("mission.human", "trackinghuman"),
-    ("mission.simple", "mission_simple"),
     ("mission.fire", "fire_mission"),
 ]
 # Task BAT DUOC tu laptop (bridge --spawn + danh sach trang ben tools/ros2_bridge.py).

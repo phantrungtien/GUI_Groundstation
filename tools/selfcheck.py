@@ -1468,8 +1468,8 @@ def check_mission_readonly(app):
         assert ("mission", {"name": ""}) in sent["remote"], "phai co nut huy task"
 
         # Trang thai companion thi VAN phai hien — day la telemetry, khong phai lai.
-        bus.emit("remote", "mission", {"running": "mission_circle"})
-        assert "mission_circle" in ct.mission_now.text(), ct.mission_now.text()
+        bus.emit("remote", "mission", {"running": "fire_mission"})
+        assert "Chữa cháy" in ct.mission_now.text(), ct.mission_now.text()
         bus.emit("remote", "mission", {"running": ""})
         assert "không có nhiệm vụ" in ct.mission_now.text(), ct.mission_now.text()
 

@@ -50,12 +50,10 @@ from websockets.sync.server import serve
 # bat task va chi diem chay — ngoai le co y cua nguyen tac 2.1, xem
 # core/authority.py. Bridge phai chay trong moi truong da
 # `source ~/fire_drone_ws/setup.bash` thi `ros2 run fire_drone ...` moi thay goi.
+# 07/11/2026 bo 5 node simtofly_mavros_sitl (mission_circle/simple/gates, trackinghuman,
+# verify_frame): chung lop guided_base, thay laptop cam quyen chi ngung stream setpoint
+# ma VAN tu ARM + cat canh (e2e_ros2 07/11: mission_circle len 10 m).
 MISSIONS_OK = {
-    "mission_simple": "simtofly_mavros_sitl",
-    "mission_circle": "simtofly_mavros_sitl",
-    "mission_gates": "simtofly_mavros_sitl",
-    "trackinghuman": "simtofly_mavros_sitl",
-    "verify_frame": "simtofly_mavros_sitl",
     "fire_mission": "fire_drone",
 }
 
