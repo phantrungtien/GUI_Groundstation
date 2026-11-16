@@ -125,7 +125,15 @@ def check_join_text():
     join_text(pend, {"severity": 2, "text": parts[0], "id": 2, "chunk_seq": 0})
     lost = join_text(pend, {"severity": 2, "text": parts[0], "id": 3, "chunk_seq": 0})
     assert lost["text"] == parts[0], lost
-    print("  ok  ghep STATUSTEXT nhieu manh (PreArm SERIAL2_OPTIONS 3 manh)")
+    # chu co dau cua task Chua chay (16/11/2026): pymavlink giai ma ASCII -> U+FFFD, text_utf8 doc lai byte goc
+    from pymavlink.dialects.v20 import ardupilotmega as m
+    from core.adapters.sik import text_utf8
+    for want in ("FIRE: PHÁT HIỆN CHÁY: chờ xác nhận thả", "PreArm: GPS 1: Bad fix"):
+        msg = m.MAVLink(None).parse_char(m.MAVLink_statustext_message(4, want.encode()).pack(m.MAVLink(None)))
+        assert text_utf8(msg, msg.text) == want, (msg.text, text_utf8(msg, msg.text))
+    assert "\ufffd" in msg.text or want.isascii()
+    assert text_utf8(object(), "giu nguyen") == "giu nguyen", "nguon khong co byte goc (log .BIN)"
+    print("  ok  ghep STATUSTEXT nhieu manh (PreArm SERIAL2_OPTIONS 3 manh); chu co dau doc tu byte goc UTF-8")
 
 
 def check_source_filter():

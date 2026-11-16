@@ -29,7 +29,7 @@ import time
 
 from pymavlink import mavutil
 
-from core.adapters.sik import from_autopilot
+from core.adapters.sik import from_autopilot, text_utf8
 
 # Tran diem MOI FIELD. Chuyen 20 phut o 10 Hz la 12000 diem — con thua. Qua tran
 # thi lay thua ra chu khong cat duoi: cat duoi la mat doan cuoi, dung doan hay
@@ -314,7 +314,10 @@ def load(path, limit_seconds=None):
         if limit_seconds is not None and t > limit_seconds:
             break
         log.parsed += 1
-        log._feed(name, msg.to_dict(), t)
+        d = msg.to_dict()
+        if name == "STATUSTEXT":
+            d["text"] = text_utf8(msg, d.get("text", ""))   # chu co dau cua task Chua chay
+        log._feed(name, d, t)
         log.duration = t
 
     log._decimate()

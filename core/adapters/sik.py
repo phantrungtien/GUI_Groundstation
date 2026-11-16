@@ -400,6 +400,15 @@ def normalize(name, d):
     return None
 
 
+def text_utf8(msg, fallback=""):
+    """Chu STATUSTEXT doc tu BYTE GOC dang UTF-8. pymavlink giai ma char[] bang ASCII: chu co dau
+    (task Chua chay bao "FIRE: PHÁT HIỆN CHÁY..." tu 16/11/2026) thanh ky tu hong U+FFFD."""
+    raw = getattr(msg, "_text_raw", None)
+    if not isinstance(raw, (bytes, bytearray)):
+        return fallback
+    return bytes(raw).split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+
+
 def join_text(pend, d):
     """Ghep STATUSTEXT FC cat thanh manh 50 ky tu. Tra ve goi ca cau, hoac None
     khi con cho manh.
@@ -1419,6 +1428,8 @@ class SikAdapter(QThread):
                         self.percent = getattr(master, "percent", 0.0)
 
                     d = msg.to_dict()
+                    if msg.get_type() == "STATUSTEXT":
+                        d["text"] = text_utf8(msg, d.get("text", ""))
                     ts = time.time()
                     if not self.muted:
                         # Dang mo phong mat song: goi nay coi nhu chua toi (nhu
