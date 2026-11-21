@@ -847,12 +847,6 @@ class SikAdapter(QThread):
                 float(args["lat"]), float(args["lon"]), float(args["alt"]),
             )
             self._goto_at = time.time()  # FC tra loi bang MISSION_ACK — xem _wp_rx
-        elif action == "gripper":
-            # THA BONG bang tay tu man bay = cung duong voi kenh RC5 (RC5_OPTION 19) tren FC that:
-            # MAV_CMD_DO_GRIPPER, param2 1 = GRAB = MO tha (GRIP_GRAB 1900), 0 = RELEASE = DONG (1100).
-            # Ten ArduPilot NGUOC voi co cau (fire_drone/fire_mission.py ghi ro). FC tra COMMAND_ACK 211.
-            m.command_long_send(sysid, compid, mavutil.mavlink.MAV_CMD_DO_GRIPPER, 0,
-                                1, 1 if args.get("open") else 0, 0, 0, 0, 0, 0)
         else:
             raise ValueError(t("err.unknown_cmd", action=action))
         self._emit("cmd", {"action": action, "args": args})

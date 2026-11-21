@@ -340,9 +340,6 @@ class Backend(QObject):
             "task": v("mission.running") or "",
             "taskFire": v("mission.running") == FIRE_TASK,
             "fireLim": self._fire_lim(v),
-            # Thanh truot THA BONG (tay): ly do KHOA, "" = keo duoc. Chi mode bay tay - xem
-            # Commands.drop_block. Bay tu hanh thi node tu tha, khong hoi (user 20/11/2026).
-            "dropWhy": self.cmd.drop_block(self._live()) or "",
             # Kich ban #8: hai nguon lech vi tri qua nguong. Dong rieng chu khong
             # day vao `alerts`: no lap lai 5 Hz, vao do la dem "xN" chay loan.
             "diverge": div if div is not None and div > DIVERGE_M else None,
@@ -613,11 +610,6 @@ class Backend(QObject):
     def task(self, name):
         """Bat ("fire_mission") / huy ("") task. Loi duong truyen do _soft() bao."""
         self.cmd.task(name)
-
-    @Slot()
-    def drop(self):
-        """Thanh truot THA BONG da truot het. Commands.drop tu kiem lai mode (QML co the tre 200 ms)."""
-        self.cmd.drop(self._live())
 
     @staticmethod
     def _fire_lim(v):

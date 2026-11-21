@@ -1052,45 +1052,6 @@ Item {
         }
     }
 
-    // ---- THA BONG bang tay (user 20/11/2026) ----------------------------------
-    // Bay tu hanh (task Chua chay) tu tha, khong hoi. Thanh nay = gat RC5 tren tay khien: chi keo duoc o mode
-    // bay tay; mode tu hanh / chua ro mode / mat ket noi thi MO va khoa, chu tren thanh la ly do (st.dropWhy).
-    // Goc duoi trai, cung hang thanh so lieu (man thap: sau dong ho tu the) - xa can ao ben phai, khong de
-    // len cac bang xac nhan / duong bay mo o giua.
-    Rectangle {
-        id: dropBar
-        objectName: "dropBar"
-        visible: st.live
-        readonly property bool ok: st.dropWhy === ""
-        readonly property real x0: win.compact ? win.dialX + win.dialW + 8 * s : 14 * s
-        x: x0
-        anchors.bottom: tele.bottom
-        width: Math.max(150, Math.min(320 * s, tele.x - x0 - 12 * s))
-        height: tele.height
-        radius: height / 2
-        color: "#ee0d1722"
-        border.color: ok ? theme.CRIT : theme.BORDER
-        border.width: ok ? 2 : 1
-        SlideConfirm {   // khoa: SlideConfirm tu mo ranh truot (0.4), num doi sang xam
-            objectName: "dropSlider"
-            anchors { fill: parent; margins: 3 * s }
-            enabled: dropBar.ok
-            text: tr("touch.drop_slide")
-            tint: dropBar.ok ? theme.CRIT : theme.BORDER
-            onConfirmed: backend.drop()
-        }
-    }
-    Text {   // ly do khoa, ngay tren thanh - nhu ly do khoa can ao (chu trong thanh mo qua, doc khong ra)
-        objectName: "dropWhy"
-        visible: dropBar.visible && !dropBar.ok
-        anchors { left: dropBar.left; leftMargin: 8 * s; bottom: dropBar.top; bottomMargin: 2 * s }
-        text: st.dropWhy
-        color: theme.WARN
-        font.pixelSize: 12 * f
-        style: Text.Outline
-        styleColor: "#c0000000"
-    }
-
     // ---- khoi dung chung -----------------------------------------------------
     component Ind: Row {
         property string label
