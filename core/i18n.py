@@ -208,6 +208,7 @@ STR = {
     "ack.5": ("ĐANG CHẠY", "IN PROGRESS"),
     "ack.6": ("HUỶ", "CANCELLED"),
     "cmd.mode": ("đổi mode", "change mode"),
+    "cmd.gripper": ("cơ cấu thả bóng", "ball release"),
 
     # --- log ket qua lenh -------------------------------------------------
     "log.arm_no_rc": ("ARM: chưa thấy RC_CHANNELS nên không biết cần ga ở đâu — vẫn gửi",
@@ -287,9 +288,7 @@ STR = {
                  "GUIDED + fly to {lat:.5f}, {lon:.5f} at {alt:.0f} m"),
     "act.task_start": ("Bật task {nice}", "Start task {nice}"),
     "act.task_stop": ("Huỷ task trên companion", "Stop companion task"),
-    "act.fire_confirm": ("Xác nhận THẢ BÓNG (lần hỏi #{id})", "Confirm BALL DROP (ask #{id})"),
-    "act.fire_reject": ("Không phải lửa -> drone về nhà (lần hỏi #{id})",
-                        "Not a fire -> drone returns home (ask #{id})"),
+    "act.drop": ("THẢ BÓNG (tay)", "BALL DROP (manual)"),
     "act.fire_target": ("Điểm cháy -> {lat:.5f}, {lon:.5f}, bay {alt:.0f} m, tìm {radius:.0f} m, "
                         "thả cách lửa {drop:.0f} m",
                         "Fire point -> {lat:.5f}, {lon:.5f}, fly {alt:.0f} m, search {radius:.0f} m, "
@@ -300,6 +299,10 @@ STR = {
     "nudge.hold": ("nhích vị trí: {why} -> treo tại chỗ", "nudge: {why} -> holding position"),
     "nudge.no_mode": ("chế độ này không gửi lệnh được", "this mode cannot send commands"),
     "nudge.not_armed": ("drone chưa armed", "the drone is not armed"),
+    # Ngan: hien ngay tren thanh truot THA BONG dang mo (~30 ky tu la vua).
+    "drop.no_link": ("chưa kết nối FC", "no FC link"),
+    "drop.no_mode": ("chưa rõ mode bay", "flight mode unknown"),
+    "drop.auto_mode": ("{mode}: tự hành, không thả tay", "{mode}: autonomous, no manual drop"),
     "nudge.on_ground": ("drone đang nằm dưới đất", "the drone is on the ground"),
     "nudge.wrong_mode": ("đang ở mode {mode}, phải chuyển sang GUIDED mới nhích được",
                          "currently in {mode}; switch to GUIDED to nudge"),
@@ -575,10 +578,7 @@ STR = {
     "touch.do_fire": ("bay {alt:.0f} m, tìm {radius:.0f} m, thả cách lửa {drop:.0f} m",
                       "fly {alt:.0f} m, search {radius:.0f} m, drop {drop:.0f} m above"),
     "touch.do_task_start": ("bật task Chữa cháy", "start the firefighting task"),
-    "touch.ask_title": ("PHÁT HIỆN LỬA — drone đang treo. Nhìn video rồi xác nhận",
-                        "FIRE DETECTED — drone is holding. Check the video, then confirm"),
-    "touch.ask_slide": ("Trượt để THẢ BÓNG", "Slide to DROP THE BALL"),
-    "touch.ask_reject": ("Không phải lửa — về nhà", "Not a fire — return home"),
+    "touch.drop_slide": ("Trượt để THẢ BÓNG", "Slide to DROP THE BALL"),
     "touch.do_task_stop": ("huỷ task - drone treo tại chỗ", "stop the task - drone holds position"),
     "touch.btn_task": ("Chữa cháy", "Fire task"),
     "touch.btn_task_stop": ("Huỷ task", "Stop task"),

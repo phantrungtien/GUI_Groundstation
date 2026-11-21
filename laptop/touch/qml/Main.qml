@@ -1052,48 +1052,43 @@ Item {
         }
     }
 
-    // ---- task Chua chay thay lua: drone TREO, hoi nguoi van hanh (user 29/10/2026) ----
-    // Do drone khoi xuong (st.fireAsk), khong phai do nguoi bam: khong co nut ✕ - an bang
-    // la drone van treo cho. Tra loi xong / mat bridge (STALE) thi tu an.
+    // ---- THA BONG bang tay (user 20/11/2026) ----------------------------------
+    // Bay tu hanh (task Chua chay) tu tha, khong hoi. Thanh nay = gat RC5 tren tay khien: chi keo duoc o mode
+    // bay tay; mode tu hanh / chua ro mode / mat ket noi thi MO va khoa, chu tren thanh la ly do (st.dropWhy).
+    // Goc duoi trai, cung hang thanh so lieu (man thap: sau dong ho tu the) - xa can ao ben phai, khong de
+    // len cac bang xac nhan / duong bay mo o giua.
     Rectangle {
-        id: fireAsk
-        objectName: "fireAsk"
-        visible: !!st.fireAsk
-        z: 10   // de len bang xac nhan thuong neu ca hai cung mo
-        anchors { horizontalCenter: parent.horizontalCenter; bottom: tele.top; bottomMargin: 12 * s }
-        width: Math.min(Math.max(540 * s, 360), win.width - 2 * (leftCol.width + 44 * s))
-        height: askCol.implicitHeight + 24 * s
-        radius: 16 * s
-        color: "#f00d1722"
-        border.color: theme.CRIT
-        border.width: 3
-        MouseArea { anchors.fill: parent }  // cham vao bang khong roi xuong ban do
-        Column {
-            id: askCol
-            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12 * s }
-            spacing: 10 * s
-            Text {
-                width: parent.width
-                text: tr("touch.ask_title")
-                wrapMode: Text.Wrap
-                color: theme.CRIT
-                font.pixelSize: 16 * f
-                font.bold: true
-            }
-            SlideConfirm {
-                objectName: "askSlider"
-                width: parent.width
-                height: Math.max(60 * s, 44)
-                text: tr("touch.ask_slide")
-                tint: theme.CRIT
-                onConfirmed: backend.fireConfirm(true)
-            }
-            Btn {
-                objectName: "askReject"
-                text: tr("touch.ask_reject")
-                onTap: backend.fireConfirm(false)
-            }
+        id: dropBar
+        objectName: "dropBar"
+        visible: st.live
+        readonly property bool ok: st.dropWhy === ""
+        readonly property real x0: win.compact ? win.dialX + win.dialW + 8 * s : 14 * s
+        x: x0
+        anchors.bottom: tele.bottom
+        width: Math.max(150, Math.min(320 * s, tele.x - x0 - 12 * s))
+        height: tele.height
+        radius: height / 2
+        color: "#ee0d1722"
+        border.color: ok ? theme.CRIT : theme.BORDER
+        border.width: ok ? 2 : 1
+        SlideConfirm {   // khoa: SlideConfirm tu mo ranh truot (0.4), num doi sang xam
+            objectName: "dropSlider"
+            anchors { fill: parent; margins: 3 * s }
+            enabled: dropBar.ok
+            text: tr("touch.drop_slide")
+            tint: dropBar.ok ? theme.CRIT : theme.BORDER
+            onConfirmed: backend.drop()
         }
+    }
+    Text {   // ly do khoa, ngay tren thanh - nhu ly do khoa can ao (chu trong thanh mo qua, doc khong ra)
+        objectName: "dropWhy"
+        visible: dropBar.visible && !dropBar.ok
+        anchors { left: dropBar.left; leftMargin: 8 * s; bottom: dropBar.top; bottomMargin: 2 * s }
+        text: st.dropWhy
+        color: theme.WARN
+        font.pixelSize: 12 * f
+        style: Text.Outline
+        styleColor: "#c0000000"
     }
 
     // ---- khoi dung chung -----------------------------------------------------

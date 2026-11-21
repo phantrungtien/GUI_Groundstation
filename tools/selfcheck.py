@@ -3244,31 +3244,37 @@ def check_touch(app):
         assert rsent == [("mission", {"name": ""})], rsent
         rsent.clear()
 
-        # Thay lua: node TREO hoi (`mission`.ask {id,x,y}) -> truot THA / nut Khong phai lua.
-        # Tra loi mang id cua lan hoi; tin bridge cu (STALE) thi khong hien, khong gui.
-        ask_box = root.findChild(QQuickItem, "fireAsk")
-        ask_bar = root.findChild(QQuickItem, "askSlider")
-        bridge("fire_mission", ask={})
-        assert ask_box is not None and not ask_box.isVisible(), "chua hoi ma da hien bang tha bong"
-        bridge("fire_mission", age=3, ask={"id": 6, "x": 1.0, "y": 2.0})
-        assert not ask_box.isVisible(), "bridge im 3 s ma van hien bang tha bong"
-        win.touch.fireConfirm(True)
-        assert rsent == [], f"bridge im ma van gui xac nhan tha: {rsent}"
-        bridge("fire_mission", ask={"id": 7, "x": 1.0, "y": 2.0})
-        assert ask_box.isVisible(), "drone treo hoi ma khong hien bang xac nhan tha"
-        drag(0.5, bar=ask_bar)
-        assert rsent == [], f"tha giua chung ma da xac nhan tha: {rsent}"
-        drag(1.0, bar=ask_bar)
-        assert rsent == [("fire_confirm", {"id": 7, "ok": True})], rsent
-        assert sent == [], f"xac nhan tha lot xuong SiK: {sent}"
-        assert not ask_box.isVisible(), "truot xong ma bang van hien (cho bridge xoa)"
-        rsent.clear()
-        bridge("fire_mission", ask={"id": 8, "x": 1.0, "y": 2.0})
-        assert ask_box.isVisible(), "lan hoi moi ma khong hien lai bang"
-        tap(root.findChild(QQuickItem, "askReject"))
-        assert rsent == [("fire_confirm", {"id": 8, "ok": False})], rsent
-        rsent.clear()
-        bridge("fire_mission", ask={})
+        # THA BONG bang tay (user 20/11/2026): task tu tha, khong hoi nua. Thanh truot goc duoi trai =
+        # gat RC5: chi keo duoc o mode bay tay -> DO_GRIPPER mo, DROP_CLOSE_S sau dong; mode tu hanh thi
+        # mo + khoa, va goi thang drop() (QML tre 200 ms) Commands van chan.
+        root.setProperty("pending", "")
+        drop_bar = root.findChild(QQuickItem, "dropBar")
+        drop_sl = root.findChild(QQuickItem, "dropSlider")
+        assert drop_bar is not None and drop_bar.isVisible(), "khong thay thanh THA BONG"
+        assert win.touch._state["dropWhy"] == "", f"LOITER ma khoa tha bong: {win.touch._state['dropWhy']}"
+        sent.clear()
+        drag(0.5, bar=drop_sl)
+        assert sent == [], f"tha giua chung ma da tha bong: {sent}"
+        drag(1.0, bar=drop_sl)
+        assert sent == [("gripper", {"open": True})], sent
+        wait(1700)
+        assert sent == [("gripper", {"open": True}), ("gripper", {"open": False})], f"khong tu dong co cau: {sent}"
+        assert rsent == [], f"tha bong lot sang bridge: {rsent}"
+        sent.clear()
+        fc_tick.stop()
+        for fm in ("GUIDED", "RTL", "AUTO", "LAND"):
+            REGISTRY.feed({"src": "sik", "topic": "heartbeat", "ts": time.time(),
+                           "data": {"mode": fm, "armed": True}})
+            wait(250)
+            assert win.touch._state["dropWhy"], f"{fm} ma van cho tha tay"
+            assert not drop_sl.isEnabled(), f"{fm} ma thanh tha bong van keo duoc"
+            drag(1.0, bar=drop_sl)
+            assert sent == [], f"{fm}: thanh khoa ma van gui {sent}"
+        win.touch.drop()
+        assert sent == [], f"mode tu hanh: goi thang drop() van gui {sent}"
+        fc_tick.start(300)
+        fc_ok()
+        wait(250)
 
         # Bridge im 3 s (WebSocket chet / bridge treo): chip an, fireAt tu choi,
         # tab Dieu khien ve "chua co tin" thay vi dung o ten task cu.

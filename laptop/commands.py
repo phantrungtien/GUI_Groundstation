@@ -25,7 +25,7 @@ MODES = ["STABILIZE", "ALT_HOLD", "LOITER", "GUIDED", "AUTO", "POSHOLD", "BRAKE"
 # MAV_RESULT — chu nam trong bang chu (core/i18n.py), key "ack.<so>"
 TAKEOFF_CMD = 22  # MAV_CMD_NAV_TAKEOFF
 ACK_CMD = {400: "ARM/DISARM", 22: "TAKEOFF", 20: "RTL", 21: "LAND", 176: "cmd.mode",
-           16: "goto"}
+           16: "goto", 211: "cmd.gripper"}
 ACK_TIMEOUT = 3.0  # giay cho FC tra loi truoc khi coi la khong co phan hoi
 
 # Ga (PWM) FC coi la 0: RC3_MIN + RC3_DZ. FC that doc 07/11/2026: 983 + 30 = 1013.
@@ -41,6 +41,13 @@ CLIMB_CHECK_S = 6.0  # giay sau TAKEOFF moi doi chieu do cao that
 # Cam bien khoang cach duoi muc nay (cm) thi coi la con o duoi dat. Khung dang
 # dung: RNGFND1_TYPE = 24, dai 5-400 cm. Doi cam bien thi xem lai con so nay.
 RNG_GROUND_CM = 100
+
+# --- tha bong bang tay (user 20/11/2026) -----------------------------------
+#
+# Bay tu hanh (task Chua chay) TU THA, khong hoi nguoi. Thanh truot THA BONG tren man bay = gat RC5
+# tren tay khien: chi dung o mode BAY TAY - mode tu hanh la node/FC dang lai, tha chen vao la tranh viec.
+MANUAL_MODES = {"STABILIZE", "ACRO", "ALT_HOLD", "LOITER", "POSHOLD", "SPORT", "DRIFT", "FLOWHOLD", "BRAKE"}
+DROP_CLOSE_S = 1.5   # dong co cau sau khi nha, nhu gat RC5 len roi ve (fire_mission cung 1.5 s)
 
 # --- nhich vi tri ---------------------------------------------------------
 #
@@ -337,12 +344,27 @@ class Commands(QObject):
              "args": {"lat": lat, "lon": lon, "alt": float(alt), "drop": float(drop),
                       "radius": float(radius)}}))
 
-    def fire_confirm(self, ask_id, ok):
-        """Tra loi node dang TREO hoi "co phai lua khong" (topic `mission`.ask). `ask_id` cua
-        dung lan hoi: node bo cau tra loi tre cho lan hoi khac. ok=False -> node RTL."""
-        self._soft(t("act.fire_confirm" if ok else "act.fire_reject", id=ask_id),
-                   authority.dispatch({"target": "remote", "action": "fire_confirm",
-                                       "args": {"id": int(ask_id), "ok": bool(ok)}}))
+    # ---- tha bong bang tay -------------------------------------------------
+
+    @staticmethod
+    def drop_block(live):
+        """Ly do KHONG duoc tha bong bang tay, None neu duoc. Chi o MANUAL_MODES; mat telemetry (mode
+        qua STALE) = chua ro mode -> chan, khong doan. Khong doi ARM: duoi dat van thu duoc co cau."""
+        if not live:
+            return t("drop.no_link")
+        mode = REGISTRY.value("heartbeat.mode")
+        if mode is None:
+            return t("drop.no_mode")
+        if mode not in MANUAL_MODES:
+            return t("drop.auto_mode", mode=mode)
+        return None
+
+    def drop(self, live):
+        """Mo co cau tha (bong roi), DROP_CLOSE_S sau dong lai. Xac nhan (truot het) la viec cua giao dien."""
+        if why := self.drop_block(live):
+            return self.say("auto.blocked", 4, what=t("act.drop"), why=why)
+        self.cmd("gripper", {"open": True})
+        QTimer.singleShot(int(DROP_CLOSE_S * 1000), lambda: self.cmd("gripper", {"open": False}))
 
     # ---- nhich vi tri ----------------------------------------------------
 
